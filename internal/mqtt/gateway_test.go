@@ -2,6 +2,7 @@ package mqtt
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -239,6 +240,43 @@ func TestGatewayPublishesCommandOnlyForEnabledDeviceWithCommandTopic(t *testing.
 	}
 }
 
+func TestGatewayForwardsThroughGenericJSONCommandRoute(t *testing.T) {
+	cfg := testConfig()
+	cfg.Devices = append(cfg.Devices, config.Device{ID: "display", Enabled: boolPtr(true), Topics: config.Topics{Command: "devices/display/command"}})
+	cfg.Routes = []config.Route{{
+		ID: "status-to-display", SourceTopic: "devices/esp32-sala/telemetry", DestinationTopic: "devices/display/command", QoS: 1,
+		Transform: config.RouteTransform{Type: "json_command", CommandType: "render_status"},
+	}}
+	client := &fakeClient{}
+	gateway, err := New(cfg, client, &recordingLogger{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := gateway.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	source := []byte(`{"message_id":"b4a5bb31-1710-4f7b-a043-1b6a292d04ad","timestamp":"2026-09-18T15:00:00Z","cpu_pct":24.6}`)
+	client.deliver("devices/esp32-sala/telemetry", source)
+	if len(client.published) != 1 {
+		t.Fatalf("published = %#v", client.published)
+	}
+	publication := client.published[0]
+	if publication.topic != "devices/display/command" || publication.qos != 1 || publication.retain {
+		t.Errorf("publication = %#v", publication)
+	}
+	var command struct {
+		CommandID  string          `json:"command_id"`
+		Type       string          `json:"type"`
+		Parameters json.RawMessage `json:"parameters"`
+	}
+	if err := json.Unmarshal(publication.payload, &command); err != nil {
+		t.Fatal(err)
+	}
+	if command.CommandID == "" || command.Type != "render_status" || string(command.Parameters) != string(source) {
+		t.Errorf("command = %#v", command)
+	}
+}
+
 func validCommand() []byte {
 	return []byte(`{"command_id":"a9f2290d-d1ee-4cbc-841d-03e29a7f028c","type":"set_output","parameters":{"pin":2,"value":true}}`)
 }
@@ -266,6 +304,8 @@ func testConfig() config.Config {
 		},
 	}}}
 }
+
+func boolPtr(value bool) *bool { return &value }
 
 type fakeClient struct {
 	connected     bool

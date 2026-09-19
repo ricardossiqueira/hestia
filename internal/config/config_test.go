@@ -174,6 +174,49 @@ func TestParseAcceptsExplicitlyDisabledDevice(t *testing.T) {
 	}
 }
 
+func TestParseAcceptsGenericRoute(t *testing.T) {
+	yaml := validYAML + `
+  - id: display
+    type: display
+    enabled: true
+    topics:
+      command: devices/display/command
+routes:
+  - id: telemetry-to-display
+    source_topic: devices/esp32-sala/telemetry
+    destination_topic: devices/display/command
+    transform:
+      type: json_command
+      command_type: render_status
+    qos: 1
+    retain: false
+`
+	cfg, err := Parse([]byte(yaml))
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if len(cfg.Routes) != 1 || cfg.Routes[0].Transform.CommandType != "render_status" {
+		t.Fatalf("routes = %#v", cfg.Routes)
+	}
+}
+
+func TestParseRejectsRouteOutsideDeclaredEndpoints(t *testing.T) {
+	yaml := validYAML + `
+routes:
+  - id: invalid-route
+    source_topic: devices/unknown/telemetry
+    destination_topic: devices/esp32-sala/command
+    transform:
+      type: json_command
+      command_type: render_status
+    qos: 1
+    retain: false
+`
+	if _, err := Parse([]byte(yaml)); err == nil || !strings.Contains(err.Error(), "enabled inbound device topic") {
+		t.Fatalf("Parse() error = %v", err)
+	}
+}
+
 func TestParseRejectsForwardingWithoutItsTopic(t *testing.T) {
 	tests := []struct {
 		name      string

@@ -3,6 +3,7 @@ package mqtt
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -98,11 +99,12 @@ func ResolveCredentials(mqtt config.MQTT, lookup func(string) string) (Credentia
 
 // Gateway subscribes to configured device topics and publishes validated commands.
 type Gateway struct {
-	client  Client
-	logger  Logger
-	routes  map[string]route
-	topics  []string
-	devices map[string]config.Device
+	client   Client
+	logger   Logger
+	routes   map[string]route
+	forwards map[string][]config.Route
+	topics   []string
+	devices  map[string]config.Device
 
 	mu      sync.Mutex
 	started bool
@@ -124,10 +126,11 @@ func New(cfg config.Config, client Client, logger Logger) (*Gateway, error) {
 	}
 
 	gateway := &Gateway{
-		client:  client,
-		logger:  logger,
-		routes:  make(map[string]route),
-		devices: make(map[string]config.Device),
+		client:   client,
+		logger:   logger,
+		routes:   make(map[string]route),
+		forwards: make(map[string][]config.Route),
+		devices:  make(map[string]config.Device),
 	}
 	for _, device := range cfg.Devices {
 		gateway.devices[device.ID] = device
@@ -152,6 +155,9 @@ func New(cfg config.Config, client Client, logger Logger) (*Gateway, error) {
 			gateway.routes[candidate.topic] = route{deviceID: device.ID, kind: candidate.kind}
 			gateway.topics = append(gateway.topics, candidate.topic)
 		}
+	}
+	for _, forward := range cfg.Routes {
+		gateway.forwards[forward.SourceTopic] = append(gateway.forwards[forward.SourceTopic], forward)
 	}
 	sort.Strings(gateway.topics)
 	return gateway, nil
@@ -232,6 +238,33 @@ func (g *Gateway) handleMessage(ctx context.Context, topic string, payload []byt
 		return
 	}
 	g.logger.Accepted(ctx, message)
+	for _, forward := range g.forwards[topic] {
+		payload, err := transformJSONCommand(forward.Transform.CommandType, message.Payload)
+		if err == nil {
+			err = g.client.Publish(ctx, forward.DestinationTopic, payload, forward.QoS, forward.Retain)
+		}
+		if err != nil {
+			g.logger.Rejected(ctx, RejectedMessage{DeviceID: route.deviceID, Kind: route.kind, Topic: topic, Reason: fmt.Sprintf("route %s failed: %v", forward.ID, err)})
+		}
+	}
+}
+
+func transformJSONCommand(commandType string, parameters []byte) ([]byte, error) {
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(parameters, &object); err != nil || object == nil {
+		return nil, errors.New("route payload must be a JSON object")
+	}
+	var id [16]byte
+	if _, err := rand.Read(id[:]); err != nil {
+		return nil, err
+	}
+	id[6] = (id[6] & 0x0f) | 0x40
+	id[8] = (id[8] & 0x3f) | 0x80
+	return json.Marshal(struct {
+		CommandID  string          `json:"command_id"`
+		Type       string          `json:"type"`
+		Parameters json.RawMessage `json:"parameters"`
+	}{fmt.Sprintf("%x-%x-%x-%x-%x", id[0:4], id[4:6], id[6:8], id[8:10], id[10:16]), commandType, parameters})
 }
 
 func validateInbound(route route, topic string, payload []byte) (Message, error) {

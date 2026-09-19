@@ -24,6 +24,7 @@ type Config struct {
 	MQTT    MQTT     `yaml:"mqtt"`
 	Storage Storage  `yaml:"storage"`
 	Devices []Device `yaml:"devices"`
+	Routes  []Route  `yaml:"routes"`
 }
 
 type Gateway struct {
@@ -82,6 +83,22 @@ type Forwarding struct {
 	StateToVPS      bool `yaml:"state_to_vps"`
 	EventsToVPS     bool `yaml:"events_to_vps"`
 	CommandsFromVPS bool `yaml:"commands_from_vps"`
+}
+
+// Route declares a device-agnostic local MQTT route.
+type Route struct {
+	ID               string         `yaml:"id"`
+	SourceTopic      string         `yaml:"source_topic"`
+	DestinationTopic string         `yaml:"destination_topic"`
+	Transform        RouteTransform `yaml:"transform"`
+	QoS              byte           `yaml:"qos"`
+	Retain           bool           `yaml:"retain"`
+}
+
+// RouteTransform describes a generic payload conversion.
+type RouteTransform struct {
+	Type        string `yaml:"type"`
+	CommandType string `yaml:"command_type"`
 }
 
 // Load reads, parses and validates a YAML configuration file.
@@ -149,6 +166,8 @@ func (c Config) Validate() error {
 
 	deviceIDs := make(map[string]struct{}, len(c.Devices))
 	topicOwners := make(map[string]string)
+	inboundTopics := make(map[string]bool)
+	commandTopics := make(map[string]bool)
 	for index, device := range c.Devices {
 		prefix := fmt.Sprintf("devices[%d]", index)
 		if err := validateID(prefix+".id", device.ID); err != nil {
@@ -170,6 +189,49 @@ func (c Config) Validate() error {
 		}
 		if err := validateForwarding(prefix, device); err != nil {
 			return err
+		}
+		if *device.Enabled {
+			for _, topic := range []string{device.Topics.Telemetry, device.Topics.State, device.Topics.Event, device.Topics.CommandResult} {
+				if topic != "" {
+					inboundTopics[topic] = true
+				}
+			}
+			if device.Topics.Command != "" {
+				commandTopics[device.Topics.Command] = true
+			}
+		}
+	}
+	if err := validateRoutes(c.Routes, inboundTopics, commandTopics); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateRoutes(routes []Route, inboundTopics, commandTopics map[string]bool) error {
+	ids := make(map[string]struct{}, len(routes))
+	for index, route := range routes {
+		prefix := fmt.Sprintf("routes[%d]", index)
+		if err := validateID(prefix+".id", route.ID); err != nil {
+			return err
+		}
+		if _, exists := ids[route.ID]; exists {
+			return fmt.Errorf("duplicate route ID %q", route.ID)
+		}
+		ids[route.ID] = struct{}{}
+		if !inboundTopics[route.SourceTopic] {
+			return fmt.Errorf("%s.source_topic must reference an enabled inbound device topic", prefix)
+		}
+		if !commandTopics[route.DestinationTopic] {
+			return fmt.Errorf("%s.destination_topic must reference an enabled command topic", prefix)
+		}
+		if route.QoS > 2 {
+			return fmt.Errorf("%s.qos must be between 0 and 2", prefix)
+		}
+		if route.Transform.Type != "json_command" {
+			return fmt.Errorf("%s.transform.type must be json_command", prefix)
+		}
+		if strings.TrimSpace(route.Transform.CommandType) == "" {
+			return fmt.Errorf("%s.transform.command_type is required", prefix)
 		}
 	}
 	return nil

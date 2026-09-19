@@ -71,6 +71,24 @@ IDs sao unicos e os topicos seguem a rota canonica exata `devices/<device-id>/<t
 
 `devices[].enabled` e obrigatorio, inclusive quando o dispositivo estiver desabilitado.
 
+## Rotas locais genéricas
+
+Rotas conectam tópicos de dispositivos já declarados, sem associar o gateway a modelos ou funções específicas de hardware. A origem precisa ser um tópico inbound habilitado (`telemetry`, `state`, `event` ou `command_result`) e o destino precisa ser um tópico `command` habilitado.
+
+```yaml
+routes:
+  - id: status-para-display
+    source_topic: devices/orangepi-monitor/telemetry
+    destination_topic: devices/cyd-monitor/command
+    transform:
+      type: json_command
+      command_type: render_system_status
+    qos: 1
+    retain: false
+```
+
+`json_command` é uma transformação genérica: ela preserva o objeto JSON de origem em `parameters`, cria um novo `command_id` UUID v4 e define `type` pelo valor declarativo de `command_type`. O gateway não contém conhecimento de `orangepi-monitor`, `cyd-monitor` ou qualquer tipo de comando concreto.
+
 ## Cadastro de um ESP32
 
 1. Escolha um ID estável, por exemplo `esp32-sala`.

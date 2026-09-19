@@ -22,6 +22,12 @@
 - Comandos `iot-gateway run --config <arquivo>` e `iot-gateway publish-test-command --config <arquivo> --device <id>`.
 - Testes unitários com cliente MQTT falso; nenhum Mosquitto é necessário para a suite.
 
+## Extensão local — Rotas declarativas (concluído)
+
+- Rotas MQTT entre endpoints de dispositivos habilitados e declarados.
+- Transformação genérica `json_command`, configurada inteiramente por YAML.
+- QoS e retenção definidos por rota; sem conhecimento de domínios de dispositivos no gateway.
+
 ## Marco 3 — Outbox SQLite
 
 - Criar schema e repositório da fila.
