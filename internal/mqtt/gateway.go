@@ -15,6 +15,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/ricardossiqueira/iot-gateway/internal/config"
+	"github.com/ricardossiqueira/iot-gateway/internal/outbox"
 )
 
 const qosAtLeastOnce byte = 1
@@ -57,6 +58,14 @@ type Logger interface {
 	Rejected(context.Context, RejectedMessage)
 }
 
+// OutboxLogger is an optional operational logging extension. Its methods
+// never receive a payload, keeping device data out of default logs.
+type OutboxLogger interface {
+	OutboxStored(context.Context, Message, outbox.EnqueueResult)
+	OutboxDiscarded(context.Context, Message, outbox.EnqueueResult)
+	OutboxFailed(context.Context, Message, error)
+}
+
 // MessageHandler is invoked by a Client for a message on a subscribed topic.
 type MessageHandler func(ctx context.Context, topic string, payload []byte)
 
@@ -67,6 +76,12 @@ type Client interface {
 	Subscribe(context.Context, string, MessageHandler) error
 	Publish(context.Context, string, []byte, byte, bool) error
 	Close()
+}
+
+// Outbox is the minimal durable forwarding boundary used by the gateway.
+// The SQLite implementation lives in internal/outbox and has no MQTT imports.
+type Outbox interface {
+	Enqueue(context.Context, outbox.Message) (outbox.EnqueueResult, error)
 }
 
 // Credentials are read separately from YAML so configuration can be committed
@@ -103,6 +118,8 @@ type Gateway struct {
 	logger   Logger
 	routes   map[string]route
 	forwards map[string][]config.Route
+	outbox   Outbox
+	toOutbox map[string]outbox.Kind
 	topics   []string
 	devices  map[string]config.Device
 
@@ -117,7 +134,18 @@ type route struct {
 }
 
 // New constructs the MQTT gateway from an already validated configuration.
-func New(cfg config.Config, client Client, logger Logger) (*Gateway, error) {
+func New(cfg config.Config, client Client, logger Logger, queue Outbox) (*Gateway, error) {
+	return newGateway(cfg, client, logger, queue, true)
+}
+
+// NewCommandPublisher constructs the narrow gateway capability needed by the
+// publish-test-command CLI. It intentionally does not open or require the
+// durable outbox, because it cannot receive and forward inbound messages.
+func NewCommandPublisher(cfg config.Config, client Client, logger Logger) (*Gateway, error) {
+	return newGateway(cfg, client, logger, nil, false)
+}
+
+func newGateway(cfg config.Config, client Client, logger Logger, queue Outbox, requireOutbox bool) (*Gateway, error) {
 	if client == nil {
 		return nil, errors.New("MQTT client is required")
 	}
@@ -130,6 +158,8 @@ func New(cfg config.Config, client Client, logger Logger) (*Gateway, error) {
 		logger:   logger,
 		routes:   make(map[string]route),
 		forwards: make(map[string][]config.Route),
+		outbox:   queue,
+		toOutbox: make(map[string]outbox.Kind),
 		devices:  make(map[string]config.Device),
 	}
 	for _, device := range cfg.Devices {
@@ -154,6 +184,14 @@ func New(cfg config.Config, client Client, logger Logger) (*Gateway, error) {
 			}
 			gateway.routes[candidate.topic] = route{deviceID: device.ID, kind: candidate.kind}
 			gateway.topics = append(gateway.topics, candidate.topic)
+			if forwardsToVPS(device, candidate.kind) {
+				if queue == nil && requireOutbox {
+					return nil, errors.New("outbox is required when forwarding to VPS is enabled")
+				}
+				if queue != nil {
+					gateway.toOutbox[candidate.topic] = outbox.Kind(candidate.kind)
+				}
+			}
 		}
 	}
 	for _, forward := range cfg.Routes {
@@ -238,6 +276,25 @@ func (g *Gateway) handleMessage(ctx context.Context, topic string, payload []byt
 		return
 	}
 	g.logger.Accepted(ctx, message)
+	if kind, forward := g.toOutbox[topic]; forward {
+		result, err := g.outbox.Enqueue(ctx, outbox.Message{
+			MessageID: message.MessageID,
+			DeviceID:  message.DeviceID,
+			Topic:     message.Topic,
+			Kind:      kind,
+			Payload:   message.Payload,
+		})
+		if logger, ok := g.logger.(OutboxLogger); ok {
+			switch {
+			case err != nil:
+				logger.OutboxFailed(ctx, message, err)
+			case result.Stored:
+				logger.OutboxStored(ctx, message, result)
+			default:
+				logger.OutboxDiscarded(ctx, message, result)
+			}
+		}
+	}
 	for _, forward := range g.forwards[topic] {
 		payload, err := transformJSONCommand(forward.Transform.CommandType, message.Payload)
 		if err == nil {
@@ -246,6 +303,19 @@ func (g *Gateway) handleMessage(ctx context.Context, topic string, payload []byt
 		if err != nil {
 			g.logger.Rejected(ctx, RejectedMessage{DeviceID: route.deviceID, Kind: route.kind, Topic: topic, Reason: fmt.Sprintf("route %s failed: %v", forward.ID, err)})
 		}
+	}
+}
+
+func forwardsToVPS(device config.Device, kind Kind) bool {
+	switch kind {
+	case Telemetry:
+		return device.Forwarding.TelemetryToVPS
+	case State:
+		return device.Forwarding.StateToVPS
+	case Event:
+		return device.Forwarding.EventsToVPS
+	default:
+		return false
 	}
 }
 

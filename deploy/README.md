@@ -47,3 +47,23 @@ Follow operational logs with:
 ```bash
 journalctl -u iot-gateway.service -f
 ```
+
+## Atualizacao para a outbox SQLite
+
+Before installing a version with the durable outbox, add this required field
+to `/etc/iot-gateway/gateway.yaml` under `storage`:
+
+```yaml
+max_outbox_bytes: 33554432
+```
+
+`33554432` is 32 MiB of MQTT payloads. It is a logical payload limit, not the
+SQLite file size. The gateway refuses to start without an explicit positive
+limit, preventing one large message or a long VPS outage from exhausting the
+microSD card. Validate, install the updated binary, and restart the service:
+
+```bash
+sudo -u iot-gateway /usr/local/bin/iot-gateway validate --config /etc/iot-gateway/gateway.yaml
+just install-service
+sudo systemctl restart iot-gateway.service
+```

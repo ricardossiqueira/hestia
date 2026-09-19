@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/ricardossiqueira/iot-gateway/internal/config"
+	"github.com/ricardossiqueira/iot-gateway/internal/outbox"
 )
 
 func TestResolveCredentials(t *testing.T) {
@@ -60,7 +61,7 @@ func TestResolveCredentials(t *testing.T) {
 func TestGatewayStartsEnabledInboundTopicsAndLogsAcceptedMessage(t *testing.T) {
 	client := &fakeClient{}
 	logger := &recordingLogger{}
-	gateway, err := New(testConfig(), client, logger)
+	gateway, err := New(testConfig(), client, logger, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +100,7 @@ func TestGatewayStartsEnabledInboundTopicsAndLogsAcceptedMessage(t *testing.T) {
 func TestGatewayRejectsMalformedInboundMessage(t *testing.T) {
 	client := &fakeClient{}
 	logger := &recordingLogger{}
-	gateway, err := New(testConfig(), client, logger)
+	gateway, err := New(testConfig(), client, logger, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +139,7 @@ func TestGatewayDoesNotSubscribeDisabledDevices(t *testing.T) {
 	disabled := false
 	cfg.Devices[0].Enabled = &disabled
 	client := &fakeClient{}
-	gateway, err := New(cfg, client, &recordingLogger{})
+	gateway, err := New(cfg, client, &recordingLogger{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +153,7 @@ func TestGatewayDoesNotSubscribeDisabledDevices(t *testing.T) {
 
 func TestGatewayClosesClientWhenStartingFails(t *testing.T) {
 	client := &fakeClient{subscribeErr: errors.New("broker unavailable")}
-	gateway, err := New(testConfig(), client, &recordingLogger{})
+	gateway, err := New(testConfig(), client, &recordingLogger{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,7 +167,7 @@ func TestGatewayClosesClientWhenStartingFails(t *testing.T) {
 
 func TestGatewayClosesClientWhenConnectingFails(t *testing.T) {
 	client := &fakeClient{connectErr: errors.New("broker unavailable")}
-	gateway, err := New(testConfig(), client, &recordingLogger{})
+	gateway, err := New(testConfig(), client, &recordingLogger{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +183,7 @@ func TestGatewayDoesNotUseClientWhenContextIsCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	client := &fakeClient{}
-	gateway, err := New(testConfig(), client, &recordingLogger{})
+	gateway, err := New(testConfig(), client, &recordingLogger{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,7 +203,7 @@ func TestGatewayDoesNotUseClientWhenContextIsCanceled(t *testing.T) {
 
 func TestGatewayPublishesCommandOnlyForEnabledDeviceWithCommandTopic(t *testing.T) {
 	client := &fakeClient{}
-	gateway, err := New(testConfig(), client, &recordingLogger{})
+	gateway, err := New(testConfig(), client, &recordingLogger{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +222,7 @@ func TestGatewayPublishesCommandOnlyForEnabledDeviceWithCommandTopic(t *testing.
 	disabledConfig := testConfig()
 	disabled := false
 	disabledConfig.Devices[0].Enabled = &disabled
-	disabledGateway, err := New(disabledConfig, &fakeClient{}, &recordingLogger{})
+	disabledGateway, err := New(disabledConfig, &fakeClient{}, &recordingLogger{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -248,7 +249,7 @@ func TestGatewayForwardsThroughGenericJSONCommandRoute(t *testing.T) {
 		Transform: config.RouteTransform{Type: "json_command", CommandType: "render_status"},
 	}}
 	client := &fakeClient{}
-	gateway, err := New(cfg, client, &recordingLogger{})
+	gateway, err := New(cfg, client, &recordingLogger{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -277,15 +278,79 @@ func TestGatewayForwardsThroughGenericJSONCommandRoute(t *testing.T) {
 	}
 }
 
+func TestGatewayEnqueuesOnlyConfiguredVPSForwardingBeforeLocalRoutes(t *testing.T) {
+	cfg := testConfig()
+	cfg.Devices[0].Forwarding.TelemetryToVPS = true
+	cfg.Devices = append(cfg.Devices, config.Device{ID: "display", Enabled: boolPtr(true), Topics: config.Topics{Command: "devices/display/command"}})
+	cfg.Routes = []config.Route{{
+		ID: "status-to-display", SourceTopic: "devices/esp32-sala/telemetry", DestinationTopic: "devices/display/command", QoS: 1,
+		Transform: config.RouteTransform{Type: "json_command", CommandType: "render_status"},
+	}}
+	queue := &fakeOutbox{}
+	client := &fakeClient{}
+	gateway, err := New(cfg, client, &recordingLogger{}, queue)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := gateway.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	client.deliver("devices/esp32-sala/telemetry", []byte(`{"message_id":"b4a5bb31-1710-4f7b-a043-1b6a292d04ad","timestamp":"2026-09-18T15:00:00Z","cpu_pct":24.6}`))
+	if len(queue.messages) != 1 {
+		t.Fatalf("outbox messages = %#v", queue.messages)
+	}
+	if message := queue.messages[0]; message.Kind != outbox.Telemetry || message.Topic != "devices/esp32-sala/telemetry" {
+		t.Errorf("outbox message = %#v", message)
+	}
+	if len(client.published) != 1 {
+		t.Errorf("local route publications = %#v, want one", client.published)
+	}
+
+	client.deliver("devices/esp32-sala/state", []byte(`{"message_id":"e9f2290d-d1ee-4cbc-841d-03e29a7f028c","timestamp":"2026-09-18T15:00:00Z"}`))
+	if len(queue.messages) != 1 {
+		t.Errorf("state was unexpectedly enqueued: %#v", queue.messages)
+	}
+}
+
+func TestGatewayKeepsLocalRoutesWhenOutboxFails(t *testing.T) {
+	cfg := testConfig()
+	cfg.Devices[0].Forwarding.TelemetryToVPS = true
+	cfg.Devices = append(cfg.Devices, config.Device{ID: "display", Enabled: boolPtr(true), Topics: config.Topics{Command: "devices/display/command"}})
+	cfg.Routes = []config.Route{{
+		ID: "status-to-display", SourceTopic: "devices/esp32-sala/telemetry", DestinationTopic: "devices/display/command", QoS: 1,
+		Transform: config.RouteTransform{Type: "json_command", CommandType: "render_status"},
+	}}
+	client := &fakeClient{}
+	gateway, err := New(cfg, client, &recordingLogger{}, &fakeOutbox{err: errors.New("disk full")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := gateway.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	client.deliver("devices/esp32-sala/telemetry", []byte(`{"message_id":"b4a5bb31-1710-4f7b-a043-1b6a292d04ad","timestamp":"2026-09-18T15:00:00Z"}`))
+	if len(client.published) != 1 {
+		t.Errorf("local route did not continue after outbox failure: %#v", client.published)
+	}
+}
+
+func TestGatewayRequiresOutboxWhenVPSForwardingIsEnabled(t *testing.T) {
+	cfg := testConfig()
+	cfg.Devices[0].Forwarding.EventsToVPS = true
+	if _, err := New(cfg, &fakeClient{}, &recordingLogger{}, nil); err == nil || !strings.Contains(err.Error(), "outbox is required") {
+		t.Fatalf("New() error = %v", err)
+	}
+}
+
 func validCommand() []byte {
 	return []byte(`{"command_id":"a9f2290d-d1ee-4cbc-841d-03e29a7f028c","type":"set_output","parameters":{"pin":2,"value":true}}`)
 }
 
 func TestGatewayRejectsNilDependencies(t *testing.T) {
-	if _, err := New(testConfig(), nil, &recordingLogger{}); err == nil {
+	if _, err := New(testConfig(), nil, &recordingLogger{}, nil); err == nil {
 		t.Error("New() error = nil for nil client")
 	}
-	if _, err := New(testConfig(), &fakeClient{}, nil); err == nil {
+	if _, err := New(testConfig(), &fakeClient{}, nil, nil); err == nil {
 		t.Error("New() error = nil for nil logger")
 	}
 }
@@ -342,6 +407,19 @@ type publication struct {
 	payload []byte
 	qos     byte
 	retain  bool
+}
+
+type fakeOutbox struct {
+	messages []outbox.Message
+	err      error
+}
+
+func (o *fakeOutbox) Enqueue(_ context.Context, message outbox.Message) (outbox.EnqueueResult, error) {
+	o.messages = append(o.messages, message)
+	if o.err != nil {
+		return outbox.EnqueueResult{}, o.err
+	}
+	return outbox.EnqueueResult{Stored: true}, nil
 }
 
 type recordingLogger struct {

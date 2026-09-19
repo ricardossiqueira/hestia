@@ -65,8 +65,10 @@ func TestRunValidateRejectsInvalidConfig(t *testing.T) {
 func TestRunPublishTestCommand(t *testing.T) {
 	t.Setenv("MQTT_USER", "gateway")
 	t.Setenv("MQTT_PASSWORD", "secret")
-	path := filepath.Join(t.TempDir(), "gateway.yaml")
-	if err := os.WriteFile(path, []byte(commandConfig), 0o600); err != nil {
+	tempDir := t.TempDir()
+	path := filepath.Join(tempDir, "gateway.yaml")
+	contents := strings.Replace(commandConfig, "/tmp/gateway.db", filepath.Join(tempDir, "outbox-is-not-opened", "gateway.db"), 1)
+	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	client := &commandTestClient{}
@@ -135,6 +137,7 @@ mqtt:
 storage:
   sqlite_path: /var/lib/iot-gateway/gateway.db
   max_outbox_messages: 100
+  max_outbox_bytes: 1048576
   max_outbox_age: 24h
 devices:
   - id: esp32-sala
@@ -156,6 +159,7 @@ mqtt:
 storage:
   sqlite_path: /tmp/gateway.db
   max_outbox_messages: 100
+  max_outbox_bytes: 1048576
   max_outbox_age: 24h
 devices:
   - id: esp32-sala

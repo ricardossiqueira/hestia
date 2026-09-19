@@ -132,6 +132,16 @@ func TestParseRejectsInvalidConfiguration(t *testing.T) {
 			want: "storage.max_outbox_messages must be greater than zero",
 		},
 		{
+			name: "missing outbox byte limit",
+			yaml: strings.Replace(validYAML, "  max_outbox_bytes: 1048576\n", "", 1),
+			want: "storage.max_outbox_bytes must be greater than zero",
+		},
+		{
+			name: "zero outbox byte limit",
+			yaml: strings.Replace(validYAML, "max_outbox_bytes: 1048576", "max_outbox_bytes: 0", 1),
+			want: "storage.max_outbox_bytes must be greater than zero",
+		},
+		{
 			name: "zero outbox age limit",
 			yaml: strings.Replace(validYAML, "max_outbox_age: 24h", "max_outbox_age: 0s", 1),
 			want: "storage.max_outbox_age must be greater than zero",
@@ -311,5 +321,6 @@ mqtt:
 storage:
   sqlite_path: /var/lib/iot-gateway/gateway.db
   max_outbox_messages: 100
+  max_outbox_bytes: 1048576
   max_outbox_age: 24h
 ` + devicesYAML

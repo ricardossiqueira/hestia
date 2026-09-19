@@ -42,6 +42,7 @@ type MQTT struct {
 type Storage struct {
 	SQLitePath        string   `yaml:"sqlite_path"`
 	MaxOutboxMessages int      `yaml:"max_outbox_messages"`
+	MaxOutboxBytes    int64    `yaml:"max_outbox_bytes"`
 	MaxOutboxAge      Duration `yaml:"max_outbox_age"`
 }
 
@@ -156,6 +157,9 @@ func (c Config) Validate() error {
 	}
 	if c.Storage.MaxOutboxMessages <= 0 {
 		return errors.New("storage.max_outbox_messages must be greater than zero")
+	}
+	if c.Storage.MaxOutboxBytes <= 0 {
+		return errors.New("storage.max_outbox_bytes must be greater than zero")
 	}
 	if c.Storage.MaxOutboxAge.TimeDuration() <= 0 {
 		return errors.New("storage.max_outbox_age must be greater than zero")

@@ -26,6 +26,7 @@ mqtt:
 storage:
   sqlite_path: /var/lib/iot-gateway/gateway.db
   max_outbox_messages: 10000
+  max_outbox_bytes: 33554432
   max_outbox_age: 168h
 
 devices:
@@ -51,7 +52,7 @@ devices:
 - Todos os tópicos devem começar com `devices/<device-id>/`.
 - Um tópico não pode pertencer a mais de um dispositivo.
 - Dispositivos desabilitados não recebem nem originam tráfego encaminhado.
-- A outbox deve ter limites de quantidade e idade para proteger o armazenamento.
+- A outbox deve ter limites de quantidade, bytes e idade para proteger o armazenamento.
 - Mudanças no YAML serão aplicadas por reinício no MVP; recarga sem reinício é uma melhoria futura.
 
 ## Execução MQTT local

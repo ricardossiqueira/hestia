@@ -16,6 +16,7 @@ import (
 
 	"github.com/ricardossiqueira/iot-gateway/internal/config"
 	gatewaymqtt "github.com/ricardossiqueira/iot-gateway/internal/mqtt"
+	"github.com/ricardossiqueira/iot-gateway/internal/outbox"
 )
 
 const testCommandTimeout = 10 * time.Second
@@ -90,8 +91,14 @@ func runGateway(args []string, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "MQTT client setup failed: %v\n", err)
 		return 1
 	}
+	store, err := openOutbox(cfg)
+	if err != nil {
+		fmt.Fprintf(stderr, "outbox setup failed: %v\n", err)
+		return 1
+	}
+	defer func() { _ = store.Close() }()
 	logger := slog.New(slog.NewTextHandler(stderr, nil))
-	gateway, err := gatewaymqtt.New(cfg, client, gatewaymqtt.NewSlogLogger(logger))
+	gateway, err := gatewaymqtt.New(cfg, client, gatewaymqtt.NewSlogLogger(logger), store)
 	if err != nil {
 		fmt.Fprintf(stderr, "MQTT gateway setup failed: %v\n", err)
 		return 1
@@ -137,7 +144,7 @@ func runPublishTestCommand(args []string, stderr io.Writer, newClient mqttClient
 		fmt.Fprintf(stderr, "MQTT client setup failed: %v\n", err)
 		return 1
 	}
-	gateway, err := gatewaymqtt.New(cfg, client, gatewaymqtt.NewSlogLogger(slog.New(slog.NewTextHandler(stderr, nil))))
+	gateway, err := gatewaymqtt.NewCommandPublisher(cfg, client, gatewaymqtt.NewSlogLogger(slog.New(slog.NewTextHandler(stderr, nil))))
 	if err != nil {
 		fmt.Fprintf(stderr, "MQTT gateway setup failed: %v\n", err)
 		return 1
@@ -181,6 +188,14 @@ func newTestCommandPayload() ([]byte, error) {
 		Parameters: map[string]any{},
 	}
 	return json.Marshal(command)
+}
+
+func openOutbox(cfg config.Config) (*outbox.Store, error) {
+	return outbox.Open(context.Background(), cfg.Storage.SQLitePath, outbox.Options{
+		MaxMessages: cfg.Storage.MaxOutboxMessages,
+		MaxBytes:    cfg.Storage.MaxOutboxBytes,
+		MaxAge:      cfg.Storage.MaxOutboxAge.TimeDuration(),
+	})
 }
 
 func printUsage(stderr io.Writer) {

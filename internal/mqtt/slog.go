@@ -3,6 +3,8 @@ package mqtt
 import (
 	"context"
 	"log/slog"
+
+	"github.com/ricardossiqueira/iot-gateway/internal/outbox"
 )
 
 // SlogLogger writes accepted and rejected message metadata as structured logs.
@@ -34,5 +36,38 @@ func (l *SlogLogger) Rejected(ctx context.Context, message RejectedMessage) {
 		"kind", message.Kind,
 		"topic", message.Topic,
 		"reason", message.Reason,
+	)
+}
+
+func (l *SlogLogger) OutboxStored(ctx context.Context, message Message, result outbox.EnqueueResult) {
+	l.logger.InfoContext(ctx, "outbox message stored",
+		"device_id", message.DeviceID,
+		"kind", message.Kind,
+		"topic", message.Topic,
+		"message_id", message.MessageID,
+		"duplicate", result.Duplicate,
+		"evicted", result.Evicted,
+		"expired", result.Expired,
+	)
+}
+
+func (l *SlogLogger) OutboxDiscarded(ctx context.Context, message Message, result outbox.EnqueueResult) {
+	l.logger.WarnContext(ctx, "outbox message discarded",
+		"device_id", message.DeviceID,
+		"kind", message.Kind,
+		"topic", message.Topic,
+		"message_id", message.MessageID,
+		"reason", result.DiscardReason,
+		"expired", result.Expired,
+	)
+}
+
+func (l *SlogLogger) OutboxFailed(ctx context.Context, message Message, err error) {
+	l.logger.ErrorContext(ctx, "outbox enqueue failed",
+		"device_id", message.DeviceID,
+		"kind", message.Kind,
+		"topic", message.Topic,
+		"message_id", message.MessageID,
+		"error", err,
 	)
 }
