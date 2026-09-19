@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -60,6 +63,118 @@ func TestRunValidateRejectsInvalidConfig(t *testing.T) {
 	if code != 1 || !strings.Contains(stderr.String(), "configuration is invalid") {
 		t.Fatalf("run() = %d, stderr = %q", code, stderr.String())
 	}
+}
+
+func TestRunHealthcheckUsesOnlyLocalDiagnostics(t *testing.T) {
+	var receivedPath, receivedQuery, receivedMethod string
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		receivedPath = request.URL.Path
+		receivedQuery = request.URL.RawQuery
+		receivedMethod = request.Method
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{"status":"ok"}`))
+	}))
+	defer server.Close()
+
+	t.Setenv("MQTT_USER", "")
+	t.Setenv("MQTT_PASSWORD", "")
+	path := writeHealthcheckConfig(t, strings.TrimPrefix(server.URL, "http://"))
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"healthcheck", "--config", path}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run() = %d, stderr = %s", code, stderr.String())
+	}
+	if got := stdout.String(); got != "healthcheck is ok\n" {
+		t.Errorf("stdout = %q", got)
+	}
+	if receivedMethod != http.MethodGet || receivedPath != "/healthz" || receivedQuery != "" {
+		t.Errorf("request = %s %s?%s", receivedMethod, receivedPath, receivedQuery)
+	}
+}
+
+func TestRunHealthcheckRejectsUnavailableResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = writer.Write([]byte(`{"status":"unavailable"}`))
+	}))
+	defer server.Close()
+
+	path := writeHealthcheckConfig(t, strings.TrimPrefix(server.URL, "http://"))
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"healthcheck", "--config", path}, &stdout, &stderr); code != 1 {
+		t.Fatalf("run() = %d, stderr = %s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "healthcheck failed") {
+		t.Errorf("stderr = %q", stderr.String())
+	}
+}
+
+func TestRunHealthcheckRejectsMalformedResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.WriteHeader(http.StatusOK)
+		_, _ = writer.Write([]byte(`not-json`))
+	}))
+	defer server.Close()
+
+	path := writeHealthcheckConfig(t, strings.TrimPrefix(server.URL, "http://"))
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"healthcheck", "--config", path}, &stdout, &stderr); code != 1 {
+		t.Fatalf("run() = %d, stderr = %s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "healthcheck failed") {
+		t.Errorf("stderr = %q", stderr.String())
+	}
+}
+
+func TestRunHealthcheckRequiresOKStatus(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.WriteHeader(http.StatusOK)
+		_, _ = writer.Write([]byte(`{"status":"unavailable"}`))
+	}))
+	defer server.Close()
+
+	path := writeHealthcheckConfig(t, strings.TrimPrefix(server.URL, "http://"))
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"healthcheck", "--config", path}, &stdout, &stderr); code != 1 {
+		t.Fatalf("run() = %d, stderr = %s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "healthcheck failed") {
+		t.Errorf("stderr = %q", stderr.String())
+	}
+}
+
+func TestRunHealthcheckRejectsRedirect(t *testing.T) {
+	redirected := false
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/redirect-target" {
+			redirected = true
+			writer.WriteHeader(http.StatusOK)
+			_, _ = writer.Write([]byte(`{"status":"ok"}`))
+			return
+		}
+		http.Redirect(writer, request, "/redirect-target", http.StatusFound)
+	}))
+	defer server.Close()
+
+	path := writeHealthcheckConfig(t, strings.TrimPrefix(server.URL, "http://"))
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"healthcheck", "--config", path}, &stdout, &stderr); code != 1 {
+		t.Fatalf("run() = %d, stderr = %s", code, stderr.String())
+	}
+	if redirected {
+		t.Error("healthcheck followed a redirect")
+	}
+}
+
+func writeHealthcheckConfig(t *testing.T, address string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "gateway.yaml")
+	contents := strings.Replace(validConfig, "/var/lib/iot-gateway/gateway.db", filepath.Join(t.TempDir(), "missing", "gateway.db"), 1)
+	contents += fmt.Sprintf("diagnostics:\n  address: %s\n  request_timeout: 1s\n", address)
+	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
 func TestRunPublishTestCommand(t *testing.T) {

@@ -5,10 +5,12 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -39,6 +41,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runValidate(args[1:], stdout, stderr)
 	case "run":
 		return runGateway(args[1:], stderr)
+	case "healthcheck":
+		return runHealthcheck(args[1:], stdout, stderr)
 	case "publish-test-command":
 		return runPublishTestCommand(args[1:], stderr, gatewaymqtt.NewPahoClient)
 	default:
@@ -67,6 +71,74 @@ func runValidate(args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintln(stdout, "configuration is valid")
 	return 0
+}
+
+// runHealthcheck verifies only the local diagnostics endpoint. In particular,
+// it deliberately does not resolve MQTT credentials or open the SQLite outbox.
+func runHealthcheck(args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("healthcheck", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	configPath := flags.String("config", "config/gateway.yaml", "path to the YAML configuration file")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if flags.NArg() != 0 {
+		printUsage(stderr)
+		return 2
+	}
+	cfg, err := config.Load(*configPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "configuration is invalid: %v\n", err)
+		return 1
+	}
+	if err := checkHealth(cfg); err != nil {
+		fmt.Fprintf(stderr, "healthcheck failed: %v\n", err)
+		return 1
+	}
+	fmt.Fprintln(stdout, "healthcheck is ok")
+	return 0
+}
+
+func checkHealth(cfg config.Config) error {
+	timeout := cfg.Diagnostics.RequestTimeout.TimeDuration()
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+cfg.Diagnostics.Address+"/healthz", nil)
+	if err != nil {
+		return fmt.Errorf("create local health request: %w", err)
+	}
+	request.Header.Set("Accept", "application/json")
+	client := &http.Client{
+		Timeout: timeout,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	response, err := client.Do(request)
+	if err != nil {
+		return errors.New("local diagnostics endpoint is unavailable")
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("local diagnostics returned HTTP %d", response.StatusCode)
+	}
+
+	var payload struct {
+		Status string `json:"status"`
+	}
+	decoder := json.NewDecoder(io.LimitReader(response.Body, 4096))
+	if err := decoder.Decode(&payload); err != nil {
+		return errors.New("local diagnostics returned invalid JSON")
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		return errors.New("local diagnostics returned invalid JSON")
+	}
+	if payload.Status != "ok" {
+		return errors.New("local diagnostics is not healthy")
+	}
+	return nil
 }
 
 func runGateway(args []string, stderr io.Writer) int {
@@ -219,5 +291,5 @@ func openOutbox(cfg config.Config) (*outbox.Store, error) {
 }
 
 func printUsage(stderr io.Writer) {
-	fmt.Fprintln(stderr, "usage: iot-gateway <validate|run|publish-test-command> --config <path>")
+	fmt.Fprintln(stderr, "usage: iot-gateway <validate|run|healthcheck|publish-test-command> --config <path>")
 }

@@ -37,6 +37,11 @@ validate config=config:
 run config=config:
     go run ./cmd/gateway run --config {{config}}
 
+# Verify the local diagnostics endpoint. This does not read MQTT credentials
+# or open the SQLite outbox.
+healthcheck config=config:
+    go run ./cmd/gateway healthcheck --config {{config}}
+
 # Publish a generic test command to a configured device.
 publish-test-command device config=config:
     go run ./cmd/gateway publish-test-command --config {{config}} --device {{device}}

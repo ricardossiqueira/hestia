@@ -21,6 +21,9 @@
 - O diagnóstico HTTP escuta somente em `127.0.0.1:8080` por padrão. Para
   consultá-lo remotamente no futuro, use um túnel autenticado (por exemplo,
   WireGuard); não exponha essa porta na LAN.
+- O atualizador automático aceita uma nova versão somente depois de o serviço
+  responder `HTTP 200` com `{"status":"ok"}` em `/healthz`; falhas fazem
+  rollback do binário e da unidade anteriores.
 - Fazer backup apenas de configuração e, quando necessário, da SQLite com o serviço parado ou usando backup consistente.
 
 Os arquivos concretos de instalação serão adicionados quando o binário mínimo estiver funcional.

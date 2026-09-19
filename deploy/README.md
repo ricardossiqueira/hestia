@@ -79,7 +79,22 @@ validation locally, then restarts the gateway only after those checks pass.
 The updater never copies a configuration file from Git and never reads or
 writes `/etc/iot-gateway/environment`. It uses only a fast-forward Git update.
 If the new service fails to start or exits immediately, it restores the
-previous binary and unit.
+previous binary and unit. After a successful restart it also executes
+`iot-gateway healthcheck --config /etc/iot-gateway/gateway.yaml` as the
+restricted `iot-gateway` user exactly ten times, one second apart. The update
+is committed only when one attempt receives HTTP 200 with `{"status":"ok"}`
+from the configured loopback `/healthz` endpoint. A failed healthcheck rolls
+back the previous binary and unit. On the first installation there is no prior
+binary or unit to restore; in that case the updater leaves the failed service
+stopped and logs this explicitly.
+
+You can query the same payload-free endpoint manually, without MQTT
+credentials or SQLite access:
+
+```bash
+sudo -u iot-gateway /usr/local/bin/iot-gateway healthcheck \
+  --config /etc/iot-gateway/gateway.yaml
+```
 
 ### One-time Git read access
 

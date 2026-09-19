@@ -20,6 +20,41 @@ fail() { log "update skipped: $*"; exit 1; }
 run_as_deploy_user() {
   runuser -u "$deploy_user" -- env HOME="$deploy_home" "$@"
 }
+run_healthcheck() {
+  runuser -u iot-gateway -- "$binary" healthcheck --config /etc/iot-gateway/gateway.yaml
+}
+
+# The updater only calls this after a new binary and unit have been installed.
+# A complete previous installation is required for a safe rollback. During an
+# initial install there is deliberately nothing to restore, so leave the failed
+# service stopped and report that condition explicitly.
+rollback_gateway() {
+  local reason="$1"
+  log "$reason"
+  if [[ "$had_binary" != true || "$had_unit" != true ]]; then
+    log "rollback unavailable: no complete previous gateway installation; leaving service stopped"
+    systemctl stop iot-gateway.service || log "could not stop failed initial service"
+    return 1
+  fi
+  install -m 0755 "$backup_binary" "$binary"
+  install -m 0644 "$backup_unit" "$unit"
+  systemctl daemon-reload
+  systemctl restart iot-gateway.service || log "rollback could not restart the previous service"
+  return 1
+}
+
+wait_for_healthy_gateway() {
+  local attempt
+  for attempt in {1..10}; do
+    if run_healthcheck; then
+      return 0
+    fi
+    if (( attempt < 10 )); then
+      sleep 1
+    fi
+  done
+  return 1
+}
 
 [[ -d "$repository/.git" ]] || fail "repository not found at $repository"
 install -d -m 0700 -o root -g root "$state_dir"
@@ -83,28 +118,15 @@ install -m 0644 "$repository/deploy/iot-gateway-update.timer" /etc/systemd/syste
 systemctl daemon-reload
 
 if ! systemctl restart iot-gateway.service; then
-  log "new revision failed to start; restoring the previous service"
-  if [[ "$had_binary" == true ]]; then
-    install -m 0755 "$backup_binary" "$binary"
-  fi
-  if [[ "$had_unit" == true ]]; then
-    install -m 0644 "$backup_unit" "$unit"
-  fi
-  systemctl daemon-reload
-  systemctl restart iot-gateway.service || log "rollback could not restart the previous service"
+  rollback_gateway "new revision failed to start; restoring the previous service"
   exit 1
 fi
-sleep 3
 if ! systemctl is-active --quiet iot-gateway.service; then
-  log "new revision exited after startup; restoring the previous service"
-  if [[ "$had_binary" == true ]]; then
-    install -m 0755 "$backup_binary" "$binary"
-  fi
-  if [[ "$had_unit" == true ]]; then
-    install -m 0644 "$backup_unit" "$unit"
-  fi
-  systemctl daemon-reload
-  systemctl restart iot-gateway.service || log "rollback could not restart the previous service"
+  rollback_gateway "new revision exited after startup; restoring the previous service"
+  exit 1
+fi
+if ! wait_for_healthy_gateway; then
+  rollback_gateway "new revision did not pass local healthcheck after 10 attempts; restoring the previous service"
   exit 1
 fi
 
