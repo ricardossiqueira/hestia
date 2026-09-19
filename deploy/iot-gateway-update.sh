@@ -58,7 +58,9 @@ run_as_deploy_user go -C "$repository" build -o "$candidate" ./cmd/gateway || fa
 candidate_binary="/usr/local/lib/iot-gateway/iot-gateway.candidate"
 backup_binary="/usr/local/lib/iot-gateway/iot-gateway.previous"
 backup_unit="/usr/local/lib/iot-gateway/iot-gateway.service.previous"
-install -d -m 0750 -o root -g root /usr/local/lib/iot-gateway
+# The service account validates the staged binary before it is installed, so it
+# needs traverse permission but must not be able to modify this directory.
+install -d -m 0750 -o root -g iot-gateway /usr/local/lib/iot-gateway
 install -m 0755 "$candidate" "$candidate_binary"
 runuser -u iot-gateway -- "$candidate_binary" validate --config /etc/iot-gateway/gateway.yaml || fail "installed configuration is invalid"
 
