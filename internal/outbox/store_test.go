@@ -95,6 +95,55 @@ func TestEnqueueExpiresByEnqueuedTimeNotPayloadTime(t *testing.T) {
 	}
 }
 
+func TestSnapshotIsReadOnlyAndExcludesExpiredMessages(t *testing.T) {
+	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
+	options := testOptions()
+	options.MaxAge = time.Hour
+	options.Now = func() time.Time { return now }
+	store := openTestStore(t, options)
+	ctx := context.Background()
+	if _, err := store.Enqueue(ctx, testMessage("old", Telemetry, []byte(`{"n":1}`))); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(2 * time.Hour)
+
+	before := store.messageIDs(t)
+	snapshot, err := store.Snapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Messages != 0 || snapshot.PayloadBytes != 0 {
+		t.Errorf("Snapshot() = %#v", snapshot)
+	}
+	if snapshot.OldestEnqueuedAt != nil {
+		t.Errorf("oldest = %v, want nil", snapshot.OldestEnqueuedAt)
+	}
+	if after := store.messageIDs(t); after != before {
+		t.Errorf("Snapshot modified database: before %q after %q", before, after)
+	}
+}
+
+func TestSnapshotReportsOldestLogicalMessage(t *testing.T) {
+	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
+	options := testOptions()
+	options.Now = func() time.Time { return now }
+	store := openTestStore(t, options)
+	if _, err := store.Enqueue(context.Background(), testMessage("first", Telemetry, []byte(`{"n":1}`))); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(time.Minute)
+	if _, err := store.Enqueue(context.Background(), testMessage("second", Event, []byte(`{"n":2}`))); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := store.Snapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Messages != 2 || snapshot.OldestEnqueuedAt == nil || !snapshot.OldestEnqueuedAt.Equal(now.Add(-time.Minute)) {
+		t.Errorf("Snapshot() = %#v", snapshot)
+	}
+}
+
 func TestEnqueueEvictsLowerPriorityFirst(t *testing.T) {
 	options := testOptions()
 	options.MaxMessages = 2

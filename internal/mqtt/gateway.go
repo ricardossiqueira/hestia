@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -73,6 +74,7 @@ type MessageHandler func(ctx context.Context, topic string, payload []byte)
 // gateway tests independent of a live Mosquitto broker and MQTT library.
 type Client interface {
 	Connect(context.Context) error
+	Connected() bool
 	Subscribe(context.Context, string, MessageHandler) error
 	Publish(context.Context, string, []byte, byte, bool) error
 	Close()
@@ -123,9 +125,34 @@ type Gateway struct {
 	topics   []string
 	devices  map[string]config.Device
 
-	mu      sync.Mutex
-	started bool
-	closed  bool
+	mu        sync.Mutex
+	started   bool
+	closed    bool
+	startedAt *time.Time
+
+	acceptedMessages     atomic.Uint64
+	rejectedMessages     atomic.Uint64
+	localRoutesPublished atomic.Uint64
+	localRoutesFailed    atomic.Uint64
+	outboxStored         atomic.Uint64
+	outboxDiscarded      atomic.Uint64
+	outboxFailed         atomic.Uint64
+}
+
+// Snapshot is the safe, payload-free runtime state used by local diagnostics.
+// Counters are monotonic from gateway construction until process shutdown.
+type Snapshot struct {
+	StartedAt            *time.Time
+	Started              bool
+	MQTTConnected        bool
+	Subscriptions        int
+	AcceptedMessages     uint64
+	RejectedMessages     uint64
+	LocalRoutesPublished uint64
+	LocalRoutesFailed    uint64
+	OutboxStored         uint64
+	OutboxDiscarded      uint64
+	OutboxFailed         uint64
 }
 
 type route struct {
@@ -201,6 +228,32 @@ func newGateway(cfg config.Config, client Client, logger Logger, queue Outbox, r
 	return gateway, nil
 }
 
+// Snapshot returns transport state and counters without device payloads,
+// credentials, topic names, or identifiers.
+func (g *Gateway) Snapshot() Snapshot {
+	g.mu.Lock()
+	started := g.started
+	subscriptions := 0
+	if started {
+		subscriptions = len(g.topics)
+	}
+	startedAt := g.startedAt
+	g.mu.Unlock()
+	return Snapshot{
+		StartedAt:            startedAt,
+		Started:              started,
+		MQTTConnected:        g.client.Connected(),
+		Subscriptions:        subscriptions,
+		AcceptedMessages:     g.acceptedMessages.Load(),
+		RejectedMessages:     g.rejectedMessages.Load(),
+		LocalRoutesPublished: g.localRoutesPublished.Load(),
+		LocalRoutesFailed:    g.localRoutesFailed.Load(),
+		OutboxStored:         g.outboxStored.Load(),
+		OutboxDiscarded:      g.outboxDiscarded.Load(),
+		OutboxFailed:         g.outboxFailed.Load(),
+	}
+}
+
 // Start connects to the broker and subscribes to every inbound topic for
 // enabled devices. A partial startup is closed so the caller can retry cleanly.
 func (g *Gateway) Start(ctx context.Context) error {
@@ -225,6 +278,8 @@ func (g *Gateway) Start(ctx context.Context) error {
 			return fmt.Errorf("subscribe to %q: %w", topic, err)
 		}
 	}
+	startedAt := time.Now().UTC()
+	g.startedAt = &startedAt
 	g.started = true
 	return nil
 }
@@ -272,9 +327,11 @@ func (g *Gateway) handleMessage(ctx context.Context, topic string, payload []byt
 	}
 	message, err := validateInbound(route, topic, payload)
 	if err != nil {
+		g.rejectedMessages.Add(1)
 		g.logger.Rejected(ctx, RejectedMessage{DeviceID: route.deviceID, Kind: route.kind, Topic: topic, Reason: err.Error()})
 		return
 	}
+	g.acceptedMessages.Add(1)
 	g.logger.Accepted(ctx, message)
 	if kind, forward := g.toOutbox[topic]; forward {
 		result, err := g.outbox.Enqueue(ctx, outbox.Message{
@@ -284,6 +341,14 @@ func (g *Gateway) handleMessage(ctx context.Context, topic string, payload []byt
 			Kind:      kind,
 			Payload:   message.Payload,
 		})
+		switch {
+		case err != nil:
+			g.outboxFailed.Add(1)
+		case result.Stored:
+			g.outboxStored.Add(1)
+		default:
+			g.outboxDiscarded.Add(1)
+		}
 		if logger, ok := g.logger.(OutboxLogger); ok {
 			switch {
 			case err != nil:
@@ -301,7 +366,11 @@ func (g *Gateway) handleMessage(ctx context.Context, topic string, payload []byt
 			err = g.client.Publish(ctx, forward.DestinationTopic, payload, forward.QoS, forward.Retain)
 		}
 		if err != nil {
+			g.localRoutesFailed.Add(1)
+			g.rejectedMessages.Add(1)
 			g.logger.Rejected(ctx, RejectedMessage{DeviceID: route.deviceID, Kind: route.kind, Topic: topic, Reason: fmt.Sprintf("route %s failed: %v", forward.ID, err)})
+		} else {
+			g.localRoutesPublished.Add(1)
 		}
 	}
 }

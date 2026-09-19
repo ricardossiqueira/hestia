@@ -14,6 +14,12 @@ storage:
   max_outbox_bytes: 33554432
   max_outbox_age: 168h
 
+# Local-only operational API. It never exposes MQTT payloads, credentials,
+# topic names or device identifiers. The following values are also defaults.
+diagnostics:
+  address: 127.0.0.1:8080
+  request_timeout: 2s
+
 devices:
   - id: esp32-sala
     type: esp32

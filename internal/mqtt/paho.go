@@ -40,6 +40,8 @@ func (c *pahoClient) Connect(ctx context.Context) error {
 	return nil
 }
 
+func (c *pahoClient) Connected() bool { return c.client.IsConnected() }
+
 func (c *pahoClient) Subscribe(ctx context.Context, topic string, handler MessageHandler) error {
 	token := c.client.Subscribe(topic, qosAtLeastOnce, func(_ paho.Client, message paho.Message) {
 		handler(context.Background(), message.Topic(), message.Payload())

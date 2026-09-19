@@ -15,11 +15,15 @@ import (
 	"time"
 
 	"github.com/ricardossiqueira/iot-gateway/internal/config"
+	"github.com/ricardossiqueira/iot-gateway/internal/diagnostics"
 	gatewaymqtt "github.com/ricardossiqueira/iot-gateway/internal/mqtt"
 	"github.com/ricardossiqueira/iot-gateway/internal/outbox"
 )
 
-const testCommandTimeout = 10 * time.Second
+const (
+	testCommandTimeout         = 10 * time.Second
+	diagnosticsShutdownTimeout = 5 * time.Second
+)
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
@@ -110,9 +114,25 @@ func runGateway(args []string, stderr io.Writer) int {
 		gateway.Close()
 		return 1
 	}
+	diagnosticsServer, err := diagnostics.New(cfg.Diagnostics, gateway, store)
+	if err != nil {
+		fmt.Fprintf(stderr, "diagnostics setup failed: %v\n", err)
+		gateway.Close()
+		return 1
+	}
+	if err := diagnosticsServer.Start(); err != nil {
+		fmt.Fprintf(stderr, "diagnostics failed to start: %v\n", err)
+		gateway.Close()
+		return 1
+	}
 	logger.Info("IoT gateway running", "gateway_id", cfg.Gateway.ID)
 	<-ctx.Done()
 	logger.Info("IoT gateway stopping")
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), diagnosticsShutdownTimeout)
+	if err := diagnosticsServer.Shutdown(shutdownCtx); err != nil {
+		logger.Error("diagnostics shutdown failed", "error", err)
+	}
+	cancel()
 	gateway.Close()
 	return 0
 }

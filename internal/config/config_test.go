@@ -19,6 +19,9 @@ func TestParseAcceptsValidConfiguration(t *testing.T) {
 	if got := config.Devices[0].Topics.Command; got != "devices/esp32-sala/command" {
 		t.Errorf("command topic = %q", got)
 	}
+	if config.Diagnostics.Address != "127.0.0.1:8080" || config.Diagnostics.RequestTimeout.TimeDuration().String() != "2s" {
+		t.Errorf("diagnostics defaults = %#v", config.Diagnostics)
+	}
 }
 
 func TestLoad(t *testing.T) {
@@ -151,6 +154,41 @@ func TestParseRejectsInvalidConfiguration(t *testing.T) {
 			yaml: strings.Replace(validYAML, "max_outbox_age: 24h", "max_outbox_age: yesterday", 1),
 			want: "invalid duration",
 		},
+		{
+			name: "diagnostics hostname is forbidden",
+			yaml: validYAML + "\ndiagnostics:\n  address: localhost:8080\n",
+			want: "loopback IP literal",
+		},
+		{
+			name: "diagnostics non loopback is forbidden",
+			yaml: validYAML + "\ndiagnostics:\n  address: 0.0.0.0:8080\n",
+			want: "loopback IP literal",
+		},
+		{
+			name: "diagnostics port is required",
+			yaml: validYAML + "\ndiagnostics:\n  address: 127.0.0.1\n",
+			want: "IP literal and port",
+		},
+		{
+			name: "diagnostics port must be decimal digits",
+			yaml: validYAML + "\ndiagnostics:\n  address: 127.0.0.1:+8080\n",
+			want: "between 1 and 65535",
+		},
+		{
+			name: "diagnostics timeout is bounded",
+			yaml: validYAML + "\ndiagnostics:\n  request_timeout: 11s\n",
+			want: "at most 10s",
+		},
+		{
+			name: "explicit zero diagnostics timeout is rejected",
+			yaml: validYAML + "\ndiagnostics:\n  request_timeout: 0s\n",
+			want: "must be greater than zero",
+		},
+		{
+			name: "unknown diagnostics field",
+			yaml: validYAML + "\ndiagnostics:\n  unsafe: true\n",
+			want: "field unsafe not found",
+		},
 	}
 
 	for _, test := range tests {
@@ -163,6 +201,20 @@ func TestParseRejectsInvalidConfiguration(t *testing.T) {
 				t.Errorf("Parse() error = %q, want it to contain %q", err, test.want)
 			}
 		})
+	}
+}
+
+func TestParseAcceptsLoopbackDiagnosticsConfiguration(t *testing.T) {
+	cfg, err := Parse([]byte(validYAML + `
+diagnostics:
+  address: "[::1]:9090"
+  request_timeout: 5s
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Diagnostics.Address != "[::1]:9090" || cfg.Diagnostics.RequestTimeout.TimeDuration().String() != "5s" {
+		t.Errorf("diagnostics = %#v", cfg.Diagnostics)
 	}
 }
 

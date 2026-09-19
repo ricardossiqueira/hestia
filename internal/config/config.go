@@ -6,10 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,11 +22,12 @@ var idPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
 
 // Config is the complete gateway configuration file.
 type Config struct {
-	Gateway Gateway  `yaml:"gateway"`
-	MQTT    MQTT     `yaml:"mqtt"`
-	Storage Storage  `yaml:"storage"`
-	Devices []Device `yaml:"devices"`
-	Routes  []Route  `yaml:"routes"`
+	Gateway     Gateway     `yaml:"gateway"`
+	MQTT        MQTT        `yaml:"mqtt"`
+	Storage     Storage     `yaml:"storage"`
+	Diagnostics Diagnostics `yaml:"diagnostics"`
+	Devices     []Device    `yaml:"devices"`
+	Routes      []Route     `yaml:"routes"`
 }
 
 type Gateway struct {
@@ -46,8 +49,54 @@ type Storage struct {
 	MaxOutboxAge      Duration `yaml:"max_outbox_age"`
 }
 
+// Diagnostics configures the local, read-only operational HTTP endpoint.
+// Empty values use the safe defaults applied by Parse.
+type Diagnostics struct {
+	Address        string   `yaml:"address"`
+	RequestTimeout Duration `yaml:"request_timeout"`
+	addressSet     bool
+	timeoutSet     bool
+}
+
+const (
+	defaultDiagnosticsAddress = "127.0.0.1:8080"
+	defaultDiagnosticsTimeout = 2 * time.Second
+	maxDiagnosticsTimeout     = 10 * time.Second
+)
+
 // Duration represents a Go duration written as a YAML string, such as "168h".
 type Duration time.Duration
+
+// UnmarshalYAML tracks whether optional diagnostics fields were specified, so
+// a safe default never masks an explicitly invalid zero value.
+func (d *Diagnostics) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind != yaml.MappingNode {
+		return errors.New("diagnostics must be a mapping")
+	}
+	for index := 0; index < len(value.Content); index += 2 {
+		switch value.Content[index].Value {
+		case "address", "request_timeout":
+		default:
+			return fmt.Errorf("field %s not found in type config.Diagnostics", value.Content[index].Value)
+		}
+	}
+	var raw struct {
+		Address        *string   `yaml:"address"`
+		RequestTimeout *Duration `yaml:"request_timeout"`
+	}
+	if err := value.Decode(&raw); err != nil {
+		return err
+	}
+	if raw.Address != nil {
+		d.Address = *raw.Address
+		d.addressSet = true
+	}
+	if raw.RequestTimeout != nil {
+		d.RequestTimeout = *raw.RequestTimeout
+		d.timeoutSet = true
+	}
+	return nil
+}
 
 func (d *Duration) UnmarshalYAML(value *yaml.Node) error {
 	if value.Kind != yaml.ScalarNode || value.Tag != "!!str" {
@@ -132,11 +181,21 @@ func Parse(contents []byte) (Config, error) {
 		}
 		return Config{}, fmt.Errorf("decode YAML configuration: %w", err)
 	}
+	applyDefaults(&c)
 
 	if err := c.Validate(); err != nil {
 		return Config{}, err
 	}
 	return c, nil
+}
+
+func applyDefaults(c *Config) {
+	if !c.Diagnostics.addressSet {
+		c.Diagnostics.Address = defaultDiagnosticsAddress
+	}
+	if !c.Diagnostics.timeoutSet {
+		c.Diagnostics.RequestTimeout = Duration(defaultDiagnosticsTimeout)
+	}
 }
 
 // Validate enforces the routing contract documented in docs/configuration.md.
@@ -163,6 +222,9 @@ func (c Config) Validate() error {
 	}
 	if c.Storage.MaxOutboxAge.TimeDuration() <= 0 {
 		return errors.New("storage.max_outbox_age must be greater than zero")
+	}
+	if err := validateDiagnostics(c.Diagnostics); err != nil {
+		return err
 	}
 	if len(c.Devices) == 0 {
 		return errors.New("configuration must define at least one device")
@@ -207,6 +269,26 @@ func (c Config) Validate() error {
 	}
 	if err := validateRoutes(c.Routes, inboundTopics, commandTopics); err != nil {
 		return err
+	}
+	return nil
+}
+
+func validateDiagnostics(diagnostics Diagnostics) error {
+	host, portText, err := net.SplitHostPort(diagnostics.Address)
+	if err != nil {
+		return errors.New("diagnostics.address must be an IP literal and port")
+	}
+	ip := net.ParseIP(host)
+	if ip == nil || !ip.IsLoopback() {
+		return errors.New("diagnostics.address must use a loopback IP literal")
+	}
+	port, err := strconv.Atoi(portText)
+	if strings.Trim(portText, "0123456789") != "" || err != nil || port < 1 || port > 65535 {
+		return errors.New("diagnostics.address must include a port between 1 and 65535")
+	}
+	timeout := diagnostics.RequestTimeout.TimeDuration()
+	if timeout <= 0 || timeout > maxDiagnosticsTimeout {
+		return errors.New("diagnostics.request_timeout must be greater than zero and at most 10s")
 	}
 	return nil
 }

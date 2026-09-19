@@ -117,6 +117,7 @@ func (c *commandTestClient) Connect(ctx context.Context) error {
 	c.hasDeadline = ok && time.Until(deadline) <= testCommandTimeout && time.Until(deadline) > 0
 	return nil
 }
+func (c *commandTestClient) Connected() bool { return c.connected && !c.closed }
 func (c *commandTestClient) Subscribe(context.Context, string, gatewaymqtt.MessageHandler) error {
 	return nil
 }

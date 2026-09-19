@@ -97,6 +97,60 @@ func TestGatewayStartsEnabledInboundTopicsAndLogsAcceptedMessage(t *testing.T) {
 	}
 }
 
+func TestGatewaySnapshotCountsPayloadFreeOutcomes(t *testing.T) {
+	cfg := testConfig()
+	cfg.Devices[0].Forwarding.TelemetryToVPS = true
+	cfg.Routes = []config.Route{{
+		ID:               "to-command",
+		SourceTopic:      "devices/esp32-sala/telemetry",
+		DestinationTopic: "devices/esp32-sala/command",
+		Transform:        config.RouteTransform{Type: "json_command", CommandType: "render"},
+		QoS:              1,
+	}}
+	client := &fakeClient{}
+	queue := &fakeOutbox{result: outbox.EnqueueResult{Stored: true}}
+	gateway, err := New(cfg, client, &recordingLogger{}, queue)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := gateway.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	client.deliver("devices/esp32-sala/telemetry", []byte(`{"message_id":"b4a5bb31-1710-4f7b-a043-1b6a292d04ad","timestamp":"2026-09-18T15:00:00Z"}`))
+	client.deliver("devices/esp32-sala/event", []byte(`bad`))
+
+	snapshot := gateway.Snapshot()
+	if !snapshot.Started || snapshot.StartedAt == nil || !snapshot.MQTTConnected || snapshot.Subscriptions != 4 {
+		t.Errorf("gateway state = %#v", snapshot)
+	}
+	if snapshot.AcceptedMessages != 1 || snapshot.RejectedMessages != 1 || snapshot.LocalRoutesPublished != 1 || snapshot.LocalRoutesFailed != 0 || snapshot.OutboxStored != 1 {
+		t.Errorf("gateway counters = %#v", snapshot)
+	}
+}
+
+func TestGatewaySnapshotCountsRouteAndOutboxFailures(t *testing.T) {
+	cfg := testConfig()
+	cfg.Devices[0].Forwarding.TelemetryToVPS = true
+	cfg.Routes = []config.Route{{
+		ID: "to-command", SourceTopic: "devices/esp32-sala/telemetry", DestinationTopic: "devices/esp32-sala/command",
+		Transform: config.RouteTransform{Type: "json_command", CommandType: "render"}, QoS: 1,
+	}}
+	client := &fakeClient{publishErr: errors.New("unavailable")}
+	queue := &fakeOutbox{err: errors.New("disk full")}
+	gateway, err := New(cfg, client, &recordingLogger{}, queue)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := gateway.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	client.deliver("devices/esp32-sala/telemetry", []byte(`{"message_id":"b4a5bb31-1710-4f7b-a043-1b6a292d04ad","timestamp":"2026-09-18T15:00:00Z"}`))
+	snapshot := gateway.Snapshot()
+	if snapshot.AcceptedMessages != 1 || snapshot.RejectedMessages != 1 || snapshot.LocalRoutesFailed != 1 || snapshot.OutboxFailed != 1 {
+		t.Errorf("gateway counters = %#v", snapshot)
+	}
+}
+
 func TestGatewayRejectsMalformedInboundMessage(t *testing.T) {
 	client := &fakeClient{}
 	logger := &recordingLogger{}
@@ -383,6 +437,7 @@ type fakeClient struct {
 }
 
 func (c *fakeClient) Connect(context.Context) error { c.connected = true; return c.connectErr }
+func (c *fakeClient) Connected() bool               { return c.connected && !c.closed && c.connectErr == nil }
 func (c *fakeClient) Close()                        { c.closed = true }
 func (c *fakeClient) Subscribe(_ context.Context, topic string, handler MessageHandler) error {
 	if c.subscribeErr != nil {
@@ -412,6 +467,7 @@ type publication struct {
 type fakeOutbox struct {
 	messages []outbox.Message
 	err      error
+	result   outbox.EnqueueResult
 }
 
 func (o *fakeOutbox) Enqueue(_ context.Context, message outbox.Message) (outbox.EnqueueResult, error) {
@@ -419,7 +475,10 @@ func (o *fakeOutbox) Enqueue(_ context.Context, message outbox.Message) (outbox.
 	if o.err != nil {
 		return outbox.EnqueueResult{}, o.err
 	}
-	return outbox.EnqueueResult{Stored: true}, nil
+	if o.result == (outbox.EnqueueResult{}) {
+		return outbox.EnqueueResult{Stored: true}, nil
+	}
+	return o.result, nil
 }
 
 type recordingLogger struct {

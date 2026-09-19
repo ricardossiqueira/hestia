@@ -55,6 +55,14 @@ type Stats struct {
 	PayloadBytes int64
 }
 
+// Snapshot is a read-only view of the pending logical outbox. Expired rows
+// are excluded from its values but are deliberately not deleted: diagnostics
+// must never add writes to an otherwise idle SQLite database.
+type Snapshot struct {
+	Stats
+	OldestEnqueuedAt *time.Time
+}
+
 // EnqueueResult describes whether the message became pending work. A duplicate
 // is considered stored because it was already durably queued.
 type EnqueueResult struct {
@@ -228,6 +236,30 @@ func (s *Store) Stats(ctx context.Context) (Stats, error) {
 		return Stats{}, fmt.Errorf("commit outbox stats: %w", err)
 	}
 	return stats, nil
+}
+
+// Snapshot reads the logical capacity consumed by pending, non-expired
+// messages. Unlike Stats, it performs no DELETE, transaction, or migration.
+func (s *Store) Snapshot(ctx context.Context) (Snapshot, error) {
+	if s == nil || s.db == nil {
+		return Snapshot{}, errors.New("outbox store is closed")
+	}
+	if err := ctx.Err(); err != nil {
+		return Snapshot{}, err
+	}
+	var snapshot Snapshot
+	var oldest sql.NullInt64
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*), COALESCE(SUM(payload_bytes), 0), MIN(enqueued_at_ns)
+		FROM outbox_messages WHERE enqueued_at_ns >= ?`, s.now().Add(-s.options.MaxAge).UnixNano()).Scan(
+		&snapshot.Messages, &snapshot.PayloadBytes, &oldest,
+	); err != nil {
+		return Snapshot{}, fmt.Errorf("read outbox snapshot: %w", err)
+	}
+	if oldest.Valid {
+		value := time.Unix(0, oldest.Int64).UTC()
+		snapshot.OldestEnqueuedAt = &value
+	}
+	return snapshot, nil
 }
 
 type storedMessage struct {

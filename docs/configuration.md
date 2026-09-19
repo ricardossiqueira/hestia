@@ -29,6 +29,10 @@ storage:
   max_outbox_bytes: 33554432
   max_outbox_age: 168h
 
+diagnostics:
+  address: 127.0.0.1:8080
+  request_timeout: 2s
+
 devices:
   - id: esp32-sala
     type: esp32
@@ -71,6 +75,26 @@ O processo assina somente os tópicos inbound (`telemetry`, `state`, `event` e `
 IDs sao unicos e os topicos seguem a rota canonica exata `devices/<device-id>/<tipo>`. Assim, a unicidade dos topicos entre dispositivos decorre diretamente dos IDs unicos; nao ha topicos genericos nem curingas na configuracao.
 
 `devices[].enabled` e obrigatorio, inclusive quando o dispositivo estiver desabilitado.
+
+## Diagnóstico operacional local
+
+`diagnostics` é opcional. Quando omitido, o gateway escuta em
+`127.0.0.1:8080` e limita cada requisição a `2s`. `diagnostics.address` deve
+ser um IP literal de loopback (`127.0.0.1` ou `::1`) com porta entre 1 e 65535;
+nomes, `0.0.0.0` e interfaces da LAN são recusados. O limite de
+`request_timeout` é 10 segundos.
+
+Os únicos endpoints são locais e aceitam apenas `GET`:
+
+- `/healthz`: retorna `200` quando o gateway iniciou e a conexão MQTT está ativa; caso contrário, `503`.
+- `/status`: retorna estado MQTT, contadores desde o boot e uma visão lógica da outbox (`messages`, `payload_bytes` e o registro pendente mais antigo). Mensagens expiradas não entram nesses números; a consulta não altera a SQLite.
+
+Não são expostos IDs de dispositivos, tópicos, payloads, credenciais ou erros internos. Por exemplo, no Orange Pi:
+
+```bash
+curl --fail http://127.0.0.1:8080/healthz
+curl http://127.0.0.1:8080/status
+```
 
 ## Rotas locais genéricas
 
