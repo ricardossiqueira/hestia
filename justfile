@@ -64,3 +64,23 @@ service-status:
 # Follow service logs.
 service-logs:
     journalctl -u iot-gateway.service -f
+
+# Install the root-owned pull-based deployment agent for an Orange Pi.
+install-update-agent:
+    sudo install -m 0755 deploy/iot-gateway-update.sh /usr/local/sbin/iot-gateway-update
+    sudo install -m 0644 deploy/iot-gateway-update.service /etc/systemd/system/iot-gateway-update.service
+    sudo install -m 0644 deploy/iot-gateway-update.timer /etc/systemd/system/iot-gateway-update.timer
+    sudo systemctl daemon-reload
+
+# Check for a new main revision every five minutes and apply it safely.
+enable-update-agent:
+    sudo systemctl enable --now iot-gateway-update.timer
+
+# Display the schedule and last result of automatic deployment.
+update-agent-status:
+    systemctl status iot-gateway-update.timer
+    systemctl status iot-gateway-update.service
+
+# Follow automatic deployment logs.
+update-agent-logs:
+    journalctl -u iot-gateway-update.service -f

@@ -1,0 +1,9 @@
+[Unit]
+Description=Safely update IoT Gateway from its main branch
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+TimeoutStartSec=15min
+ExecStart=/usr/local/sbin/iot-gateway-update

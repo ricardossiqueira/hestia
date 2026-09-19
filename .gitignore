@@ -8,6 +8,7 @@ coverage.out
 # Runtime data and local secrets
 data/
 config/local.yaml
+config/gateway.yaml
 *.db
 *.db-shm
 *.db-wal

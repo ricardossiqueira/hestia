@@ -67,3 +67,79 @@ sudo -u iot-gateway /usr/local/bin/iot-gateway validate --config /etc/iot-gatewa
 just install-service
 sudo systemctl restart iot-gateway.service
 ```
+
+## CI and automatic updates
+
+`.github/workflows/ci.yml` runs formatting, tests, vet, and a Linux ARM64
+build for every push or pull request targeting `main`. The Orange Pi does not
+accept inbound connections from GitHub. Instead, `iot-gateway-update.timer`
+checks `main` every five minutes, runs tests, vet, build, and configuration
+validation locally, then restarts the gateway only after those checks pass.
+
+The updater never copies a configuration file from Git and never reads or
+writes `/etc/iot-gateway/environment`. It uses only a fast-forward Git update.
+If the new service fails to start or exits immediately, it restores the
+previous binary and unit.
+
+### One-time Git read access
+
+The updater runs Git as `orangepi`, so configure a read-only deploy key for
+this repository while logged in as that user:
+
+```bash
+mkdir -p ~/.ssh
+chmod 700 ~/.ssh
+ssh-keygen -t ed25519 -f ~/.ssh/iot-gateway-deploy -C orangepi-iot-gateway-deploy
+cat ~/.ssh/iot-gateway-deploy.pub
+```
+
+Add the public key in GitHub under the `iot-gateway` repository's **Settings**
+then **Deploy keys**. Leave write access disabled. Configure the repository to
+use that key:
+
+```bash
+nano ~/.ssh/config
+```
+
+Add this entry:
+
+```text
+Host github.com-iot-gateway
+    HostName github.com
+    User git
+    IdentityFile ~/.ssh/iot-gateway-deploy
+    IdentitiesOnly yes
+```
+
+Then secure it and change the existing clone remote:
+
+```bash
+chmod 600 ~/.ssh/config ~/.ssh/iot-gateway-deploy
+ssh -T git@github.com-iot-gateway
+cd ~/iot-gateway
+git remote set-url origin git@github.com-iot-gateway:ricardossiqueira/iot-gateway.git
+git fetch origin main
+```
+
+### Enable the update agent
+
+After updating the repository to a version containing these files, run:
+
+```bash
+cd ~/iot-gateway
+just install-update-agent
+just enable-update-agent
+sudo systemctl start iot-gateway-update.service
+just update-agent-status
+```
+
+The first start records the deployed revision. Later executions deploy only a
+new `main` revision, including future changes to the updater itself. Use `just
+update-agent-logs` to inspect an update; a failed build, invalid YAML, dirty
+worktree, or failed restart leaves the currently installed gateway running.
+
+The repository is intentionally user-writable because Git and compilation run
+as `orangepi`, but the resulting approved `main` revision is installed by root.
+Treat write access to this repository, its deploy key, and direct pushes to
+`main` as control of the Orange Pi. Keep `orangepi` limited to trusted users
+and protect `main` with the CI workflow in GitHub before enabling this agent.
