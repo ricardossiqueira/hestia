@@ -1,5 +1,6 @@
 # Binaries and test artifacts
 bin/
+/gateway
 dist/
 *.exe
 *.test
