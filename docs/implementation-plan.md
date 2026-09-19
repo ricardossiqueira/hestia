@@ -12,12 +12,15 @@
 - Criar comando de validação (`iot-gateway validate --config ...`).
 - Testes unitários da validação.
 
-## Marco 2 — MQTT local
+## Marco 2 — MQTT local (concluído)
 
-- Conectar ao Mosquitto.
-- Assinar os tópicos dos dispositivos habilitados.
-- Logar mensagens validadas e rejeitadas.
-- Publicar um comando de teste.
+- Cliente MQTT de produção baseado em Paho, com credenciais lidas apenas de variáveis de ambiente.
+- Assinatura QoS 1 somente de `telemetry`, `state`, `event` e `command-result` dos dispositivos habilitados.
+- Validação de JSON UTF-8, objeto, `message_id` UUID e `timestamp` RFC3339 em UTC antes do registro.
+- Logs estruturados de aceitação/rejeição sem payload ou segredos.
+- Publicação QoS 1, não retained, de comandos validados para dispositivos habilitados.
+- Comandos `iot-gateway run --config <arquivo>` e `iot-gateway publish-test-command --config <arquivo> --device <id>`.
+- Testes unitários com cliente MQTT falso; nenhum Mosquitto é necessário para a suite.
 
 ## Marco 3 — Outbox SQLite
 

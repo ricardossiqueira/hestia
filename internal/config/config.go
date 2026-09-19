@@ -202,6 +202,11 @@ func validateMQTT(mqtt MQTT) error {
 	if strings.TrimSpace(mqtt.ClientID) == "" {
 		return errors.New("mqtt.client_id is required")
 	}
+	usernameEnv := strings.TrimSpace(mqtt.UsernameEnv)
+	passwordEnv := strings.TrimSpace(mqtt.PasswordEnv)
+	if usernameEnv == "" || passwordEnv == "" {
+		return errors.New("mqtt.username_env and mqtt.password_env are required and must be configured together")
+	}
 	return nil
 }
 

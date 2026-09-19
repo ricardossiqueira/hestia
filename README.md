@@ -4,7 +4,7 @@ Gateway IoT leve, escrito em Go e destinado inicialmente a um Orange Pi Zero 2W 
 
 Ele recebe eventos de ESP32 pela rede local via MQTT, aplica uma política declarada em YAML, mantém uma fila persistente para encaminhamento externo e, em uma fase futura, troca dados com uma VPS por um túnel WireGuard.
 
-> Estado: fundação e documentação de arquitetura. A implementação do gateway ainda será construída por etapas.
+> Estado: configuração declarativa e integração MQTT local concluídas. A outbox SQLite e o uplink VPS ainda serão construídos por etapas.
 
 ## Objetivos do MVP
 
@@ -47,4 +47,4 @@ deploy/              unidades systemd e material de implantação futuro
 
 ## Próximo marco
 
-Implementar o processo Go mínimo que lê e valida o YAML, conecta ao Mosquitto local e registra os dispositivos configurados. Consulte o [plano de implementação](docs/implementation-plan.md).
+Implementar a outbox SQLite para persistir mensagens destinadas à VPS. Consulte o [plano de implementação](docs/implementation-plan.md).

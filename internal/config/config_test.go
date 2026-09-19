@@ -117,6 +117,11 @@ func TestParseRejectsInvalidConfiguration(t *testing.T) {
 			want: "mqtt.client_id is required",
 		},
 		{
+			name: "unpaired MQTT credential environment variables",
+			yaml: strings.Replace(validYAML, "  password_env: MQTT_PASSWORD\n", "", 1),
+			want: "mqtt.username_env and mqtt.password_env are required",
+		},
+		{
 			name: "missing SQLite path",
 			yaml: strings.Replace(validYAML, "sqlite_path: /var/lib/iot-gateway/gateway.db", "sqlite_path: ", 1),
 			want: "storage.sqlite_path is required",
@@ -258,6 +263,8 @@ const validYAML = `gateway:
 mqtt:
   url: mqtt://127.0.0.1:1883
   client_id: iot-gateway-orangepi-lab-01
+  username_env: MQTT_USER
+  password_env: MQTT_PASSWORD
 storage:
   sqlite_path: /var/lib/iot-gateway/gateway.db
   max_outbox_messages: 100

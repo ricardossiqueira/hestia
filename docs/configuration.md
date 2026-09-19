@@ -8,6 +8,8 @@ Credenciais e chaves **não** devem entrar em arquivos versionados. O YAML refer
 
 `mqtt.url` deve usar o esquema `mqtt` ou `mqtts` e declarar a porta explicitamente, por exemplo `mqtt://127.0.0.1:1883`.
 
+`mqtt.username_env` e `mqtt.password_env` são obrigatórios e devem ser declarados juntos. Os dois valores precisam existir e não podem estar vazios no ambiente do processo. O gateway nunca grava esses valores em logs.
+
 ## Exemplo
 
 ```yaml
@@ -51,6 +53,19 @@ devices:
 - Dispositivos desabilitados não recebem nem originam tráfego encaminhado.
 - A outbox deve ter limites de quantidade e idade para proteger o armazenamento.
 - Mudanças no YAML serão aplicadas por reinício no MVP; recarga sem reinício é uma melhoria futura.
+
+## Execução MQTT local
+
+Antes de iniciar, valide a configuração e exporte as credenciais configuradas no YAML:
+
+```bash
+iot-gateway validate --config config/gateway.yaml
+export MQTT_GATEWAY_USERNAME=gateway
+export MQTT_GATEWAY_PASSWORD='senha-local'
+iot-gateway run --config config/gateway.yaml
+```
+
+O processo assina somente os tópicos inbound (`telemetry`, `state`, `event` e `command_result`) dos dispositivos com `enabled: true`. O tópico `command` é exclusivamente de saída. Para testar a rota de comando, use `iot-gateway publish-test-command --config config/gateway.yaml --device esp32-sala`; ele cria um comando `gateway_test` com UUID novo, QoS 1 e `retain=false`.
 
 IDs sao unicos e os topicos seguem a rota canonica exata `devices/<device-id>/<tipo>`. Assim, a unicidade dos topicos entre dispositivos decorre diretamente dos IDs unicos; nao ha topicos genericos nem curingas na configuracao.
 

@@ -22,7 +22,7 @@ devices/<device-id>/command-result
 
 ## Payloads
 
-No MVP, mensagens devem ser JSON UTF-8. Todo payload deve incluir `timestamp` em UTC e `message_id` UUID, permitindo deduplicação futura.
+No MVP, mensagens inbound devem ser objetos JSON UTF-8. Todo payload deve incluir `timestamp` RFC3339 com sufixo `Z` (UTC) e `message_id` UUID, permitindo deduplicação futura. Mensagens que não atendem ao contrato são rejeitadas e não seguem para as próximas etapas.
 
 ```json
 {
@@ -32,6 +32,8 @@ No MVP, mensagens devem ser JSON UTF-8. Todo payload deve incluir `timestamp` em
   "humidity_pct": 61.2
 }
 ```
+
+Comandos de saída também são objetos JSON: exigem `command_id` UUID, `type` não vazio e `parameters` como objeto JSON. O gateway publica comandos apenas para um dispositivo declarado, habilitado e com tópico `command` configurado. Eles usam QoS 1 e `retain=false`.
 
 Exemplo de comando:
 
