@@ -203,6 +203,165 @@ func TestEnqueueHonorsPayloadByteLimit(t *testing.T) {
 	}
 }
 
+func TestLeaseReturnsMessagesInInsertionOrderAndPreventsConcurrentLease(t *testing.T) {
+	now := time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC)
+	options := testOptions()
+	options.Now = func() time.Time { return now }
+	store := openTestStore(t, options)
+	ctx := context.Background()
+	for _, id := range []string{"first", "second", "third"} {
+		if _, err := store.Enqueue(ctx, testMessage(id, Telemetry, []byte(`{"n":1}`))); err != nil {
+			t.Fatal(err)
+		}
+		now = now.Add(time.Nanosecond)
+	}
+
+	lease, err := store.Lease(ctx, LeaseRequest{MaxMessages: 2, MaxBytes: 1024, Duration: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lease.Token == "" || !lease.ExpiresAt.Equal(now.Add(time.Minute)) {
+		t.Fatalf("Lease() = %#v", lease)
+	}
+	if len(lease.Messages) != 2 || lease.Messages[0].MessageID != "first" || lease.Messages[1].MessageID != "second" {
+		t.Fatalf("leased messages = %#v", lease.Messages)
+	}
+	if lease.Messages[0].Attempts != 1 || lease.Messages[1].Attempts != 1 {
+		t.Fatalf("attempts = %#v", lease.Messages)
+	}
+
+	secondLease, err := store.Lease(ctx, LeaseRequest{MaxMessages: 10, MaxBytes: 1024, Duration: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(secondLease.Messages) != 1 || secondLease.Messages[0].MessageID != "third" {
+		t.Fatalf("second lease = %#v", secondLease.Messages)
+	}
+}
+
+func TestLeaseCanBeReacquiredAfterExpiry(t *testing.T) {
+	now := time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC)
+	options := testOptions()
+	options.Now = func() time.Time { return now }
+	store := openTestStore(t, options)
+	ctx := context.Background()
+	if _, err := store.Enqueue(ctx, testMessage("message", Event, []byte(`{}`))); err != nil {
+		t.Fatal(err)
+	}
+	first, err := store.Lease(ctx, LeaseRequest{MaxMessages: 1, MaxBytes: 1024, Duration: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(time.Minute)
+	second, err := store.Lease(ctx, LeaseRequest{MaxMessages: 1, MaxBytes: 1024, Duration: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Token == second.Token || len(second.Messages) != 1 || second.Messages[0].Attempts != 2 {
+		t.Fatalf("reacquired lease = %#v", second)
+	}
+}
+
+func TestAcknowledgeDeletesOnlyMessagesHeldByLease(t *testing.T) {
+	store := openTestStore(t, testOptions())
+	ctx := context.Background()
+	for _, id := range []string{"first", "second"} {
+		if _, err := store.Enqueue(ctx, testMessage(id, Telemetry, []byte(`{}`))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	lease, err := store.Lease(ctx, LeaseRequest{MaxMessages: 2, MaxBytes: 1024, Duration: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrong, err := store.Acknowledge(ctx, "wrong-token", []string{"first"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wrong.Deleted != 0 || store.messageIDs(t) != "first,second" {
+		t.Fatalf("wrong acknowledgement = %#v", wrong)
+	}
+	acknowledged, err := store.Acknowledge(ctx, lease.Token, []string{"first"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if acknowledged.Deleted != 1 || store.messageIDs(t) != "second" {
+		t.Fatalf("acknowledgement = %#v, IDs = %q", acknowledged, store.messageIDs(t))
+	}
+}
+
+func TestStaleLeaseAcknowledgementCannotDeleteReacquiredMessage(t *testing.T) {
+	now := time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC)
+	options := testOptions()
+	options.Now = func() time.Time { return now }
+	store := openTestStore(t, options)
+	ctx := context.Background()
+	if _, err := store.Enqueue(ctx, testMessage("message", Event, []byte(`{}`))); err != nil {
+		t.Fatal(err)
+	}
+	first, err := store.Lease(ctx, LeaseRequest{MaxMessages: 1, MaxBytes: 1024, Duration: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(time.Minute)
+	second, err := store.Lease(ctx, LeaseRequest{MaxMessages: 1, MaxBytes: 1024, Duration: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale, err := store.Acknowledge(ctx, first.Token, []string{"message"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stale.Deleted != 0 || store.messageIDs(t) != "message" {
+		t.Fatalf("stale acknowledgement = %#v", stale)
+	}
+	current, err := store.Acknowledge(ctx, second.Token, []string{"message"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.Deleted != 1 || store.messageIDs(t) != "" {
+		t.Fatalf("current acknowledgement = %#v", current)
+	}
+}
+
+func TestReleaseDelaysLeasedMessagesUntilNextAttempt(t *testing.T) {
+	now := time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC)
+	options := testOptions()
+	options.Now = func() time.Time { return now }
+	store := openTestStore(t, options)
+	ctx := context.Background()
+	if _, err := store.Enqueue(ctx, testMessage("message", State, []byte(`{}`))); err != nil {
+		t.Fatal(err)
+	}
+	lease, err := store.Lease(ctx, LeaseRequest{MaxMessages: 1, MaxBytes: 1024, Duration: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	released, err := store.Release(ctx, lease.Token, now.Add(2*time.Minute), "unavailable")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if released != 1 {
+		t.Fatalf("Release() = %d, want 1", released)
+	}
+	now = now.Add(time.Minute)
+	beforeRetry, err := store.Lease(ctx, LeaseRequest{MaxMessages: 1, MaxBytes: 1024, Duration: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(beforeRetry.Messages) != 0 {
+		t.Fatalf("lease before retry = %#v", beforeRetry.Messages)
+	}
+	now = now.Add(time.Minute)
+	afterRetry, err := store.Lease(ctx, LeaseRequest{MaxMessages: 1, MaxBytes: 1024, Duration: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(afterRetry.Messages) != 1 || afterRetry.Messages[0].Attempts != 2 {
+		t.Fatalf("lease after retry = %#v", afterRetry.Messages)
+	}
+}
+
 func openTestStore(t *testing.T, options Options) *Store {
 	t.Helper()
 	store, err := Open(context.Background(), filepath.Join(t.TempDir(), "gateway.db"), options)

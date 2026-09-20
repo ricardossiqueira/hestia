@@ -4,8 +4,10 @@ package outbox
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
 	"embed"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -61,6 +63,37 @@ type Stats struct {
 type Snapshot struct {
 	Stats
 	OldestEnqueuedAt *time.Time
+}
+
+// LeaseRequest bounds a batch temporarily reserved for one uplink attempt.
+// MaxBytes applies to payload bytes, matching the storage accounting rules.
+type LeaseRequest struct {
+	MaxMessages int
+	MaxBytes    int64
+	Duration    time.Duration
+}
+
+// LeasedMessage contains a pending record and immutable delivery metadata.
+// Sequence is the local insertion order, not a cross-gateway ordering key.
+type LeasedMessage struct {
+	Message
+	Sequence   int64
+	EnqueuedAt time.Time
+	Attempts   int
+}
+
+// Lease is an exclusive, time-bounded reservation of outbox messages. A lease
+// does not remove messages; only Acknowledge can do that.
+type Lease struct {
+	Token     string
+	ExpiresAt time.Time
+	Messages  []LeasedMessage
+}
+
+// AcknowledgeResult reports how many records were durably removed. A count of
+// zero is valid when a stale or unknown lease is acknowledged.
+type AcknowledgeResult struct {
+	Deleted int
 }
 
 // EnqueueResult describes whether the message became pending work. A duplicate
@@ -262,6 +295,174 @@ func (s *Store) Snapshot(ctx context.Context) (Snapshot, error) {
 	return snapshot, nil
 }
 
+// Lease reserves the oldest eligible records for an external delivery attempt.
+// Expired leases become eligible again. The operation is transactional, so two
+// callers cannot lease the same record before the first lease expires.
+func (s *Store) Lease(ctx context.Context, request LeaseRequest) (Lease, error) {
+	if s == nil || s.db == nil {
+		return Lease{}, errors.New("outbox store is closed")
+	}
+	if err := ctx.Err(); err != nil {
+		return Lease{}, err
+	}
+	if err := validateLeaseRequest(request); err != nil {
+		return Lease{}, err
+	}
+
+	now := s.now()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Lease{}, fmt.Errorf("begin outbox lease: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM outbox_messages WHERE enqueued_at_ns < ?`, now.Add(-s.options.MaxAge).UnixNano()); err != nil {
+		return Lease{}, fmt.Errorf("expire outbox messages: %w", err)
+	}
+
+	rows, err := tx.QueryContext(ctx, `SELECT id, message_id, device_id, topic, kind, payload, payload_bytes, enqueued_at_ns, attempt_count
+		FROM outbox_messages
+		WHERE lease_until_ns <= ? AND next_attempt_ns <= ?
+		ORDER BY id`, now.UnixNano(), now.UnixNano())
+	if err != nil {
+		return Lease{}, fmt.Errorf("list leasable outbox messages: %w", err)
+	}
+	defer rows.Close()
+
+	lease := Lease{Messages: make([]LeasedMessage, 0, request.MaxMessages)}
+	var payloadBytes int64
+	for rows.Next() {
+		var message LeasedMessage
+		var enqueuedAtNS int64
+		var storedBytes int64
+		if err := rows.Scan(&message.Sequence, &message.MessageID, &message.DeviceID, &message.Topic, &message.Kind, &message.Payload, &storedBytes, &enqueuedAtNS, &message.Attempts); err != nil {
+			return Lease{}, fmt.Errorf("read leasable outbox message: %w", err)
+		}
+		if len(lease.Messages) == 0 && storedBytes > request.MaxBytes {
+			return Lease{}, fmt.Errorf("next outbox message exceeds lease max bytes")
+		}
+		if payloadBytes+storedBytes > request.MaxBytes || len(lease.Messages) == request.MaxMessages {
+			break
+		}
+		message.EnqueuedAt = time.Unix(0, enqueuedAtNS).UTC()
+		lease.Messages = append(lease.Messages, message)
+		payloadBytes += storedBytes
+	}
+	if err := rows.Err(); err != nil {
+		return Lease{}, fmt.Errorf("list leasable outbox messages: %w", err)
+	}
+	if len(lease.Messages) == 0 {
+		if err := tx.Commit(); err != nil {
+			return Lease{}, fmt.Errorf("commit empty outbox lease: %w", err)
+		}
+		return lease, nil
+	}
+
+	lease.Token, err = newLeaseToken()
+	if err != nil {
+		return Lease{}, err
+	}
+	lease.ExpiresAt = now.Add(request.Duration)
+	for index := range lease.Messages {
+		message := &lease.Messages[index]
+		result, err := tx.ExecContext(ctx, `UPDATE outbox_messages
+			SET lease_token = ?, lease_until_ns = ?, attempt_count = attempt_count + 1
+			WHERE id = ? AND lease_until_ns <= ? AND next_attempt_ns <= ?`,
+			lease.Token, lease.ExpiresAt.UnixNano(), message.Sequence, now.UnixNano(), now.UnixNano())
+		if err != nil {
+			return Lease{}, fmt.Errorf("reserve outbox message: %w", err)
+		}
+		updated, err := result.RowsAffected()
+		if err != nil {
+			return Lease{}, fmt.Errorf("count reserved outbox message: %w", err)
+		}
+		if updated != 1 {
+			return Lease{}, errors.New("outbox lease lost before reservation")
+		}
+		message.Attempts++
+	}
+	if err := tx.Commit(); err != nil {
+		return Lease{}, fmt.Errorf("commit outbox lease: %w", err)
+	}
+	return lease, nil
+}
+
+// Acknowledge permanently removes only records reserved by token. Callers may
+// acknowledge a subset, which is necessary when a future protocol returns an
+// explicit list of accepted message IDs.
+func (s *Store) Acknowledge(ctx context.Context, token string, messageIDs []string) (AcknowledgeResult, error) {
+	if s == nil || s.db == nil {
+		return AcknowledgeResult{}, errors.New("outbox store is closed")
+	}
+	if err := ctx.Err(); err != nil {
+		return AcknowledgeResult{}, err
+	}
+	if strings.TrimSpace(token) == "" {
+		return AcknowledgeResult{}, errors.New("outbox lease token is required")
+	}
+	if len(messageIDs) == 0 {
+		return AcknowledgeResult{}, errors.New("at least one outbox message ID is required")
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return AcknowledgeResult{}, fmt.Errorf("begin outbox acknowledgement: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	result := AcknowledgeResult{}
+	seen := make(map[string]struct{}, len(messageIDs))
+	for _, messageID := range messageIDs {
+		if strings.TrimSpace(messageID) == "" {
+			return AcknowledgeResult{}, errors.New("outbox message ID is required")
+		}
+		if _, exists := seen[messageID]; exists {
+			return AcknowledgeResult{}, fmt.Errorf("duplicate outbox message ID %q in acknowledgement", messageID)
+		}
+		seen[messageID] = struct{}{}
+		deleted, err := tx.ExecContext(ctx, `DELETE FROM outbox_messages WHERE message_id = ? AND lease_token = ?`, messageID, token)
+		if err != nil {
+			return AcknowledgeResult{}, fmt.Errorf("acknowledge outbox message: %w", err)
+		}
+		count, err := deleted.RowsAffected()
+		if err != nil {
+			return AcknowledgeResult{}, fmt.Errorf("count acknowledged outbox message: %w", err)
+		}
+		result.Deleted += int(count)
+	}
+	if err := tx.Commit(); err != nil {
+		return AcknowledgeResult{}, fmt.Errorf("commit outbox acknowledgement: %w", err)
+	}
+	return result, nil
+}
+
+// Release ends a lease without deleting its records and schedules their next
+// attempt. errorCode is metadata for diagnostics and must not contain a
+// payload, credential, or server response body.
+func (s *Store) Release(ctx context.Context, token string, nextAttempt time.Time, errorCode string) (int, error) {
+	if s == nil || s.db == nil {
+		return 0, errors.New("outbox store is closed")
+	}
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	if strings.TrimSpace(token) == "" {
+		return 0, errors.New("outbox lease token is required")
+	}
+	if nextAttempt.IsZero() {
+		return 0, errors.New("next outbox attempt time is required")
+	}
+	result, err := s.db.ExecContext(ctx, `UPDATE outbox_messages
+		SET lease_token = '', lease_until_ns = 0, next_attempt_ns = ?, last_error_code = ?
+		WHERE lease_token = ?`, nextAttempt.UTC().UnixNano(), errorCode, token)
+	if err != nil {
+		return 0, fmt.Errorf("release outbox lease: %w", err)
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("count released outbox lease: %w", err)
+	}
+	return int(count), nil
+}
+
 type storedMessage struct {
 	id           int64
 	kind         Kind
@@ -329,6 +530,19 @@ func validateOptions(options Options) error {
 	return nil
 }
 
+func validateLeaseRequest(request LeaseRequest) error {
+	if request.MaxMessages <= 0 {
+		return errors.New("lease max messages must be greater than zero")
+	}
+	if request.MaxBytes <= 0 {
+		return errors.New("lease max bytes must be greater than zero")
+	}
+	if request.Duration <= 0 {
+		return errors.New("lease duration must be greater than zero")
+	}
+	return nil
+}
+
 func normalizeOptions(options Options) Options {
 	if options.Now == nil {
 		options.Now = time.Now
@@ -366,6 +580,14 @@ func priority(kind Kind) int {
 }
 
 func (s *Store) now() time.Time { return s.options.Now().UTC() }
+
+func newLeaseToken() (string, error) {
+	var value [16]byte
+	if _, err := rand.Read(value[:]); err != nil {
+		return "", fmt.Errorf("create outbox lease token: %w", err)
+	}
+	return hex.EncodeToString(value[:]), nil
+}
 
 func migrate(ctx context.Context, db *sql.DB) error {
 	if _, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (name TEXT PRIMARY KEY)`); err != nil {

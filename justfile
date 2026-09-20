@@ -25,6 +25,18 @@ vet:
 # Run all non-mutating local checks.
 check: test vet
 
+# Validate the versioned Protobuf API. Requires Buf 1.73.0; see docs/uplink-v1.md.
+proto-lint:
+    buf lint
+
+# Regenerate checked-in Go Protobuf and gRPC stubs from api/proto.
+proto-generate:
+    buf generate
+
+# Regenerate stubs and fail if the working tree is no longer reproducible.
+proto-check: proto-lint proto-generate
+    git diff --exit-code -- api/gen/go
+
 # Build the gateway binary for the current platform.
 build:
     go build -o bin/iot-gateway ./cmd/gateway

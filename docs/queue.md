@@ -15,9 +15,10 @@ O gateway persiste `telemetry`, `state` e `event` somente quando o respectivo
 campo `forwarding.*_to_vps` esta habilitado no YAML. `command_result` nao entra
 na outbox nesta etapa porque nao possui uma autorizacao declarativa propria.
 
-Nao existe ainda transporte para a VPS, leitor da fila, lease, confirmacao ou
-retentativa. Esses elementos pertencem ao uplink do Marco 5. A fila atual
-prepara dados duraveis para esse consumidor futuro, sem depender dele.
+Nao existe ainda transporte para a VPS. A fila ja oferece ao futuro consumidor
+um lease exclusivo e temporario, leitura ordenada, confirmacao explicita por
+`message_id` e reagendamento de falhas. Esses recursos nao abrem conexao de
+rede e nao dependem de WireGuard, gRPC ou de uma VPS disponivel.
 
 ## Garantias
 
@@ -30,6 +31,12 @@ prepara dados duraveis para esse consumidor futuro, sem depender dele.
   leitura devera usar essa ordem.
 - A semantica planejada para o uplink e pelo menos uma vez. A VPS devera
   deduplicar por `gateway_id` e `message_id`.
+- Um registro so e removido por uma confirmacao que contenha seu `message_id`
+  e o token do lease que o reservou.
+- Um lease expirado pode ser adquirido novamente; uma confirmacao atrasada do
+  lease anterior nao remove o registro reacquirido.
+- Uma falha de entrega libera o lease e define o proximo horario elegivel. A
+  politica de backoff pertence ao cliente gRPC futuro.
 
 ## Limites e descarte
 
@@ -46,3 +53,10 @@ registra somente metadados do resultado, nunca o payload.
 Falha ou saturacao da outbox nao bloqueia as rotas MQTT locais. Assim, uma
 indisponibilidade de armazenamento ou da futura VPS nao interrompe o controle
 na rede local.
+
+## Contrato com a VPS
+
+O protocolo gRPC/Protobuf de envio, confirmacao, retentativa e comando remoto
+esta definido em [uplink-v1.md](uplink-v1.md). Aquele documento e uma
+especificacao futura: esta etapa ainda nao abre conexao com a VPS nem altera o
+funcionamento MQTT local.

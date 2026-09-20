@@ -17,6 +17,15 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      - uses: bufbuild/buf-action@v1
+        with:
+          version: "1.73.0"
+          setup_only: true
+      - name: Protobuf contract
+        run: |
+          buf lint
+          buf generate
+          git diff --exit-code -- api/gen/go
       - name: Format check
         run: test -z "$(gofmt -l .)"
       - name: Test

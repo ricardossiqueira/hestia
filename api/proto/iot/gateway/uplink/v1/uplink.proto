@@ -1,0 +1,108 @@
+syntax = "proto3";
+
+package iot.gateway.uplink.v1;
+
+option go_package = "github.com/ricardossiqueira/iot-gateway/api/gen/go/iot/gateway/uplink/v1;uplinkv1";
+
+import "google/protobuf/timestamp.proto";
+
+// UplinkService is implemented by the VPS. All RPCs are initiated by a
+// gateway through WireGuard and mutually authenticated TLS.
+service UplinkService {
+  // PushBatch durably ingests an ordered group of outbox records.
+  rpc PushBatch(PushBatchRequest) returns (PushBatchResponse);
+
+  // PullCommands uses a bounded long-poll request to obtain a leased window.
+  rpc PullCommands(PullCommandsRequest) returns (PullCommandsResponse);
+
+  // ReportCommandStatus durably records one idempotent command transition.
+  rpc ReportCommandStatus(ReportCommandStatusRequest)
+      returns (ReportCommandStatusResponse);
+}
+
+message PushBatchRequest {
+  string gateway_id = 1;
+  string batch_id = 2;
+  google.protobuf.Timestamp sent_at = 3;
+  repeated OutboundMessage messages = 4;
+}
+
+message OutboundMessage {
+  string message_id = 1;
+  uint64 sequence = 2;
+  string device_id = 3;
+  MessageKind kind = 4;
+  string topic = 5;
+  google.protobuf.Timestamp enqueued_at = 6;
+
+  // UTF-8 bytes containing exactly one JSON object. The payload remains
+  // domain-opaque to the gateway and VPS transport.
+  bytes payload_json = 7;
+}
+
+enum MessageKind {
+  MESSAGE_KIND_UNSPECIFIED = 0;
+  MESSAGE_KIND_TELEMETRY = 1;
+  MESSAGE_KIND_STATE = 2;
+  MESSAGE_KIND_EVENT = 3;
+}
+
+message PushBatchResponse {
+  string batch_id = 1;
+  repeated string acknowledged_message_ids = 2;
+  google.protobuf.Timestamp received_at = 3;
+}
+
+message PullCommandsRequest {
+  string gateway_id = 1;
+  uint32 limit = 2;
+  uint32 wait_seconds = 3;
+}
+
+message PullCommandsResponse {
+  string delivery_id = 1;
+  google.protobuf.Timestamp lease_expires_at = 2;
+  bool has_more = 3;
+  repeated RemoteCommand commands = 4;
+}
+
+message RemoteCommand {
+  string command_id = 1;
+  string device_id = 2;
+  string type = 3;
+
+  // UTF-8 bytes containing exactly one JSON object.
+  bytes parameters_json = 4;
+
+  google.protobuf.Timestamp issued_at = 5;
+  google.protobuf.Timestamp expires_at = 6;
+}
+
+message ReportCommandStatusRequest {
+  string gateway_id = 1;
+  string status_id = 2;
+  string delivery_id = 3;
+  string command_id = 4;
+  CommandStatus status = 5;
+  google.protobuf.Timestamp occurred_at = 6;
+
+  // Required only when status is COMMAND_STATUS_REJECTED.
+  string rejection_code = 7;
+
+  // Required only when status is COMMAND_STATUS_RESULT. It contains one
+  // UTF-8 JSON object published by the device, including command_id.
+  bytes result_json = 8;
+}
+
+enum CommandStatus {
+  COMMAND_STATUS_UNSPECIFIED = 0;
+  COMMAND_STATUS_RECEIVED = 1;
+  COMMAND_STATUS_REJECTED = 2;
+  COMMAND_STATUS_PUBLISHED = 3;
+  COMMAND_STATUS_RESULT = 4;
+}
+
+message ReportCommandStatusResponse {
+  string status_id = 1;
+  google.protobuf.Timestamp received_at = 2;
+}
