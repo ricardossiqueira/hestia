@@ -120,12 +120,16 @@ type Device struct {
 	Forwarding Forwarding `yaml:"forwarding"`
 }
 
+// Topics uses omitempty on encode only (Parse never encodes) so that
+// internal/admin can marshal a device with only the topics it actually
+// uses, matching docs/device-onboarding.md's own examples instead of
+// emitting all five keys with empty strings.
 type Topics struct {
-	Telemetry     string `yaml:"telemetry"`
-	State         string `yaml:"state"`
-	Event         string `yaml:"event"`
-	Command       string `yaml:"command"`
-	CommandResult string `yaml:"command_result"`
+	Telemetry     string `yaml:"telemetry,omitempty"`
+	State         string `yaml:"state,omitempty"`
+	Event         string `yaml:"event,omitempty"`
+	Command       string `yaml:"command,omitempty"`
+	CommandResult string `yaml:"command_result,omitempty"`
 }
 
 type Forwarding struct {

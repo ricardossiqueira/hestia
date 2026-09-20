@@ -1,0 +1,78 @@
+{{define "index.html"}}
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>iot-gateway admin</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
+  h1 { font-size: 1.4rem; }
+  h2 { font-size: 1.1rem; margin-top: 2rem; }
+  table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
+  td, th { padding: 0.4rem 0.5rem; border-bottom: 1px solid #ddd; text-align: left; font-size: 0.95rem; }
+  .flash { background: #eef6ee; border: 1px solid #9c9; padding: 1rem; margin-bottom: 1rem; border-radius: 4px; }
+  .error { background: #fdecec; border: 1px solid #e99; padding: 1rem; margin-bottom: 1rem; border-radius: 4px; }
+  code, pre { background: #f4f4f4; padding: 0.15rem 0.35rem; border-radius: 3px; font-size: 0.9rem; }
+  pre { padding: 0.75rem; overflow-x: auto; }
+  fieldset { border: 1px solid #ccc; border-radius: 4px; margin-top: 0.5rem; }
+  label { margin-right: 1rem; display: inline-block; }
+  button { cursor: pointer; }
+  .remove-btn { background: none; border: 1px solid #c66; color: #c66; border-radius: 3px; padding: 0.2rem 0.5rem; }
+</style>
+</head>
+<body>
+<h1>iot-gateway &mdash; dispositivos</h1>
+
+{{if .Flash}}
+<div class="flash">
+  <p><strong>Dispositivo &quot;{{.Flash.DeviceID}}&quot; provisionado.</strong>
+  Copie no <code>secrets.h</code> do firmware &mdash; esta senha não fica salva em nenhum outro lugar:</p>
+  <pre>#define MQTT_USERNAME "{{.Flash.DeviceID}}"
+#define MQTT_PASSWORD "{{.Flash.Password}}"</pre>
+</div>
+{{end}}
+
+{{if .Error}}
+<div class="error"><strong>Erro:</strong> {{.Error}}</div>
+{{end}}
+
+<table>
+<tr><th>ID</th><th>Tópicos</th><th>Habilitado</th><th></th></tr>
+{{range .Devices}}
+<tr>
+  <td>{{.ID}}</td>
+  <td>{{.TopicsSummary}}</td>
+  <td>{{if .Enabled}}sim{{else}}não{{end}}</td>
+  <td>
+    <form method="post" action="/devices/{{.ID}}/remove"
+          onsubmit="return confirm('Remover {{.ID}}? Isso revoga a credencial MQTT dele.');">
+      <button type="submit" class="remove-btn">Remover</button>
+    </form>
+  </td>
+</tr>
+{{else}}
+<tr><td colspan="4">Nenhum dispositivo cadastrado.</td></tr>
+{{end}}
+</table>
+
+<h2>Cadastrar dispositivo</h2>
+<form method="post" action="/devices">
+  <p>
+    <label for="device_id">device_id</label>
+    <input type="text" id="device_id" name="device_id" pattern="[a-z0-9][a-z0-9-]*" required
+           placeholder="esp32c3-led">
+  </p>
+  <fieldset>
+    <legend>Tópicos</legend>
+    <label><input type="checkbox" name="topics" value="telemetry"> telemetry</label>
+    <label><input type="checkbox" name="topics" value="state"> state</label>
+    <label><input type="checkbox" name="topics" value="event"> event</label>
+    <label><input type="checkbox" name="topics" value="command"> command</label>
+    <label><input type="checkbox" name="topics" value="command_result"> command_result</label>
+  </fieldset>
+  <p><button type="submit">Cadastrar</button></p>
+</form>
+</body>
+</html>
+{{end}}

@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ricardossiqueira/iot-gateway/internal/admin"
 	"github.com/ricardossiqueira/iot-gateway/internal/config"
 	"github.com/ricardossiqueira/iot-gateway/internal/diagnostics"
 	gatewaymqtt "github.com/ricardossiqueira/iot-gateway/internal/mqtt"
@@ -25,6 +26,8 @@ import (
 const (
 	testCommandTimeout         = 10 * time.Second
 	diagnosticsShutdownTimeout = 5 * time.Second
+	adminShutdownTimeout       = 5 * time.Second
+	adminRequestTimeout        = 30 * time.Second
 )
 
 func main() {
@@ -45,6 +48,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runHealthcheck(args[1:], stdout, stderr)
 	case "publish-test-command":
 		return runPublishTestCommand(args[1:], stderr, gatewaymqtt.NewPahoClient)
+	case "admin":
+		return runAdmin(args[1:], stderr)
 	default:
 		printUsage(stderr)
 		return 2
@@ -209,6 +214,69 @@ func runGateway(args []string, stderr io.Writer) int {
 	return 0
 }
 
+// runAdmin serves the LAN-facing device registration UI. It is meant to run
+// under its own systemd unit (deploy/iot-gateway-admin.service), as root -
+// see internal/admin's package doc and docs/decisions.md ADR-008 for why
+// this cannot live inside the sandboxed `run` command above.
+func runAdmin(args []string, stderr io.Writer) int {
+	flags := flag.NewFlagSet("admin", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	configPath := flags.String("config", "config/gateway.yaml", "path to the YAML configuration file")
+	listen := flags.String("listen", "0.0.0.0:8081", "address the admin UI listens on")
+	provisionScript := flags.String("provision-script", "deploy/mosquitto-provision-device.sh", "path to the Mosquitto provisioning script")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if flags.NArg() != 0 {
+		printUsage(stderr)
+		return 2
+	}
+
+	// Credentials are env-only, never a flag: a flag value would leak into
+	// `ps` output and shell history the way the MQTT credentials
+	// (username_env/password_env) already avoid for the exact same reason.
+	username := os.Getenv("IOT_GATEWAY_ADMIN_USERNAME")
+	password := os.Getenv("IOT_GATEWAY_ADMIN_PASSWORD")
+	if username == "" || password == "" {
+		fmt.Fprintln(stderr, "IOT_GATEWAY_ADMIN_USERNAME and IOT_GATEWAY_ADMIN_PASSWORD must both be set")
+		return 1
+	}
+
+	if _, err := config.Load(*configPath); err != nil {
+		fmt.Fprintf(stderr, "configuration is invalid: %v\n", err)
+		return 1
+	}
+
+	logger := slog.New(slog.NewTextHandler(stderr, nil))
+	server, err := admin.New(admin.Config{
+		Address:         *listen,
+		ConfigPath:      *configPath,
+		ProvisionScript: *provisionScript,
+		Credentials:     admin.Credentials{Username: username, Password: password},
+		RequestTimeout:  adminRequestTimeout,
+	}, logger)
+	if err != nil {
+		fmt.Fprintf(stderr, "admin setup failed: %v\n", err)
+		return 1
+	}
+	if err := server.Start(); err != nil {
+		fmt.Fprintf(stderr, "admin failed to start: %v\n", err)
+		return 1
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	logger.Info("admin UI running", "listen", *listen)
+	<-ctx.Done()
+	logger.Info("admin UI stopping")
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), adminShutdownTimeout)
+	defer cancel()
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		logger.Error("admin shutdown failed", "error", err)
+	}
+	return 0
+}
+
 func runPublishTestCommand(args []string, stderr io.Writer, newClient mqttClientFactory) int {
 	flags := flag.NewFlagSet("publish-test-command", flag.ContinueOnError)
 	flags.SetOutput(stderr)
@@ -291,5 +359,5 @@ func openOutbox(cfg config.Config) (*outbox.Store, error) {
 }
 
 func printUsage(stderr io.Writer) {
-	fmt.Fprintln(stderr, "usage: iot-gateway <validate|run|healthcheck|publish-test-command> --config <path>")
+	fmt.Fprintln(stderr, "usage: iot-gateway <validate|run|healthcheck|publish-test-command|admin> --config <path>")
 }

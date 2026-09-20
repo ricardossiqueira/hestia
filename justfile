@@ -93,6 +93,28 @@ provision-device device +topics:
 remove-device device:
     sudo deploy/mosquitto-provision-device.sh --remove {{device}}
 
+# Install or update the admin UI systemd unit. Create
+# /etc/iot-gateway/admin-environment with IOT_GATEWAY_ADMIN_USERNAME and
+# IOT_GATEWAY_ADMIN_PASSWORD before enabling it - see deploy/README.md.
+install-admin-service:
+    go build -o bin/iot-gateway ./cmd/gateway
+    sudo install -m 0755 bin/iot-gateway /usr/local/bin/iot-gateway
+    sudo install -m 0755 deploy/mosquitto-provision-device.sh /usr/local/bin/mosquitto-provision-device
+    sudo install -m 0644 deploy/iot-gateway-admin.service /etc/systemd/system/iot-gateway-admin.service
+    sudo systemctl daemon-reload
+
+# Enable the admin UI now and on subsequent boots.
+enable-admin-service:
+    sudo systemctl enable --now iot-gateway-admin.service
+
+# Display admin UI service status.
+admin-status:
+    systemctl status iot-gateway-admin.service
+
+# Follow admin UI logs.
+admin-logs:
+    journalctl -u iot-gateway-admin.service -f
+
 # Install the root-owned pull-based deployment agent for an Orange Pi.
 install-update-agent:
     sudo install -m 0755 deploy/iot-gateway-update.sh /usr/local/sbin/iot-gateway-update
