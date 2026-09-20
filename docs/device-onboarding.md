@@ -6,8 +6,11 @@ do broker, MQTT) já é conhecido — ver [device-connection.md](device-connecti
 para o *porquê* de cada peça. Este documento substitui a seção "Cadastro de
 um ESP32" antes existente em [configuration.md](configuration.md).
 
-O provisionamento no Mosquitto (passo 2) é automatizado por script; o
-restante ainda é manual.
+A UI de admin (`http://<orange-pi>:8081/`, ver `deploy/README.md`) faz os
+passos 2 e 3 abaixo de uma vez (credencial/ACL no Mosquitto, entrada no
+`gateway.yaml`, restart do serviço) e é o caminho recomendado no dia a dia.
+Os passos manuais abaixo continuam valendo para depuração ou quando a UI de
+admin está fora do ar.
 
 ## 1. Escolher o `device_id`
 

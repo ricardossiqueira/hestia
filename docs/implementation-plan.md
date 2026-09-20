@@ -28,6 +28,16 @@
 - Transformação genérica `json_command`, configurada inteiramente por YAML.
 - QoS e retenção definidos por rota; sem conhecimento de domínios de dispositivos no gateway.
 
+## Extensão local — UI de admin (concluído)
+
+- Serviço systemd separado e privilegiado (`iot-gateway-admin.service`),
+  fora do sandbox do gateway (ADR-008 em `decisions.md`).
+- Registro, listagem e remoção de dispositivos via web: credencial/ACL no
+  Mosquitto (chamando `deploy/mosquitto-provision-device.sh`), edição do
+  `gateway.yaml` preservando comentários/formatação, restart do gateway.
+- Autenticação HTTP Basic com credencial única vinda de variáveis de
+  ambiente; sem TLS — uso restrito à LAN confiável.
+
 ## Marco 3 — Outbox SQLite
 
 - Criar schema e repositório da fila.

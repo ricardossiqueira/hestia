@@ -14,6 +14,21 @@
 - Usar permissões restritivas nos arquivos de configuração locais.
 - As chaves WireGuard futuras pertencem ao sistema operacional e não ao repositório.
 
+## UI de admin (registro de dispositivos)
+
+`iot-gateway-admin.service` (ver `deploy/README.md` e ADR-008 em
+`decisions.md`) é um serviço root separado, deliberadamente fora do sandbox
+do gateway, porque precisa escrever `/etc/mosquitto/*` e `gateway.yaml` e
+chamar `systemctl`. Limitações aceitas no MVP, mesma categoria das demais
+desta página:
+
+- Sem TLS: HTTP puro, só dentro da LAN confiável — nunca exponha essa porta
+  além dela.
+- Uma única credencial HTTP Basic Auth compartilhada, vinda de variáveis de
+  ambiente — sem contas por operador.
+- Sem proteção CSRF (um único operador confiável, sem modelo de sessão).
+- Sem limite de tentativas de login.
+
 ## A fazer antes de expor a VPS
 
 - TLS ou túnel autenticado validado de ponta a ponta.

@@ -158,3 +158,48 @@ as `orangepi`, but the resulting approved `main` revision is installed by root.
 Treat write access to this repository, its deploy key, and direct pushes to
 `main` as control of the Orange Pi. Keep `orangepi` limited to trusted users
 and protect `main` with the CI workflow in GitHub before enabling this agent.
+
+## Admin UI (device registration)
+
+`iot-gateway-admin.service` serves a small LAN-facing web UI
+(`internal/admin`) to register, list, and remove devices without SSH-ing
+in: it creates the Mosquitto credential/ACL (by calling
+`deploy/mosquitto-provision-device.sh` under the hood), writes the entry to
+`gateway.yaml`, and restarts `iot-gateway.service` to apply it. See
+`docs/decisions.md` ADR-008 for why this runs as its **own** root service
+instead of a route inside the sandboxed gateway process, and
+`docs/mosquitto-device-provisioning.md` for what it automates underneath.
+
+**LAN-trusted only. Never port-forward or expose this to the internet.**
+It listens on `0.0.0.0:8081` in plain HTTP (no TLS) behind a single shared
+HTTP Basic Auth credential - acceptable inside a trusted home LAN, nowhere
+else.
+
+Generate a strong Basic Auth password and create its environment file:
+
+```bash
+openssl rand -base64 24
+sudo install -d -m 0750 -o root -g root /etc/iot-gateway
+sudoedit /etc/iot-gateway/admin-environment
+```
+
+```ini
+IOT_GATEWAY_ADMIN_USERNAME=admin
+IOT_GATEWAY_ADMIN_PASSWORD=the-generated-password
+```
+
+```bash
+sudo chown root:root /etc/iot-gateway/admin-environment
+sudo chmod 600 /etc/iot-gateway/admin-environment
+```
+
+Install and enable:
+
+```bash
+just install-admin-service
+just enable-admin-service
+just admin-status
+```
+
+Open `http://<orange-pi-lan-ip>:8081/` from a browser on the same LAN,
+logging in with the credential above.
