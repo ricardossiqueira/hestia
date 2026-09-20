@@ -8,9 +8,26 @@
 
 ## Premissas
 
-- O Orange Pi possui IP estável ou hostname resolvível na rede local.
+- O Orange Pi possui IP fixo configurado localmente nele mesmo (não uma
+  reserva DHCP no roteador — não há acesso à configuração do roteador nesta
+  rede).
 - ESP32 e Orange Pi estão na mesma rede Wi-Fi/LAN inicial.
 - O armazenamento usa cartão microSD; minimizar escrita excessiva é importante.
+
+## Resolução de nome (mDNS)
+
+Os ESP32 descobrem o broker via mDNS (`<hostname>.local`), não por IP fixo
+no firmware — ver [device-connection.md](device-connection.md). Isso exige,
+no Orange Pi:
+
+- `avahi-daemon` instalado e habilitado (Armbian minimal não traz por
+  padrão: `sudo apt install avahi-daemon`).
+- Hostname do sistema operacional alinhado ao `gateway.id` da configuração
+  (ex.: `orangepi-lab-01`), para que `orangepi-lab-01.local` resolva de
+  forma previsível.
+
+Isso ainda não está automatizado em nenhum script de deploy; é um passo
+manual de setup do Orange Pi.
 
 ## Diretrizes operacionais
 

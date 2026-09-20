@@ -116,8 +116,7 @@ routes:
 
 ## Cadastro de um ESP32
 
-1. Escolha um ID estável, por exemplo `esp32-sala`.
-2. Adicione sua definição ao YAML.
-3. Configure o firmware com o ID e o endereço IP/nome local do Mosquitto.
-4. Reinicie o gateway após validar a configuração.
-5. Confirme no log que o gateway assinou os tópicos previstos.
+Checklist completo (credencial MQTT, ACL, YAML, firmware, verificação) em
+[device-onboarding.md](device-onboarding.md). O mecanismo de conexão em si
+(Wi-Fi, descoberta do broker, MQTT) está em
+[device-connection.md](device-connection.md).
