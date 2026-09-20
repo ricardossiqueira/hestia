@@ -82,6 +82,17 @@ service-status:
 service-logs:
     journalctl -u iot-gateway.service -f
 
+# Grant (or update) a device's MQTT credential + ACL on the Orange Pi's
+# Mosquitto. topics: one or more of telemetry state event command
+# command-result. Prints the secrets.h snippet on success.
+# Usage: sudo just provision-device esp32c3-led state command
+provision-device device +topics:
+    sudo deploy/mosquitto-provision-device.sh {{device}} {{topics}}
+
+# Revoke a device's MQTT credential and ACL. Also disable it in gateway.yaml.
+remove-device device:
+    sudo deploy/mosquitto-provision-device.sh --remove {{device}}
+
 # Install the root-owned pull-based deployment agent for an Orange Pi.
 install-update-agent:
     sudo install -m 0755 deploy/iot-gateway-update.sh /usr/local/sbin/iot-gateway-update
