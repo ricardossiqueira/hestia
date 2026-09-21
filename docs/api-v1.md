@@ -2,18 +2,43 @@
 
 ## Objetivo
 
-Este documento descreve a API local exposta pelo processo `iot-gateway
-run`: listagem de dispositivos cadastrados, descoberta do schema de
-comandos que cada um aceita, publicação de comandos e leitura do status
-do gateway. Ela substitui a página HTML em 8081 (`internal/admin`, que
-continua existindo só para mutações de cadastro) e o antigo
-`POST /commands` em 8082 (`internal/commandapi`, removido).
+Este documento descreve a API local: listagem de dispositivos cadastrados,
+descoberta do schema de comandos que cada um aceita, publicação de comandos
+e leitura do status do gateway. Ela substitui o antigo `POST /commands` em
+8082 (`internal/commandapi`, removido). A UI HTML em 8081
+(`internal/admin`) continua existindo só para mutações de cadastro
+(registrar/remover device) — ver "Fora de escopo" abaixo.
 
 O protocolo é Connect-RPC (`connectrpc.com/connect`), que serve gRPC,
 gRPC-Web e HTTP/JSON na mesma porta a partir do mesmo `.proto`. O arquivo
 [api.proto](../api/proto/iot/gateway/api/v1/api.proto) é a fonte de
 verdade dos campos e serviços; este texto explica garantias, autenticação
 e exemplos de uso e nunca deve divergir dele.
+
+**Dois processos compõem esta API** (`docs/decisions.md` ADR-013) — quem
+chama de fora nunca precisa saber disso, é transparente:
+
+```text
+Browser/curl (LAN)
+      |
+      | HTTP Basic Auth + CORS
+      v
+iot-gateway admin (root, :8082 público)
+      |
+      +-- DeviceService, GatewayService --> reverse proxy (loopback)
+      |                                            |
+      |                                            v
+      |                              iot-gateway run (sandboxed,
+      |                              :internal_address, sem auth própria -
+      |                              loopback é o limite de confiança)
+      |
+      `-- DeviceAdminService (fase futura, atendido aqui mesmo)
+```
+
+`iot-gateway run` continua sendo o único processo com a conexão MQTT viva
+(por isso `PublishCommand` mora ali), mas nunca mais é alcançável
+diretamente da LAN. `iot-gateway admin` (o mesmo processo que já serve a UI
+HTML em 8081) é o único que autentica e aplica CORS.
 
 ## Limites desta versão
 
@@ -29,10 +54,12 @@ e exemplos de uso e nunca deve divergir dele.
 
 ## Transporte e autenticação
 
-Igual ao antigo `internal/commandapi` e à UI de admin: HTTP Basic Auth,
-uma única credencial vinda de variáveis de ambiente
-(`IOT_GATEWAY_API_USERNAME` / `IOT_GATEWAY_API_PASSWORD`), sem TLS.
-**Uso restrito à LAN confiável — nunca exponha esta porta à internet.**
+A autenticação e o CORS vivem **só na borda pública** (`internal/apigateway`,
+dentro do processo `iot-gateway admin`): HTTP Basic Auth, uma única
+credencial vinda de variáveis de ambiente (`IOT_GATEWAY_API_USERNAME` /
+`IOT_GATEWAY_API_PASSWORD`, lidas por esse processo — não pelo `iot-gateway
+run`), sem TLS. **Uso restrito à LAN confiável — nunca exponha `api.address`
+à internet.**
 
 Diferente de um interceptor Connect, a autenticação é um middleware HTTP
 que envolve todo o mux: uma falha de autenticação sempre volta como HTTP
@@ -40,8 +67,18 @@ que envolve todo o mux: uma falha de autenticação sempre volta como HTTP
 navegador entendem, mesmo antes do corpo da requisição ser interpretado
 como Connect/gRPC.
 
+O processo interno (`internal/api`, dentro de `iot-gateway run`) não exige
+nenhuma credencial própria: `api.internal_address` é obrigatoriamente um
+endereço loopback (`iot-gateway validate` recusa qualquer outro), e esse
+isolamento do sistema operacional — só processos na própria máquina
+alcançam aquela porta — é o único limite de confiança dele. A borda já
+autenticou a requisição antes de encaminhá-la; duplicar a credencial no
+processo interno seria defesa em profundidade deliberadamente descartada
+(ADR-013).
+
 Opcional e desligado por padrão — declare `api:` em `gateway.yaml` (ver
-`configs/gateway.example.yaml`) para habilitar.
+`configs/gateway.example.yaml`) para habilitar. `api.internal_address` tem
+um padrão (`127.0.0.1:8083`) e normalmente não precisa ser declarado.
 
 ## CORS
 
@@ -179,7 +216,9 @@ curl -u <usuario>:<senha> \
 
 ## Fora de escopo (próxima fase)
 
-Registrar e remover dispositivo continuam só na UI de admin em 8081. Uma
-fase seguinte adiciona `DeviceAdminService` a esta mesma API, servido pelo
-processo root — o que permitirá finalmente descartar a página HTML (ver
-`docs/implementation-plan.md`).
+Registrar e remover dispositivo continuam só na UI de admin em 8081. A
+composição de porta que permite isso (`internal/apigateway`, ADR-013) já
+está pronta; falta só `DeviceAdminService` em si — as RPCs que o processo
+admin vai atender diretamente em `:8082`, sem proxy nenhum, reaproveitando
+`internal/admin/devices.go`. É isso que vai permitir finalmente descartar a
+página HTML (ver `docs/implementation-plan.md`).

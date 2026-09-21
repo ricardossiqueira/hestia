@@ -65,26 +65,36 @@ mais precisão. A partir de agora, **a todolist priorizada é esta**:
 1. ~~**CORS**~~ — ✅ feito (`cors_allowed_origins` em `internal/config`,
    middleware em `internal/api`, commits `4ff6722`/`1cf9274`). Ver
    `docs/api-v1.md`'s seção CORS.
-2. **Spike de Basic Auth cross-origin** (não implementação — validação
-   manual) — confirmar em Chrome/Edge/Firefox/Safari que `fetch` com Basic
-   Auth credentials funciona de forma confiável chamando a API a partir de
-   `gateway-web` rodando em `localhost:5173`. Se não for confiável, o plano
-   B (já no spec) é uma tela que guarda a credencial só em memória e monta
-   `Authorization` manualmente — sem contas/sessões/RBAC.
-3. **Decisão de composição de porta** (`gateway-web/docs/spec.md` §8.2) —
-   hoje `internal/api` (sandboxed, 8082) e `internal/admin` (root, 8081) são
-   processos separados, mas o spec quer `DeviceAdminService` na mesma porta
-   pública 8082. Dois processos não escutam a mesma porta; precisa de um
-   compositor (proxy na frente dos dois, ou o processo admin passa a servir
-   8082 e encaminha `DeviceService`/`GatewayService` por loopback/unix
-   socket ao processo sandboxed). Decisão de arquitetura a fechar **antes**
-   de implementar o item 4.
-4. **`DeviceAdminService`** — contrato já rascunhado em
-   `gateway-web/docs/spec.md` §8.1: `ProvisionDevice`, `SetDeviceEnabled`,
-   `RemoveDevice`. Reaproveita a lógica de `internal/admin/devices.go`
-   (`AddDevice`/`RemoveDevice`/`DeviceExists`, edição via `yaml.Node`),
-   só muda o transporte. `ProvisionDevice`/`RemoveDevice` precisam de
-   rollback automático em falha parcial (YAML + credencial MQTT + restart).
+2. ~~**Spike de Basic Auth cross-origin**~~ — ✅ resolvido por construção,
+   não por validação manual: testado na prática (401 real ao ligar o
+   `gateway-web`), confirmou que o browser **não** reenvia Basic Auth
+   nativamente entre origens com `fetch`. Implementado o plano B que o spec
+   já prescrevia: `gateway-web/src/api/auth.ts` guarda a credencial só em
+   memória e `gateway.ts` monta `Authorization` manualmente em toda
+   chamada. Como não depende mais de nenhum comportamento nativo de
+   browser, não há mais inconsistência entre Chrome/Firefox/Safari/Edge
+   para validar — todos passam pelo mesmo código explícito.
+3. ~~**Decisão de composição de porta**~~ — ✅ feito. `internal/apigateway`
+   (novo pacote, dentro do processo `iot-gateway admin`, root) é agora a
+   **única** borda pública de `api.address` — autentica, aplica CORS, e
+   encaminha `DeviceService`/`GatewayService` via `httputil.ReverseProxy`
+   para `internal/api` (dentro de `iot-gateway run`, sandboxed), que passa a
+   escutar só `api.internal_address` (loopback, default `127.0.0.1:8083`,
+   sem auth/CORS própria — o loopback é o limite de confiança). Ver
+   ADR-013 em `docs/decisions.md` e a seção "Transporte e autenticação" de
+   `docs/api-v1.md`. Migração em produção: mover
+   `IOT_GATEWAY_API_USERNAME`/`PASSWORD` de `/etc/iot-gateway/environment`
+   para `/etc/iot-gateway/admin-environment` — `api.address` não muda de
+   valor, nenhum `.service` muda.
+4. **`DeviceAdminService`** — desbloqueado pelo item 3: as RPCs entram
+   direto em `internal/apigateway`'s mux (hoje `/iot.gateway.api.v1.
+   DeviceAdminService/*` cai no 404 padrão), sem precisar de nenhuma
+   composição nova. Contrato já rascunhado em `gateway-web/docs/spec.md`
+   §8.1: `ProvisionDevice`, `SetDeviceEnabled`, `RemoveDevice`. Reaproveita
+   a lógica de `internal/admin/devices.go` (`AddDevice`/`RemoveDevice`/
+   `DeviceExists`, edição via `yaml.Node`), só muda o transporte.
+   `ProvisionDevice`/`RemoveDevice` precisam de rollback automático em
+   falha parcial (YAML + credencial MQTT + restart).
 5. **API de observabilidade/fila** (`gateway-web/docs/spec.md` §8.3) —
    contrato ainda não desenhado; precisa primeiro de um modelo de
    persistência (a SQLite atual é outbox de encaminhamento, não histórico

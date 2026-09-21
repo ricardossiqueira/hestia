@@ -207,21 +207,47 @@ logging in with the credential above.
 ## Local API (Connect-RPC)
 
 Listing devices, discovering what commands they accept, publishing a
-command, and reading gateway status now go through `internal/api`, a
-Connect-RPC server (gRPC, gRPC-Web and HTTP/JSON all on one port) that
-replaces the old `POST /commands` HTTP endpoint (`internal/commandapi`,
-removed). See `docs/api-v1.md` for the full contract, the four RPCs, and
-`curl` examples.
+command, and reading gateway status go through a Connect-RPC API (gRPC,
+gRPC-Web and HTTP/JSON all on one port). See `docs/api-v1.md` for the full
+contract, the RPCs, and `curl` examples.
 
-Like the old endpoint, it runs **inside** `iot-gateway.service` itself (no
-separate unit, no root): publishing a command only needs the MQTT
-connection that process already holds, reusing it rather than opening a
-second one (see `docs/decisions.md`). It is optional and off by default -
-add an `api:` section to `gateway.yaml` (see
-`configs/gateway.example.yaml`) to turn it on.
+**Two processes compose it (`docs/decisions.md` ADR-013)** - this matters
+for where credentials and env vars go:
+
+- `iot-gateway-admin.service` (root, the same process serving the HTML UI
+  above) binds `api.address` and is the **only public listener**. It
+  authenticates (HTTP Basic) and applies CORS.
+- `iot-gateway.service` (sandboxed) binds `api.internal_address`
+  (loopback-only, defaults to `127.0.0.1:8083`, normally not set
+  explicitly) and answers `DeviceService`/`GatewayService` - the admin
+  process reverse-proxies to it. It needs no credentials of its own: the
+  loopback binding is its whole trust boundary.
+
+Both read the **same** `api:` section in `gateway.yaml` - no duplication
+needed there. It is optional and off by default - add the section (see
+`configs/gateway.example.yaml`) to turn the whole thing on.
 
 **Same LAN-trusted-only rule as the admin UI**: plain HTTP, one shared
-Basic Auth credential.
+Basic Auth credential, this time in the **admin** environment file (not
+the main gateway's - see below).
+
+```bash
+openssl rand -base64 24
+sudoedit /etc/iot-gateway/admin-environment
+```
+
+```ini
+IOT_GATEWAY_ADMIN_USERNAME=admin
+IOT_GATEWAY_ADMIN_PASSWORD=the-admin-ui-password
+
+IOT_GATEWAY_API_USERNAME=api
+IOT_GATEWAY_API_PASSWORD=the-generated-password
+```
+
+`iot-gateway.service`'s own `/etc/iot-gateway/environment` does **not**
+need `IOT_GATEWAY_API_USERNAME`/`PASSWORD` any more - only
+`MQTT_GATEWAY_USERNAME`/`PASSWORD`. If a previous install left the API
+variables there, they are simply unused now; safe to remove or to leave.
 
 ### CORS (for a browser client, e.g. `gateway-web`)
 
@@ -238,32 +264,28 @@ api:
     - http://localhost:5173
 ```
 
-### Migration from `commands:` (breaking, manual step required)
+### Migrating from before this composition existed
 
-> **Do this BEFORE installing the new binary.** `config.Parse` uses
-> `KnownFields(true)`: the new binary refuses a `gateway.yaml` that still
-> has `commands:`, and the old binary refuses one that already has `api:`.
-> If you update the binary without updating the config first, validation
-> fails, the updater (`iot-gateway-update.timer`) rolls back to the
-> previous binary, and the gateway keeps running on the old version -
-> automatic updates simply stay blocked until you fix this by hand.
+If `api.address` was already `0.0.0.0:8082` and answered directly by
+`iot-gateway.service` (no `internal_address`, no admin-side proxy - true
+for any install before this section's current form), the value itself
+does not need to change: it is just read by a different process now.
 
-1. In `/etc/iot-gateway/gateway.yaml`, rename the `commands:` section to
-   `api:` (same `address` value).
-2. In `/etc/iot-gateway/environment`, rename the two variables:
-   `IOT_GATEWAY_COMMANDS_USERNAME` -> `IOT_GATEWAY_API_USERNAME`,
-   `IOT_GATEWAY_COMMANDS_PASSWORD` -> `IOT_GATEWAY_API_PASSWORD` (same
-   values - no need to generate new secrets).
-3. Validate, then update as usual:
+1. Move `IOT_GATEWAY_API_USERNAME`/`PASSWORD` from
+   `/etc/iot-gateway/environment` to `/etc/iot-gateway/admin-environment`
+   (same values - no need to generate new secrets). No `.service` file
+   changes needed either way.
+2. Update and restart **both** services (same binary for both):
 
 ```bash
 sudo -u iot-gateway /usr/local/bin/iot-gateway validate --config /etc/iot-gateway/gateway.yaml
 just install-binary
-sudo systemctl restart iot-gateway.service
+sudo systemctl restart iot-gateway.service iot-gateway-admin.service
 ```
 
 Send a command (`configs/gateway.example.yaml` suggests port `8082`,
-since the admin UI already defaults to `8081`):
+since the admin UI's own HTML page already defaults to `8081` on the same
+process):
 
 ```bash
 curl -u api:the-generated-password \
