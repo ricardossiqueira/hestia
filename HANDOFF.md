@@ -53,6 +53,47 @@ curl -u admin:admin -H 'Content-Type: application/json' \
   http://127.0.0.1:8082/iot.gateway.api.v1.DeviceService/PublishCommand
 ```
 
+## Atualização — `gateway-web` e a todolist de próximas iterações
+
+Desde a versão original deste handoff, surgiu `gateway-web` (repositório
+irmão, `C:\Users\ricar\Dev\gateway-web`), um painel React que consome esta
+API — ainda só em fase de spec (`gateway-web/docs/spec.md`, que é a fonte de
+verdade sobre lacunas de API do ponto de vista de um consumidor real). A
+seção 8 desse spec reorganiza e substitui a antiga "Pendência 2" abaixo com
+mais precisão. A partir de agora, **a todolist priorizada é esta**:
+
+1. ~~**CORS**~~ — ✅ feito (`cors_allowed_origins` em `internal/config`,
+   middleware em `internal/api`, commits `4ff6722`/`1cf9274`). Ver
+   `docs/api-v1.md`'s seção CORS.
+2. **Spike de Basic Auth cross-origin** (não implementação — validação
+   manual) — confirmar em Chrome/Edge/Firefox/Safari que `fetch` com Basic
+   Auth credentials funciona de forma confiável chamando a API a partir de
+   `gateway-web` rodando em `localhost:5173`. Se não for confiável, o plano
+   B (já no spec) é uma tela que guarda a credencial só em memória e monta
+   `Authorization` manualmente — sem contas/sessões/RBAC.
+3. **Decisão de composição de porta** (`gateway-web/docs/spec.md` §8.2) —
+   hoje `internal/api` (sandboxed, 8082) e `internal/admin` (root, 8081) são
+   processos separados, mas o spec quer `DeviceAdminService` na mesma porta
+   pública 8082. Dois processos não escutam a mesma porta; precisa de um
+   compositor (proxy na frente dos dois, ou o processo admin passa a servir
+   8082 e encaminha `DeviceService`/`GatewayService` por loopback/unix
+   socket ao processo sandboxed). Decisão de arquitetura a fechar **antes**
+   de implementar o item 4.
+4. **`DeviceAdminService`** — contrato já rascunhado em
+   `gateway-web/docs/spec.md` §8.1: `ProvisionDevice`, `SetDeviceEnabled`,
+   `RemoveDevice`. Reaproveita a lógica de `internal/admin/devices.go`
+   (`AddDevice`/`RemoveDevice`/`DeviceExists`, edição via `yaml.Node`),
+   só muda o transporte. `ProvisionDevice`/`RemoveDevice` precisam de
+   rollback automático em falha parcial (YAML + credencial MQTT + restart).
+5. **API de observabilidade/fila** (`gateway-web/docs/spec.md` §8.3) —
+   contrato ainda não desenhado; precisa primeiro de um modelo de
+   persistência (a SQLite atual é outbox de encaminhamento, não histórico
+   operacional). Bloqueia as rotas `/queue` e diagnóstico por device do
+   `gateway-web`.
+6. **Correlação de `command_result`** — hoje `PublishCommand` é
+   fire-and-forget puro; não há como saber se o ESP32 executou. Sem prazo
+   definido ("Posterior" na matriz do spec).
+
 ## Pendência 1 — bug real no `justfile` (ainda não corrigido)
 
 **O que aconteceu:** ao aplicar esta mesma entrega em produção, rodar
