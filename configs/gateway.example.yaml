@@ -29,6 +29,14 @@ diagnostics:
 # already defaults to 8081.
 # api:
 #   address: 0.0.0.0:8082
+#   # Optional: exact allowlist of browser origins (never "*") permitted to
+#   # call the API cross-origin with credentials, e.g. a gateway-web dev
+#   # server. Absent/empty means CORS stays off - no Access-Control-*
+#   # headers are ever added, and a browser cannot call this API
+#   # cross-origin at all. See docs/api-v1.md.
+#   cors_allowed_origins:
+#     - http://localhost:5173
+#     - http://127.0.0.1:5173
 
 devices:
   - id: esp32-sala

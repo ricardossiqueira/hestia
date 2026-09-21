@@ -225,6 +225,7 @@ func runGateway(args []string, stderr io.Writer) int {
 			Address:        cfg.API.Address,
 			Credentials:    api.Credentials{Username: apiUsername, Password: apiPassword},
 			RequestTimeout: apiRequestTimeout,
+			AllowedOrigins: cfg.API.AllowedOrigins,
 			Registry:       cfg,
 		}, gateway, gateway, logger)
 		if err != nil {

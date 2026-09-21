@@ -74,6 +74,16 @@ const (
 // point is reachability from elsewhere on the LAN.
 type API struct {
 	Address string `yaml:"address"`
+	// AllowedOrigins is an exact allowlist of browser origins (scheme +
+	// host + optional port, e.g. "http://localhost:5173") permitted to
+	// call this API cross-origin with credentials. Empty (the default)
+	// means CORS is off: no Access-Control-* headers are ever added, and
+	// behavior is identical to before CORS existed - a browser cannot
+	// call this API cross-origin at all, only same-origin/non-browser
+	// clients (curl, a server) can. Never "*": a credentialed CORS
+	// response requires echoing a specific, allowlisted origin (see
+	// validateAPI and internal/api's cors middleware).
+	AllowedOrigins []string `yaml:"cors_allowed_origins,omitempty"`
 }
 
 // Duration represents a Go duration written as a YAML string, such as "168h".
@@ -338,6 +348,38 @@ func validateAPI(api API) error {
 	port, err := strconv.Atoi(portText)
 	if strings.Trim(portText, "0123456789") != "" || err != nil || port < 1 || port > 65535 {
 		return errors.New("api.address must include a port between 1 and 65535")
+	}
+	for _, origin := range api.AllowedOrigins {
+		if err := validateOrigin(origin); err != nil {
+			return fmt.Errorf("api.cors_allowed_origins: %w", err)
+		}
+	}
+	return nil
+}
+
+// validateOrigin rejects anything that is not exactly a browser Origin
+// header value: scheme http/https, a host, and nothing else - no path,
+// query, fragment, userinfo, or the literal "*". A credentialed CORS
+// response (Access-Control-Allow-Credentials: true) must echo one specific
+// allowlisted origin; the browser rejects "*" for credentialed requests
+// anyway, but rejecting it here fails fast at `iot-gateway validate`
+// instead of silently never working from a browser.
+func validateOrigin(origin string) error {
+	if origin == "*" {
+		return errors.New(`"*" is not allowed - list exact origins`)
+	}
+	parsed, err := url.Parse(origin)
+	if err != nil {
+		return fmt.Errorf("%q is not a valid origin: %w", origin, err)
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return fmt.Errorf("%q must use http or https", origin)
+	}
+	if parsed.Host == "" {
+		return fmt.Errorf("%q must include a host", origin)
+	}
+	if parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.User != nil {
+		return fmt.Errorf("%q must be exactly scheme://host[:port], no path/query/fragment/credentials", origin)
 	}
 	return nil
 }

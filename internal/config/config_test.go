@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -263,6 +264,56 @@ func TestParseRejectsInvalidAPIAddress(t *testing.T) {
 			_, err := Parse([]byte(validYAML + "\napi:\n  address: \"" + test.address + "\"\n"))
 			if err == nil {
 				t.Fatalf("Parse() with api.address = %q: want error", test.address)
+			}
+		})
+	}
+}
+
+func TestParseAPIAllowedOriginsIsOptional(t *testing.T) {
+	cfg, err := Parse([]byte(validYAML + "\napi:\n  address: \"0.0.0.0:8081\"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.API.AllowedOrigins) != 0 {
+		t.Errorf("AllowedOrigins = %#v, want empty when absent from YAML", cfg.API.AllowedOrigins)
+	}
+}
+
+func TestParseAcceptsValidAllowedOrigins(t *testing.T) {
+	cfg, err := Parse([]byte(validYAML + `
+api:
+  address: "0.0.0.0:8081"
+  cors_allowed_origins:
+    - "http://localhost:5173"
+    - "http://127.0.0.1:5173"
+`))
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	want := []string{"http://localhost:5173", "http://127.0.0.1:5173"}
+	if !reflect.DeepEqual(cfg.API.AllowedOrigins, want) {
+		t.Errorf("AllowedOrigins = %#v, want %#v", cfg.API.AllowedOrigins, want)
+	}
+}
+
+func TestParseRejectsInvalidAllowedOrigins(t *testing.T) {
+	tests := []struct {
+		name   string
+		origin string
+	}{
+		{"wildcard", "*"},
+		{"missing scheme", "localhost:5173"},
+		{"non-http scheme", "ftp://localhost:5173"},
+		{"has a path", "http://localhost:5173/app"},
+		{"has a query", "http://localhost:5173?x=1"},
+		{"has credentials", "http://user:pass@localhost:5173"},
+		{"not a URL at all", "not a url"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			yaml := validYAML + "\napi:\n  address: \"0.0.0.0:8081\"\n  cors_allowed_origins:\n    - \"" + test.origin + "\"\n"
+			if _, err := Parse([]byte(yaml)); err == nil {
+				t.Fatalf("Parse() with cors_allowed_origins = %q: want error", test.origin)
 			}
 		})
 	}

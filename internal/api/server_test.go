@@ -104,6 +104,27 @@ func authHeader(user, pass string) string {
 	return "Basic " + base64.StdEncoding.EncodeToString([]byte(user+":"+pass))
 }
 
+// newTestServerWithOrigins is newTestServer plus an AllowedOrigins list, for
+// the CORS-specific tests below - kept separate so every other test's
+// server construction stays untouched (default: CORS off).
+func newTestServerWithOrigins(t *testing.T, allowedOrigins []string) (*httptest.Server, string, string) {
+	t.Helper()
+	cfg := Config{
+		Address:        "127.0.0.1:0",
+		Credentials:    Credentials{Username: "user", Password: "pass"},
+		RequestTimeout: time.Second,
+		AllowedOrigins: allowedOrigins,
+		Registry:       config.Config{Devices: testDevices()},
+	}
+	srv, err := New(cfg, &fakePublisher{}, fakeStatus{}, nil)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	ts := httptest.NewServer(srv.http.Handler)
+	t.Cleanup(ts.Close)
+	return ts, "user", "pass"
+}
+
 func TestUnauthorized_MissingCredentials(t *testing.T) {
 	ts, _, _ := newTestServer(t, &fakePublisher{}, fakeStatus{})
 	resp, err := http.Post(ts.URL+"/iot.gateway.api.v1.DeviceService/ListDevices", "application/json", strings.NewReader("{}"))
@@ -347,5 +368,97 @@ func TestGetStatus(t *testing.T) {
 	}
 	if resp.Msg.StartedAt == nil || !resp.Msg.StartedAt.AsTime().Equal(startedAt) {
 		t.Errorf("StartedAt = %v, want %v", resp.Msg.StartedAt, startedAt)
+	}
+}
+
+func TestCORS_DisabledByDefault(t *testing.T) {
+	// newTestServer (no AllowedOrigins) must behave exactly as it did
+	// before CORS existed: no Access-Control-* header ever appears, even
+	// when a request carries an Origin header.
+	ts, user, pass := newTestServer(t, &fakePublisher{}, fakeStatus{})
+	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/iot.gateway.api.v1.GatewayService/GetStatus", strings.NewReader("{}"))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", "http://localhost:5173")
+	req.Header.Set("Authorization", authHeader(user, pass))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	defer resp.Body.Close()
+	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "" {
+		t.Errorf("Access-Control-Allow-Origin = %q, want empty (CORS disabled)", got)
+	}
+	if got := resp.Header.Get("Access-Control-Allow-Credentials"); got != "" {
+		t.Errorf("Access-Control-Allow-Credentials = %q, want empty (CORS disabled)", got)
+	}
+}
+
+func TestCORS_PreflightAllowedOrigin(t *testing.T) {
+	ts, _, _ := newTestServerWithOrigins(t, []string{"http://localhost:5173"})
+	req, _ := http.NewRequest(http.MethodOptions, ts.URL+"/iot.gateway.api.v1.GatewayService/GetStatus", nil)
+	req.Header.Set("Origin", "http://localhost:5173")
+	req.Header.Set("Access-Control-Request-Method", "POST")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Errorf("status = %d, want 204", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "http://localhost:5173" {
+		t.Errorf("Access-Control-Allow-Origin = %q, want the request's own origin", got)
+	}
+	if got := resp.Header.Get("Access-Control-Allow-Credentials"); got != "true" {
+		t.Errorf("Access-Control-Allow-Credentials = %q, want true", got)
+	}
+	if got := resp.Header.Get("Access-Control-Allow-Methods"); !strings.Contains(got, "POST") {
+		t.Errorf("Access-Control-Allow-Methods = %q, want it to include POST", got)
+	}
+	if got := resp.Header.Get("Access-Control-Allow-Headers"); !strings.Contains(got, "Authorization") || !strings.Contains(got, "Content-Type") {
+		t.Errorf("Access-Control-Allow-Headers = %q, want Authorization and Content-Type", got)
+	}
+}
+
+func TestCORS_PreflightDisallowedOrigin(t *testing.T) {
+	ts, _, _ := newTestServerWithOrigins(t, []string{"http://localhost:5173"})
+	req, _ := http.NewRequest(http.MethodOptions, ts.URL+"/iot.gateway.api.v1.GatewayService/GetStatus", nil)
+	req.Header.Set("Origin", "http://evil.example.com")
+	req.Header.Set("Access-Control-Request-Method", "POST")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	defer resp.Body.Close()
+	// Still a plain 204 (no error leaked about which origins are
+	// allowlisted) - the browser blocks the real request itself because
+	// no Access-Control-Allow-Origin header is present.
+	if resp.StatusCode != http.StatusNoContent {
+		t.Errorf("status = %d, want 204", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "" {
+		t.Errorf("Access-Control-Allow-Origin = %q, want empty for a disallowed origin", got)
+	}
+}
+
+func TestCORS_ActualRequestAllowedOrigin(t *testing.T) {
+	ts, user, pass := newTestServerWithOrigins(t, []string{"http://localhost:5173"})
+	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/iot.gateway.api.v1.GatewayService/GetStatus", strings.NewReader("{}"))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", "http://localhost:5173")
+	req.Header.Set("Authorization", authHeader(user, pass))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want 200", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "http://localhost:5173" {
+		t.Errorf("Access-Control-Allow-Origin = %q, want the request's own origin", got)
+	}
+	if got := resp.Header.Get("Access-Control-Allow-Credentials"); got != "true" {
+		t.Errorf("Access-Control-Allow-Credentials = %q, want true", got)
 	}
 }

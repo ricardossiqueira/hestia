@@ -60,6 +60,11 @@ type Config struct {
 	Address        string
 	Credentials    Credentials
 	RequestTimeout time.Duration
+	// AllowedOrigins is config.API.AllowedOrigins passed through unchanged -
+	// an exact allowlist of browser origins permitted to call this API
+	// cross-origin with credentials. Empty means CORS is off (see cors'
+	// doc comment and config.API's).
+	AllowedOrigins []string
 	// Registry is the already loaded and validated gateway configuration.
 	// It is read by value here (never re-read from disk), preserving the
 	// sandboxed gateway process's read-only posture.
@@ -122,9 +127,14 @@ func New(cfg Config, publisher CommandPublisher, status StatusProvider, logger *
 	gatewayPath, gatewayHandler := apiv1connect.NewGatewayServiceHandler(s)
 	mux.Handle(gatewayPath, gatewayHandler)
 
+	// cors wraps basicAuth, not the reverse: a browser's CORS preflight
+	// (OPTIONS) never carries the Authorization header being negotiated,
+	// so it must be answered before auth ever runs - see cors' doc
+	// comment. Every other request still needs the same Basic Auth as
+	// non-browser clients (curl, a server) always have.
 	s.http = &http.Server{
 		Addr:              cfg.Address,
-		Handler:           basicAuth(cfg.Credentials, mux),
+		Handler:           cors(cfg.AllowedOrigins, basicAuth(cfg.Credentials, mux)),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	return s, nil
@@ -154,6 +164,62 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		return fmt.Errorf("shutdown api server: %w", err)
 	}
 	return nil
+}
+
+// corsAllowedHeaders and corsAllowedMethods cover exactly what
+// gateway-web's plain-fetch Connect JSON client sends: a POST with
+// Content-Type and (once authenticated) Authorization. No wildcard, no
+// Connect-Web SDK protocol headers - gateway-web/docs/spec.md deliberately
+// stays on plain fetch, not the generated connect-web client, for its MVP.
+const (
+	corsAllowedHeaders = "Content-Type, Authorization"
+	corsAllowedMethods = "POST, OPTIONS"
+)
+
+// cors implements an exact-origin allowlist with credentials, per
+// gateway-web/docs/spec.md section 5: a browser SPA on a different origin
+// (e.g. http://localhost:5173) needs Access-Control-Allow-Origin echoing
+// its own origin (never "*" - browsers reject "*" for credentialed
+// requests anyway, and config.validateOrigin already rejects it at
+// `iot-gateway validate`) plus Access-Control-Allow-Credentials: true, and
+// a preflight OPTIONS answered without requiring auth.
+//
+// allowedOrigins empty (the default - config.API.AllowedOrigins' doc
+// comment) makes this a no-op passthrough: no Access-Control-* header is
+// ever added, so behavior for every existing non-browser caller (curl,
+// the validator's test client) is unchanged from before CORS existed.
+func cors(allowedOrigins []string, next http.Handler) http.Handler {
+	if len(allowedOrigins) == 0 {
+		return next
+	}
+	allowed := make(map[string]struct{}, len(allowedOrigins))
+	for _, origin := range allowedOrigins {
+		allowed[origin] = struct{}{}
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		_, isAllowed := allowed[origin]
+		// Vary: Origin always, even when not allowed - a shared cache
+		// must not serve this response to a different origin.
+		w.Header().Add("Vary", "Origin")
+		if isAllowed {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+		}
+		if r.Method == http.MethodOptions {
+			if isAllowed {
+				w.Header().Set("Access-Control-Allow-Methods", corsAllowedMethods)
+				w.Header().Set("Access-Control-Allow-Headers", corsAllowedHeaders)
+				w.Header().Set("Access-Control-Max-Age", "600")
+			}
+			// A disallowed origin's preflight gets no Access-Control-*
+			// headers, so the browser blocks the real request itself -
+			// same effect as a 403 without needing one.
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func basicAuth(creds Credentials, next http.Handler) http.Handler {
