@@ -223,6 +223,21 @@ add an `api:` section to `gateway.yaml` (see
 **Same LAN-trusted-only rule as the admin UI**: plain HTTP, one shared
 Basic Auth credential.
 
+### CORS (for a browser client, e.g. `gateway-web`)
+
+Off by default - a browser cannot call this API cross-origin at all unless
+`cors_allowed_origins` is set. To let a browser-based client (see
+`gateway-web/docs/spec.md`) call it directly, add an exact origin allowlist
+next to `api.address` in `gateway.yaml` (see `configs/gateway.example.yaml`
+and `docs/api-v1.md`'s CORS section - never `*`, validation rejects it):
+
+```yaml
+api:
+  address: 0.0.0.0:8082
+  cors_allowed_origins:
+    - http://localhost:5173
+```
+
 ### Migration from `commands:` (breaking, manual step required)
 
 > **Do this BEFORE installing the new binary.** `config.Parse` uses

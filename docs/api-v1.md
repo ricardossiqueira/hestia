@@ -43,6 +43,40 @@ como Connect/gRPC.
 Opcional e desligado por padrão — declare `api:` em `gateway.yaml` (ver
 `configs/gateway.example.yaml`) para habilitar.
 
+## CORS
+
+Desligado por padrão: sem `cors_allowed_origins` declarado, nenhum cabeçalho
+`Access-Control-*` é adicionado e um navegador não consegue chamar esta API
+entre origens diferentes — só `curl`/outro servidor, que ignoram CORS.
+
+Para um cliente de browser (ex.: `gateway-web`, que fala Connect HTTP/JSON
+diretamente do navegador — ver `gateway-web/docs/spec.md`), declare a
+allowlist exata de origens em `gateway.yaml`:
+
+```yaml
+api:
+  address: 0.0.0.0:8082
+  cors_allowed_origins:
+    - http://localhost:5173
+    - http://127.0.0.1:5173
+```
+
+Regras:
+
+- **Nunca `*`** — `iot-gateway validate` rejeita a string literal `"*"` e
+  qualquer valor que não seja exatamente `scheme://host[:porta]` (sem
+  caminho, query, fragmento ou credenciais na URL). Uma resposta CORS com
+  credenciais precisa ecoar uma origem específica e permitida; navegadores
+  já recusam `*` combinado com `Access-Control-Allow-Credentials: true`, e
+  a validação falha cedo em vez de descobrir isso só no navegador.
+- Uma requisição de origem **não** listada não recebe nenhum cabeçalho
+  `Access-Control-Allow-Origin` — o servidor processa a requisição
+  normalmente (CORS é imposto pelo navegador, não pelo servidor), mas o
+  navegador bloqueia a resposta antes de entregá-la ao script.
+- O preflight `OPTIONS` é respondido **antes** da autenticação HTTP Basic
+  (o preflight nunca carrega o cabeçalho `Authorization` sendo negociado) —
+  só a requisição de verdade que segue o preflight precisa de credencial.
+
 ## Serviços e RPCs
 
 | RPC | Serviço | Uso |
