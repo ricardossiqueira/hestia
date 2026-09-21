@@ -2,9 +2,7 @@ package api
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
-	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
@@ -82,12 +80,13 @@ func testDevices() []config.Device {
 // newTestServer starts an httptest server directly on the Server's
 // http.Handler (bypassing Start/net.Listen, which would bind a real port)
 // so tests stay fast and hermetic. This is safe because server_test.go
-// lives in package api and can reach the unexported s.http field.
-func newTestServer(t *testing.T, publisher *fakePublisher, status fakeStatus) (*httptest.Server, string, string) {
+// lives in package api and can reach the unexported s.http field. No auth
+// is exercised here any more (ADR-013): this package is loopback-only and
+// trusts its caller (internal/apigateway's reverse proxy) unconditionally.
+func newTestServer(t *testing.T, publisher *fakePublisher, status fakeStatus) *httptest.Server {
 	t.Helper()
 	cfg := Config{
 		Address:        "127.0.0.1:0",
-		Credentials:    Credentials{Username: "user", Password: "pass"},
 		RequestTimeout: time.Second,
 		Registry:       config.Config{Devices: testDevices()},
 	}
@@ -97,70 +96,13 @@ func newTestServer(t *testing.T, publisher *fakePublisher, status fakeStatus) (*
 	}
 	ts := httptest.NewServer(srv.http.Handler)
 	t.Cleanup(ts.Close)
-	return ts, "user", "pass"
-}
-
-func authHeader(user, pass string) string {
-	return "Basic " + base64.StdEncoding.EncodeToString([]byte(user+":"+pass))
-}
-
-// newTestServerWithOrigins is newTestServer plus an AllowedOrigins list, for
-// the CORS-specific tests below - kept separate so every other test's
-// server construction stays untouched (default: CORS off).
-func newTestServerWithOrigins(t *testing.T, allowedOrigins []string) (*httptest.Server, string, string) {
-	t.Helper()
-	cfg := Config{
-		Address:        "127.0.0.1:0",
-		Credentials:    Credentials{Username: "user", Password: "pass"},
-		RequestTimeout: time.Second,
-		AllowedOrigins: allowedOrigins,
-		Registry:       config.Config{Devices: testDevices()},
-	}
-	srv, err := New(cfg, &fakePublisher{}, fakeStatus{}, nil)
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
-	ts := httptest.NewServer(srv.http.Handler)
-	t.Cleanup(ts.Close)
-	return ts, "user", "pass"
-}
-
-func TestUnauthorized_MissingCredentials(t *testing.T) {
-	ts, _, _ := newTestServer(t, &fakePublisher{}, fakeStatus{})
-	resp, err := http.Post(ts.URL+"/iot.gateway.api.v1.DeviceService/ListDevices", "application/json", strings.NewReader("{}"))
-	if err != nil {
-		t.Fatalf("Post() error = %v", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want 401", resp.StatusCode)
-	}
-	if resp.Header.Get("WWW-Authenticate") == "" {
-		t.Error("missing WWW-Authenticate header")
-	}
-}
-
-func TestUnauthorized_WrongCredentials(t *testing.T) {
-	ts, _, _ := newTestServer(t, &fakePublisher{}, fakeStatus{})
-	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/iot.gateway.api.v1.DeviceService/ListDevices", strings.NewReader("{}"))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", authHeader("user", "wrong-password"))
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("Do() error = %v", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want 401", resp.StatusCode)
-	}
+	return ts
 }
 
 func TestListDevices(t *testing.T) {
-	ts, user, pass := newTestServer(t, &fakePublisher{}, fakeStatus{})
+	ts := newTestServer(t, &fakePublisher{}, fakeStatus{})
 	client := apiv1connect.NewDeviceServiceClient(ts.Client(), ts.URL)
-	req := connect.NewRequest(&apiv1.ListDevicesRequest{})
-	req.Header().Set("Authorization", authHeader(user, pass))
-	resp, err := client.ListDevices(context.Background(), req)
+	resp, err := client.ListDevices(context.Background(), connect.NewRequest(&apiv1.ListDevicesRequest{}))
 	if err != nil {
 		t.Fatalf("ListDevices() error = %v", err)
 	}
@@ -176,10 +118,9 @@ func TestListDevices(t *testing.T) {
 }
 
 func TestListDeviceCommands_WithProfile(t *testing.T) {
-	ts, user, pass := newTestServer(t, &fakePublisher{}, fakeStatus{})
+	ts := newTestServer(t, &fakePublisher{}, fakeStatus{})
 	client := apiv1connect.NewDeviceServiceClient(ts.Client(), ts.URL)
 	req := connect.NewRequest(&apiv1.ListDeviceCommandsRequest{DeviceId: "led-1"})
-	req.Header().Set("Authorization", authHeader(user, pass))
 	resp, err := client.ListDeviceCommands(context.Background(), req)
 	if err != nil {
 		t.Fatalf("ListDeviceCommands() error = %v", err)
@@ -197,10 +138,9 @@ func TestListDeviceCommands_WithProfile(t *testing.T) {
 }
 
 func TestListDeviceCommands_Opaque(t *testing.T) {
-	ts, user, pass := newTestServer(t, &fakePublisher{}, fakeStatus{})
+	ts := newTestServer(t, &fakePublisher{}, fakeStatus{})
 	client := apiv1connect.NewDeviceServiceClient(ts.Client(), ts.URL)
 	req := connect.NewRequest(&apiv1.ListDeviceCommandsRequest{DeviceId: "opaque-1"})
-	req.Header().Set("Authorization", authHeader(user, pass))
 	resp, err := client.ListDeviceCommands(context.Background(), req)
 	if err != nil {
 		t.Fatalf("ListDeviceCommands() error = %v", err)
@@ -215,11 +155,10 @@ func TestListDeviceCommands_Opaque(t *testing.T) {
 
 func TestPublishCommand_Success_SchemaValidated(t *testing.T) {
 	publisher := &fakePublisher{}
-	ts, user, pass := newTestServer(t, publisher, fakeStatus{})
+	ts := newTestServer(t, publisher, fakeStatus{})
 	client := apiv1connect.NewDeviceServiceClient(ts.Client(), ts.URL)
 	params, _ := structpb.NewStruct(map[string]any{"on": true})
 	req := connect.NewRequest(&apiv1.PublishCommandRequest{DeviceId: "led-1", Type: "set_led", Parameters: params})
-	req.Header().Set("Authorization", authHeader(user, pass))
 	resp, err := client.PublishCommand(context.Background(), req)
 	if err != nil {
 		t.Fatalf("PublishCommand() error = %v", err)
@@ -247,11 +186,10 @@ func TestPublishCommand_Success_SchemaValidated(t *testing.T) {
 
 func TestPublishCommand_SchemaRejection_WrongType(t *testing.T) {
 	publisher := &fakePublisher{}
-	ts, user, pass := newTestServer(t, publisher, fakeStatus{})
+	ts := newTestServer(t, publisher, fakeStatus{})
 	client := apiv1connect.NewDeviceServiceClient(ts.Client(), ts.URL)
 	params, _ := structpb.NewStruct(map[string]any{"on": "sim"})
 	req := connect.NewRequest(&apiv1.PublishCommandRequest{DeviceId: "led-1", Type: "set_led", Parameters: params})
-	req.Header().Set("Authorization", authHeader(user, pass))
 	_, err := client.PublishCommand(context.Background(), req)
 	if err == nil {
 		t.Fatal("PublishCommand() error = nil, want schema rejection")
@@ -266,10 +204,9 @@ func TestPublishCommand_SchemaRejection_WrongType(t *testing.T) {
 
 func TestPublishCommand_SchemaRejection_MissingField(t *testing.T) {
 	publisher := &fakePublisher{}
-	ts, user, pass := newTestServer(t, publisher, fakeStatus{})
+	ts := newTestServer(t, publisher, fakeStatus{})
 	client := apiv1connect.NewDeviceServiceClient(ts.Client(), ts.URL)
 	req := connect.NewRequest(&apiv1.PublishCommandRequest{DeviceId: "led-1", Type: "set_led", Parameters: &structpb.Struct{}})
-	req.Header().Set("Authorization", authHeader(user, pass))
 	_, err := client.PublishCommand(context.Background(), req)
 	if err == nil {
 		t.Fatal("PublishCommand() error = nil, want schema rejection")
@@ -284,11 +221,10 @@ func TestPublishCommand_SchemaRejection_MissingField(t *testing.T) {
 
 func TestPublishCommand_OpaqueFallback(t *testing.T) {
 	publisher := &fakePublisher{}
-	ts, user, pass := newTestServer(t, publisher, fakeStatus{})
+	ts := newTestServer(t, publisher, fakeStatus{})
 	client := apiv1connect.NewDeviceServiceClient(ts.Client(), ts.URL)
 	params, _ := structpb.NewStruct(map[string]any{"ligado": true})
 	req := connect.NewRequest(&apiv1.PublishCommandRequest{DeviceId: "opaque-1", Type: "set_output", Parameters: params})
-	req.Header().Set("Authorization", authHeader(user, pass))
 	resp, err := client.PublishCommand(context.Background(), req)
 	if err != nil {
 		t.Fatalf("PublishCommand() error = %v", err)
@@ -305,10 +241,9 @@ func TestPublishCommand_OpaqueFallback(t *testing.T) {
 }
 
 func TestPublishCommand_UnknownDevice(t *testing.T) {
-	ts, user, pass := newTestServer(t, &fakePublisher{}, fakeStatus{})
+	ts := newTestServer(t, &fakePublisher{}, fakeStatus{})
 	client := apiv1connect.NewDeviceServiceClient(ts.Client(), ts.URL)
 	req := connect.NewRequest(&apiv1.PublishCommandRequest{DeviceId: "nope", Type: "set_led"})
-	req.Header().Set("Authorization", authHeader(user, pass))
 	_, err := client.PublishCommand(context.Background(), req)
 	if err == nil {
 		t.Fatal("PublishCommand() error = nil, want unknown device rejection")
@@ -320,11 +255,10 @@ func TestPublishCommand_UnknownDevice(t *testing.T) {
 
 func TestPublishCommand_PublisherError(t *testing.T) {
 	publisher := &fakePublisher{err: errors.New(`device "led-1" is disabled`)}
-	ts, user, pass := newTestServer(t, publisher, fakeStatus{})
+	ts := newTestServer(t, publisher, fakeStatus{})
 	client := apiv1connect.NewDeviceServiceClient(ts.Client(), ts.URL)
 	params, _ := structpb.NewStruct(map[string]any{"on": true})
 	req := connect.NewRequest(&apiv1.PublishCommandRequest{DeviceId: "led-1", Type: "set_led", Parameters: params})
-	req.Header().Set("Authorization", authHeader(user, pass))
 	_, err := client.PublishCommand(context.Background(), req)
 	if err == nil {
 		t.Fatal("PublishCommand() error = nil, want publisher error surfaced")
@@ -349,11 +283,9 @@ func TestGetStatus(t *testing.T) {
 		OutboxDiscarded:      1,
 		OutboxFailed:         0,
 	}}
-	ts, user, pass := newTestServer(t, &fakePublisher{}, status)
+	ts := newTestServer(t, &fakePublisher{}, status)
 	client := apiv1connect.NewGatewayServiceClient(ts.Client(), ts.URL)
-	req := connect.NewRequest(&apiv1.GetStatusRequest{})
-	req.Header().Set("Authorization", authHeader(user, pass))
-	resp, err := client.GetStatus(context.Background(), req)
+	resp, err := client.GetStatus(context.Background(), connect.NewRequest(&apiv1.GetStatusRequest{}))
 	if err != nil {
 		t.Fatalf("GetStatus() error = %v", err)
 	}
@@ -368,97 +300,5 @@ func TestGetStatus(t *testing.T) {
 	}
 	if resp.Msg.StartedAt == nil || !resp.Msg.StartedAt.AsTime().Equal(startedAt) {
 		t.Errorf("StartedAt = %v, want %v", resp.Msg.StartedAt, startedAt)
-	}
-}
-
-func TestCORS_DisabledByDefault(t *testing.T) {
-	// newTestServer (no AllowedOrigins) must behave exactly as it did
-	// before CORS existed: no Access-Control-* header ever appears, even
-	// when a request carries an Origin header.
-	ts, user, pass := newTestServer(t, &fakePublisher{}, fakeStatus{})
-	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/iot.gateway.api.v1.GatewayService/GetStatus", strings.NewReader("{}"))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Origin", "http://localhost:5173")
-	req.Header.Set("Authorization", authHeader(user, pass))
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("Do() error = %v", err)
-	}
-	defer resp.Body.Close()
-	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "" {
-		t.Errorf("Access-Control-Allow-Origin = %q, want empty (CORS disabled)", got)
-	}
-	if got := resp.Header.Get("Access-Control-Allow-Credentials"); got != "" {
-		t.Errorf("Access-Control-Allow-Credentials = %q, want empty (CORS disabled)", got)
-	}
-}
-
-func TestCORS_PreflightAllowedOrigin(t *testing.T) {
-	ts, _, _ := newTestServerWithOrigins(t, []string{"http://localhost:5173"})
-	req, _ := http.NewRequest(http.MethodOptions, ts.URL+"/iot.gateway.api.v1.GatewayService/GetStatus", nil)
-	req.Header.Set("Origin", "http://localhost:5173")
-	req.Header.Set("Access-Control-Request-Method", "POST")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("Do() error = %v", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusNoContent {
-		t.Errorf("status = %d, want 204", resp.StatusCode)
-	}
-	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "http://localhost:5173" {
-		t.Errorf("Access-Control-Allow-Origin = %q, want the request's own origin", got)
-	}
-	if got := resp.Header.Get("Access-Control-Allow-Credentials"); got != "true" {
-		t.Errorf("Access-Control-Allow-Credentials = %q, want true", got)
-	}
-	if got := resp.Header.Get("Access-Control-Allow-Methods"); !strings.Contains(got, "POST") {
-		t.Errorf("Access-Control-Allow-Methods = %q, want it to include POST", got)
-	}
-	if got := resp.Header.Get("Access-Control-Allow-Headers"); !strings.Contains(got, "Authorization") || !strings.Contains(got, "Content-Type") {
-		t.Errorf("Access-Control-Allow-Headers = %q, want Authorization and Content-Type", got)
-	}
-}
-
-func TestCORS_PreflightDisallowedOrigin(t *testing.T) {
-	ts, _, _ := newTestServerWithOrigins(t, []string{"http://localhost:5173"})
-	req, _ := http.NewRequest(http.MethodOptions, ts.URL+"/iot.gateway.api.v1.GatewayService/GetStatus", nil)
-	req.Header.Set("Origin", "http://evil.example.com")
-	req.Header.Set("Access-Control-Request-Method", "POST")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("Do() error = %v", err)
-	}
-	defer resp.Body.Close()
-	// Still a plain 204 (no error leaked about which origins are
-	// allowlisted) - the browser blocks the real request itself because
-	// no Access-Control-Allow-Origin header is present.
-	if resp.StatusCode != http.StatusNoContent {
-		t.Errorf("status = %d, want 204", resp.StatusCode)
-	}
-	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "" {
-		t.Errorf("Access-Control-Allow-Origin = %q, want empty for a disallowed origin", got)
-	}
-}
-
-func TestCORS_ActualRequestAllowedOrigin(t *testing.T) {
-	ts, user, pass := newTestServerWithOrigins(t, []string{"http://localhost:5173"})
-	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/iot.gateway.api.v1.GatewayService/GetStatus", strings.NewReader("{}"))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Origin", "http://localhost:5173")
-	req.Header.Set("Authorization", authHeader(user, pass))
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("Do() error = %v", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("status = %d, want 200", resp.StatusCode)
-	}
-	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "http://localhost:5173" {
-		t.Errorf("Access-Control-Allow-Origin = %q, want the request's own origin", got)
-	}
-	if got := resp.Header.Get("Access-Control-Allow-Credentials"); got != "true" {
-		t.Errorf("Access-Control-Allow-Credentials = %q, want true", got)
 	}
 }

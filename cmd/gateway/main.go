@@ -18,6 +18,7 @@ import (
 
 	"github.com/ricardossiqueira/iot-gateway/internal/admin"
 	"github.com/ricardossiqueira/iot-gateway/internal/api"
+	"github.com/ricardossiqueira/iot-gateway/internal/apigateway"
 	"github.com/ricardossiqueira/iot-gateway/internal/config"
 	"github.com/ricardossiqueira/iot-gateway/internal/diagnostics"
 	gatewaymqtt "github.com/ricardossiqueira/iot-gateway/internal/mqtt"
@@ -31,6 +32,7 @@ const (
 	adminRequestTimeout        = 30 * time.Second
 	apiShutdownTimeout         = 5 * time.Second
 	apiRequestTimeout          = 10 * time.Second
+	apigatewayShutdownTimeout  = 5 * time.Second
 )
 
 func main() {
@@ -206,26 +208,21 @@ func runGateway(args []string, stderr io.Writer) int {
 		return 1
 	}
 
-	// Opt-in (nil unless "api:" is in the YAML - config.API's doc
-	// comment): reuses this SAME already-connected gateway/MQTT client
-	// rather than opening a second connection, so it never fights the
-	// long-lived session for mqtt.client_id the way a per-request
-	// reconnect (like publish-test-command below) would if done
-	// repeatedly - see docs/decisions.md.
+	// Opt-in (nil unless "api:" is in the YAML - config.API's doc comment).
+	// Binds api.internal_address, a loopback-only address (ADR-013) - never
+	// LAN-reachable, so this needs no credentials of its own. Reuses this
+	// SAME already-connected gateway/MQTT client rather than opening a
+	// second connection, so it never fights the long-lived session for
+	// mqtt.client_id the way a per-request reconnect (like
+	// publish-test-command below) would if done repeatedly - see
+	// docs/decisions.md ADR-009. The public, authenticated, CORS-enabled
+	// edge (internal/apigateway) runs in the `admin` subcommand instead,
+	// reverse-proxying here - see runAdmin below and ADR-013.
 	var apiServer *api.Server
 	if cfg.API != nil {
-		apiUsername := os.Getenv("IOT_GATEWAY_API_USERNAME")
-		apiPassword := os.Getenv("IOT_GATEWAY_API_PASSWORD")
-		if apiUsername == "" || apiPassword == "" {
-			fmt.Fprintln(stderr, "IOT_GATEWAY_API_USERNAME and IOT_GATEWAY_API_PASSWORD must both be set")
-			gateway.Close()
-			return 1
-		}
 		apiServer, err = api.New(api.Config{
-			Address:        cfg.API.Address,
-			Credentials:    api.Credentials{Username: apiUsername, Password: apiPassword},
+			Address:        cfg.API.InternalAddress,
 			RequestTimeout: apiRequestTimeout,
-			AllowedOrigins: cfg.API.AllowedOrigins,
 			Registry:       cfg,
 		}, gateway, gateway, logger)
 		if err != nil {
@@ -287,7 +284,8 @@ func runAdmin(args []string, stderr io.Writer) int {
 		return 1
 	}
 
-	if _, err := config.Load(*configPath); err != nil {
+	cfg, err := config.Load(*configPath)
+	if err != nil {
 		fmt.Fprintf(stderr, "configuration is invalid: %v\n", err)
 		return 1
 	}
@@ -309,6 +307,38 @@ func runAdmin(args []string, stderr io.Writer) int {
 		return 1
 	}
 
+	// Opt-in (nil unless "api:" is in the YAML - config.API's doc
+	// comment). This process, already root and already the LAN-facing
+	// listener for the admin UI above, is also the public edge of the
+	// Connect-RPC API (docs/decisions.md ADR-013): it authenticates,
+	// applies CORS, and reverse-proxies to internal/api running inside
+	// the sandboxed `iot-gateway run` process at api.internal_address.
+	// DeviceAdminService (a later phase) will be answered directly here
+	// instead of proxied, once it exists.
+	var apigatewayServer *apigateway.Server
+	if cfg.API != nil {
+		apiUsername := os.Getenv("IOT_GATEWAY_API_USERNAME")
+		apiPassword := os.Getenv("IOT_GATEWAY_API_PASSWORD")
+		if apiUsername == "" || apiPassword == "" {
+			fmt.Fprintln(stderr, "IOT_GATEWAY_API_USERNAME and IOT_GATEWAY_API_PASSWORD must both be set")
+			return 1
+		}
+		apigatewayServer, err = apigateway.New(apigateway.Config{
+			Address:        cfg.API.Address,
+			InternalAPIURL: "http://" + cfg.API.InternalAddress,
+			Credentials:    apigateway.Credentials{Username: apiUsername, Password: apiPassword},
+			AllowedOrigins: cfg.API.AllowedOrigins,
+		}, logger)
+		if err != nil {
+			fmt.Fprintf(stderr, "api gateway setup failed: %v\n", err)
+			return 1
+		}
+		if err := apigatewayServer.Start(); err != nil {
+			fmt.Fprintf(stderr, "api gateway failed to start: %v\n", err)
+			return 1
+		}
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	logger.Info("admin UI running", "listen", *listen)
@@ -318,6 +348,13 @@ func runAdmin(args []string, stderr io.Writer) int {
 	defer cancel()
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		logger.Error("admin shutdown failed", "error", err)
+	}
+	if apigatewayServer != nil {
+		apigatewayShutdownCtx, apigatewayCancel := context.WithTimeout(context.Background(), apigatewayShutdownTimeout)
+		if err := apigatewayServer.Shutdown(apigatewayShutdownCtx); err != nil {
+			logger.Error("api gateway shutdown failed", "error", err)
+		}
+		apigatewayCancel()
 	}
 	return 0
 }

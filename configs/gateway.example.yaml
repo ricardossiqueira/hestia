@@ -21,14 +21,21 @@ diagnostics:
   request_timeout: 2s
 
 # Optional and off by default (omit this whole section to disable it).
-# Unlike diagnostics, this is a LAN-reachable, mutating Connect-RPC
-# endpoint (gRPC, gRPC-Web and HTTP/JSON on one port) - see docs/api-v1.md
-# and deploy/README.md. Requires IOT_GATEWAY_API_USERNAME and
-# IOT_GATEWAY_API_PASSWORD. LAN-trusted only, never port-forward.
-# Port 8082, not 8081: the admin UI (a separate process, deploy/README.md)
-# already defaults to 8081.
+# Read by TWO processes (docs/decisions.md ADR-013): `iot-gateway admin`
+# (root) binds `address`, the LAN-reachable, mutating Connect-RPC endpoint
+# (gRPC, gRPC-Web and HTTP/JSON on one port) - see docs/api-v1.md and
+# deploy/README.md. Requires IOT_GATEWAY_API_USERNAME and
+# IOT_GATEWAY_API_PASSWORD (read by the admin process). LAN-trusted only,
+# never port-forward. Port 8082, not 8081: the admin UI's HTML page already
+# defaults to 8081 on the same process.
 # api:
 #   address: 0.0.0.0:8082
+#   # Optional: where iot-gateway run (sandboxed) binds the same API's
+#   # implementation, reachable only by the admin process's reverse proxy
+#   # on this same host - defaults to 127.0.0.1:8083 and normally does not
+#   # need to be set. Must be a loopback IP literal, never the LAN. See
+#   # docs/api-v1.md.
+#   internal_address: 127.0.0.1:8083
 #   # Optional: exact allowlist of browser origins (never "*") permitted to
 #   # call the API cross-origin with credentials, e.g. a gateway-web dev
 #   # server. Absent/empty means CORS stays off - no Access-Control-*

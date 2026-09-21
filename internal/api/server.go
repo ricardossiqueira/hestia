@@ -1,23 +1,27 @@
 // Package api implements the Connect-RPC server that exposes device
-// listing, command-schema discovery, command publishing and gateway status
-// to LAN clients (see docs/api-v1.md). It replaces internal/commandapi:
-// unlike that package, parameters are validated against a device's
-// internal/deviceprofile schema before being published to MQTT, and a
-// client can discover what a device accepts instead of guessing.
+// listing, command-schema discovery, command publishing and gateway status.
+// Unlike internal/commandapi (which it replaced), parameters are validated
+// against a device's internal/deviceprofile schema before being published
+// to MQTT, and a client can discover what a device accepts instead of
+// guessing.
 //
-// Same shape as internal/commandapi and internal/admin: New/Start/Shutdown
-// around a *http.Server, HTTP Basic Auth via basicAuth (not a Connect
-// interceptor, so an auth failure stays a plain 401 with WWW-Authenticate
-// that curl -u and a browser understand), embedded inside the already-
-// running `iot-gateway run` process so PublishCommand reuses the gateway's
-// already-connected MQTT client (see docs/decisions.md ADR-009, which this
-// package inherits unchanged from internal/commandapi).
+// Since docs/decisions.md ADR-013, this server is loopback-only and does
+// its own neither auth nor CORS: it is never reached directly from the LAN
+// any more, only by internal/apigateway's reverse proxy running in the
+// admin (root) process on the same host, which authenticates and applies
+// CORS at the public edge before forwarding. Binding to a loopback address
+// (config.validateAPI enforces this for api.internal_address) IS this
+// server's trust boundary - see internal/apigateway's package doc for the
+// other half of this split.
+//
+// Same New/Start/Shutdown shape as the rest of this project's HTTP
+// servers, embedded inside the already-running `iot-gateway run` process
+// so PublishCommand reuses the gateway's already-connected MQTT client
+// (see ADR-009, unchanged from internal/commandapi).
 package api
 
 import (
 	"context"
-	"crypto/subtle"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -47,31 +51,19 @@ type StatusProvider interface {
 	Snapshot() mqtt.Snapshot
 }
 
-// Credentials gate every request behind HTTP Basic Auth, read from
-// environment variables by cmd/gateway - never a flag (which would leak
-// into `ps` output and shell history) and never logged.
-type Credentials struct {
-	Username string
-	Password string
-}
-
 // Config is everything the API server needs to run.
 type Config struct {
+	// Address is api.internal_address - a loopback address only
+	// internal/apigateway's reverse proxy (same host) ever connects to.
 	Address        string
-	Credentials    Credentials
 	RequestTimeout time.Duration
-	// AllowedOrigins is config.API.AllowedOrigins passed through unchanged -
-	// an exact allowlist of browser origins permitted to call this API
-	// cross-origin with credentials. Empty means CORS is off (see cors'
-	// doc comment and config.API's).
-	AllowedOrigins []string
 	// Registry is the already loaded and validated gateway configuration.
 	// It is read by value here (never re-read from disk), preserving the
 	// sandboxed gateway process's read-only posture.
 	Registry config.Config
 }
 
-// Server is the LAN-facing Connect-RPC server (gRPC, gRPC-Web and
+// Server is the loopback-only Connect-RPC server (gRPC, gRPC-Web and
 // HTTP/JSON on one port).
 type Server struct {
 	cfg       Config
@@ -93,9 +85,6 @@ func New(cfg Config, publisher CommandPublisher, status StatusProvider, logger *
 	}
 	if status == nil {
 		return nil, errors.New("api status provider is required")
-	}
-	if cfg.Credentials.Username == "" || cfg.Credentials.Password == "" {
-		return nil, errors.New("api username and password are required")
 	}
 	if cfg.RequestTimeout <= 0 {
 		cfg.RequestTimeout = 10 * time.Second
@@ -127,14 +116,9 @@ func New(cfg Config, publisher CommandPublisher, status StatusProvider, logger *
 	gatewayPath, gatewayHandler := apiv1connect.NewGatewayServiceHandler(s)
 	mux.Handle(gatewayPath, gatewayHandler)
 
-	// cors wraps basicAuth, not the reverse: a browser's CORS preflight
-	// (OPTIONS) never carries the Authorization header being negotiated,
-	// so it must be answered before auth ever runs - see cors' doc
-	// comment. Every other request still needs the same Basic Auth as
-	// non-browser clients (curl, a server) always have.
 	s.http = &http.Server{
 		Addr:              cfg.Address,
-		Handler:           cors(cfg.AllowedOrigins, basicAuth(cfg.Credentials, mux)),
+		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	return s, nil
@@ -164,84 +148,6 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		return fmt.Errorf("shutdown api server: %w", err)
 	}
 	return nil
-}
-
-// corsAllowedHeaders and corsAllowedMethods cover exactly what
-// gateway-web's plain-fetch Connect JSON client sends: a POST with
-// Content-Type and (once authenticated) Authorization. No wildcard, no
-// Connect-Web SDK protocol headers - gateway-web/docs/spec.md deliberately
-// stays on plain fetch, not the generated connect-web client, for its MVP.
-const (
-	corsAllowedHeaders = "Content-Type, Authorization"
-	corsAllowedMethods = "POST, OPTIONS"
-)
-
-// cors implements an exact-origin allowlist with credentials, per
-// gateway-web/docs/spec.md section 5: a browser SPA on a different origin
-// (e.g. http://localhost:5173) needs Access-Control-Allow-Origin echoing
-// its own origin (never "*" - browsers reject "*" for credentialed
-// requests anyway, and config.validateOrigin already rejects it at
-// `iot-gateway validate`) plus Access-Control-Allow-Credentials: true, and
-// a preflight OPTIONS answered without requiring auth.
-//
-// allowedOrigins empty (the default - config.API.AllowedOrigins' doc
-// comment) makes this a no-op passthrough: no Access-Control-* header is
-// ever added, so behavior for every existing non-browser caller (curl,
-// the validator's test client) is unchanged from before CORS existed.
-func cors(allowedOrigins []string, next http.Handler) http.Handler {
-	if len(allowedOrigins) == 0 {
-		return next
-	}
-	allowed := make(map[string]struct{}, len(allowedOrigins))
-	for _, origin := range allowedOrigins {
-		allowed[origin] = struct{}{}
-	}
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		origin := r.Header.Get("Origin")
-		_, isAllowed := allowed[origin]
-		// Vary: Origin always, even when not allowed - a shared cache
-		// must not serve this response to a different origin.
-		w.Header().Add("Vary", "Origin")
-		if isAllowed {
-			w.Header().Set("Access-Control-Allow-Origin", origin)
-			w.Header().Set("Access-Control-Allow-Credentials", "true")
-		}
-		if r.Method == http.MethodOptions {
-			if isAllowed {
-				w.Header().Set("Access-Control-Allow-Methods", corsAllowedMethods)
-				w.Header().Set("Access-Control-Allow-Headers", corsAllowedHeaders)
-				w.Header().Set("Access-Control-Max-Age", "600")
-			}
-			// A disallowed origin's preflight gets no Access-Control-*
-			// headers, so the browser blocks the real request itself -
-			// same effect as a 403 without needing one.
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
-func basicAuth(creds Credentials, next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		username, password, ok := r.BasicAuth()
-		validUser := subtle.ConstantTimeCompare([]byte(username), []byte(creds.Username)) == 1
-		validPass := subtle.ConstantTimeCompare([]byte(password), []byte(creds.Password)) == 1
-		if !ok || !validUser || !validPass {
-			w.Header().Set("WWW-Authenticate", `Basic realm="iot-gateway api"`)
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
-func writeJSON(w http.ResponseWriter, status int, value any) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(value)
 }
 
 func (s *Server) deviceByID(id string) (config.Device, bool) {

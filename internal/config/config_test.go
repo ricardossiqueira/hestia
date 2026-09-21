@@ -269,6 +269,54 @@ func TestParseRejectsInvalidAPIAddress(t *testing.T) {
 	}
 }
 
+func TestParseAPIInternalAddressDefaultsWhenOmitted(t *testing.T) {
+	cfg, err := Parse([]byte(validYAML + "\napi:\n  address: \"0.0.0.0:8082\"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.API.InternalAddress != "127.0.0.1:8083" {
+		t.Errorf("InternalAddress = %q, want the default", cfg.API.InternalAddress)
+	}
+}
+
+func TestParseAcceptsExplicitInternalAddress(t *testing.T) {
+	cfg, err := Parse([]byte(validYAML + "\napi:\n  address: \"0.0.0.0:8082\"\n  internal_address: \"127.0.0.1:9999\"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.API.InternalAddress != "127.0.0.1:9999" {
+		t.Errorf("InternalAddress = %q, want the explicit value", cfg.API.InternalAddress)
+	}
+}
+
+func TestParseRejectsInvalidInternalAddress(t *testing.T) {
+	tests := []struct {
+		name    string
+		address string
+	}{
+		{"not loopback", "0.0.0.0:8083"},
+		{"hostname, not an IP literal", "localhost:8083"},
+		{"missing port", "127.0.0.1"},
+		{"non-numeric port", "127.0.0.1:abc"},
+		{"port out of range", "127.0.0.1:70000"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			yaml := validYAML + "\napi:\n  address: \"0.0.0.0:8082\"\n  internal_address: \"" + test.address + "\"\n"
+			if _, err := Parse([]byte(yaml)); err == nil {
+				t.Fatalf("Parse() with internal_address = %q: want error", test.address)
+			}
+		})
+	}
+}
+
+func TestParseRejectsInternalAddressEqualToAddress(t *testing.T) {
+	yaml := validYAML + "\napi:\n  address: \"127.0.0.1:8083\"\n  internal_address: \"127.0.0.1:8083\"\n"
+	if _, err := Parse([]byte(yaml)); err == nil {
+		t.Fatal("Parse() with address == internal_address: want error")
+	}
+}
+
 func TestParseAPIAllowedOriginsIsOptional(t *testing.T) {
 	cfg, err := Parse([]byte(validYAML + "\napi:\n  address: \"0.0.0.0:8081\"\n"))
 	if err != nil {

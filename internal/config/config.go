@@ -66,25 +66,45 @@ const (
 	maxDiagnosticsTimeout     = 10 * time.Second
 )
 
-// API configures the optional, LAN-reachable Connect-RPC endpoint
-// (internal/api) used to list devices/commands and publish a command to a
-// device without SSH. Unlike Diagnostics, it is opt-in: a nil *API (the
-// "api:" key absent from the YAML) means the endpoint never starts.
-// Deliberately no loopback restriction here (see validateAPI) - the whole
-// point is reachability from elsewhere on the LAN.
+// API configures the optional Connect-RPC API composed on the LAN-reachable
+// Address below. Unlike Diagnostics, it is opt-in: a nil *API (the "api:"
+// key absent from the YAML) means neither process below starts anything
+// for it.
+//
+// Two different processes read this same section (docs/decisions.md
+// ADR-013): `iot-gateway admin` (root) binds Address and is the only
+// public listener - it authenticates, applies CORS, and either answers a
+// request itself (DeviceAdminService, a later phase) or reverse-proxies it
+// (DeviceService/GatewayService) to `iot-gateway run` (sandboxed), which
+// binds InternalAddress and does neither auth nor CORS: InternalAddress
+// being loopback-only (validateAPI enforces this, unlike Address) IS its
+// trust boundary. Never merge the two - see ADR-008 for why the sandboxed
+// process must never itself be the public listener for anything that can
+// mutate system state, and ADR-013 for why it does not even need its own
+// credential once it is loopback-only and the only caller (the admin
+// process) already authenticated the request at the public edge.
 type API struct {
+	// Address is the public, LAN-reachable address the admin process
+	// binds. Deliberately no loopback restriction (see validateAPI).
 	Address string `yaml:"address"`
+	// InternalAddress is where `iot-gateway run` binds internal/api's
+	// Connect-RPC server, reachable only by the admin process's reverse
+	// proxy on the same host. Defaults to defaultAPIInternalAddress when
+	// API is configured but this is omitted (applyDefaults). Must be a
+	// loopback IP literal (validateAPI) and different from Address.
+	InternalAddress string `yaml:"internal_address,omitempty"`
 	// AllowedOrigins is an exact allowlist of browser origins (scheme +
 	// host + optional port, e.g. "http://localhost:5173") permitted to
-	// call this API cross-origin with credentials. Empty (the default)
+	// call Address cross-origin with credentials. Empty (the default)
 	// means CORS is off: no Access-Control-* headers are ever added, and
-	// behavior is identical to before CORS existed - a browser cannot
-	// call this API cross-origin at all, only same-origin/non-browser
-	// clients (curl, a server) can. Never "*": a credentialed CORS
-	// response requires echoing a specific, allowlisted origin (see
-	// validateAPI and internal/api's cors middleware).
+	// a browser cannot call this API cross-origin at all - only
+	// same-origin/non-browser clients (curl, a server) can. Never "*": a
+	// credentialed CORS response requires echoing a specific, allowlisted
+	// origin (see validateAPI and internal/apigateway's cors middleware).
 	AllowedOrigins []string `yaml:"cors_allowed_origins,omitempty"`
 }
+
+const defaultAPIInternalAddress = "127.0.0.1:8083"
 
 // Duration represents a Go duration written as a YAML string, such as "168h".
 type Duration time.Duration
@@ -228,6 +248,9 @@ func applyDefaults(c *Config) {
 	if !c.Diagnostics.timeoutSet {
 		c.Diagnostics.RequestTimeout = Duration(defaultDiagnosticsTimeout)
 	}
+	if c.API != nil && c.API.InternalAddress == "" {
+		c.API.InternalAddress = defaultAPIInternalAddress
+	}
 }
 
 // Validate enforces the routing contract documented in docs/configuration.md.
@@ -334,9 +357,13 @@ func validateDiagnostics(diagnostics Diagnostics) error {
 }
 
 // validateAPI only runs when api is configured at all (see Config.API's
-// doc comment) - deliberately no loopback restriction, unlike
-// validateDiagnostics: this endpoint exists specifically to be reachable
-// from elsewhere on the LAN.
+// doc comment). Address (the public, admin-bound listener) deliberately has
+// no loopback restriction, unlike validateDiagnostics: it exists
+// specifically to be reachable from elsewhere on the LAN. InternalAddress
+// (the sandboxed, admin-only-reachable listener) is the opposite: it MUST
+// be loopback, using the same check as validateDiagnostics, because that
+// restriction is the only thing standing between the sandboxed process and
+// being directly, unauthenticated-ly reachable from the LAN (ADR-013).
 func validateAPI(api API) error {
 	// host may legitimately be empty (e.g. ":8081", meaning all
 	// interfaces) - unlike validateDiagnostics, there is no loopback (or
@@ -349,6 +376,23 @@ func validateAPI(api API) error {
 	if strings.Trim(portText, "0123456789") != "" || err != nil || port < 1 || port > 65535 {
 		return errors.New("api.address must include a port between 1 and 65535")
 	}
+
+	internalHost, internalPortText, err := net.SplitHostPort(api.InternalAddress)
+	if err != nil {
+		return errors.New("api.internal_address must be an IP literal and port")
+	}
+	internalIP := net.ParseIP(internalHost)
+	if internalIP == nil || !internalIP.IsLoopback() {
+		return errors.New("api.internal_address must use a loopback IP literal")
+	}
+	internalPort, err := strconv.Atoi(internalPortText)
+	if strings.Trim(internalPortText, "0123456789") != "" || err != nil || internalPort < 1 || internalPort > 65535 {
+		return errors.New("api.internal_address must include a port between 1 and 65535")
+	}
+	if api.Address == api.InternalAddress {
+		return errors.New("api.address and api.internal_address must be different")
+	}
+
 	for _, origin := range api.AllowedOrigins {
 		if err := validateOrigin(origin); err != nil {
 			return fmt.Errorf("api.cors_allowed_origins: %w", err)
