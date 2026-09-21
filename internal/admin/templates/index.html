@@ -33,6 +33,10 @@
 </div>
 {{end}}
 
+{{if .Notice}}
+<div class="flash">{{.Notice}}</div>
+{{end}}
+
 {{if .Error}}
 <div class="error"><strong>Erro:</strong> {{.Error}}</div>
 {{end}}

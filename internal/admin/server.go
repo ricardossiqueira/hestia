@@ -46,9 +46,10 @@ type Config struct {
 // docs/decisions.md ADR-008 - and every route mutates system state, so
 // every route also requires Basic Auth.
 type Server struct {
-	cfg    Config
-	logger *slog.Logger
-	http   *http.Server
+	cfg      Config
+	logger   *slog.Logger
+	http     *http.Server
+	messages *messageStore
 }
 
 func New(cfg Config, logger *slog.Logger) (*Server, error) {
@@ -71,7 +72,7 @@ func New(cfg Config, logger *slog.Logger) (*Server, error) {
 		logger = slog.Default()
 	}
 
-	s := &Server{cfg: cfg, logger: logger}
+	s := &Server{cfg: cfg, logger: logger, messages: newMessageStore()}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", s.handleIndex)
 	mux.HandleFunc("POST /devices", s.handleAddDevice)
@@ -129,6 +130,7 @@ func basicAuth(creds Credentials, next http.Handler) http.Handler {
 type pageData struct {
 	Devices []deviceView
 	Flash   *flashView
+	Notice  string
 	Error   string
 }
 
@@ -189,11 +191,22 @@ func topicsSummary(t config.Topics) string {
 	return strings.Join(names, ", ")
 }
 
+// handleIndex is the ONLY handler that ever renders the page directly - a
+// bare GET is always safe to repeat (reload, back/forward, bookmark). Every
+// mutating handler below redirects here instead of rendering its own
+// response; see messages.go's doc comment for why.
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	data, err := s.loadPageData()
 	if err != nil {
 		s.render(w, http.StatusInternalServerError, pageData{Error: err.Error()})
 		return
+	}
+	if token := r.URL.Query().Get("msg"); token != "" {
+		if msg, ok := s.messages.take(token); ok {
+			data.Flash = msg.Flash
+			data.Notice = msg.Notice
+			data.Error = msg.Error
+		}
 	}
 	s.render(w, http.StatusOK, data)
 }
@@ -203,17 +216,17 @@ func (s *Server) handleAddDevice(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	if err := r.ParseForm(); err != nil {
-		s.renderWithError(w, "invalid form submission")
+		s.redirectWithError(w, r, "invalid form submission")
 		return
 	}
 	deviceID := strings.TrimSpace(r.FormValue("device_id"))
 	topics := r.Form["topics"]
 	if deviceID == "" {
-		s.renderWithError(w, "device_id is required")
+		s.redirectWithError(w, r, "device_id is required")
 		return
 	}
 	if len(topics) == 0 {
-		s.renderWithError(w, "select at least one topic")
+		s.redirectWithError(w, r, "select at least one topic")
 		return
 	}
 
@@ -226,11 +239,11 @@ func (s *Server) handleAddDevice(w http.ResponseWriter, r *http.Request) {
 	// which is why this check exists.
 	exists, err := DeviceExists(s.cfg.ConfigPath, deviceID)
 	if err != nil {
-		s.renderWithError(w, err.Error())
+		s.redirectWithError(w, r, err.Error())
 		return
 	}
 	if exists {
-		s.renderWithError(w, fmt.Sprintf("device %q already exists - nothing was changed", deviceID))
+		s.redirectWithError(w, r, fmt.Sprintf("device %q already exists - nothing was changed", deviceID))
 		return
 	}
 
@@ -239,30 +252,24 @@ func (s *Server) handleAddDevice(w http.ResponseWriter, r *http.Request) {
 	// YAML is never touched at all.
 	password, err := Provision(ctx, s.cfg.ProvisionScript, deviceID, topics)
 	if err != nil {
-		s.renderWithError(w, fmt.Sprintf("provisioning failed: %v", err))
+		s.redirectWithError(w, r, fmt.Sprintf("provisioning failed: %v", err))
 		return
 	}
 	if err := AddDevice(s.cfg.ConfigPath, deviceID, topics); err != nil {
-		s.renderWithError(w, fmt.Sprintf(
+		s.redirectWithError(w, r, fmt.Sprintf(
 			"device %q was provisioned in Mosquitto but NOT added to gateway.yaml: %v. "+
 				"Fix gateway.yaml by hand, or remove the orphaned credential with the CLI script's --remove.",
 			deviceID, err))
 		return
 	}
 	if err := RestartGateway(ctx); err != nil {
-		s.renderWithError(w, fmt.Sprintf(
+		s.redirectWithError(w, r, fmt.Sprintf(
 			"device %q was registered but the gateway service failed to restart: %v. "+
 				"Restart it by hand to apply the change.", deviceID, err))
 		return
 	}
 
-	data, err := s.loadPageData()
-	if err != nil {
-		s.render(w, http.StatusInternalServerError, pageData{Error: err.Error()})
-		return
-	}
-	data.Flash = &flashView{DeviceID: deviceID, Password: password}
-	s.render(w, http.StatusOK, data)
+	s.redirectWithMessage(w, r, message{Flash: &flashView{DeviceID: deviceID, Password: password}})
 }
 
 func (s *Server) handleRemoveDevice(w http.ResponseWriter, r *http.Request) {
@@ -271,39 +278,36 @@ func (s *Server) handleRemoveDevice(w http.ResponseWriter, r *http.Request) {
 
 	deviceID := strings.TrimSpace(r.PathValue("id"))
 	if deviceID == "" {
-		s.renderWithError(w, "device id is required")
+		s.redirectWithError(w, r, "device id is required")
 		return
 	}
 
 	if err := RemoveDevice(s.cfg.ConfigPath, deviceID); err != nil {
-		s.renderWithError(w, fmt.Sprintf("removing %q from gateway.yaml failed: %v", deviceID, err))
+		s.redirectWithError(w, r, fmt.Sprintf("removing %q from gateway.yaml failed: %v", deviceID, err))
 		return
 	}
 	if err := Deprovision(ctx, s.cfg.ProvisionScript, deviceID); err != nil {
-		s.renderWithError(w, fmt.Sprintf(
+		s.redirectWithError(w, r, fmt.Sprintf(
 			"device %q was removed from gateway.yaml but its Mosquitto credential/ACL could not be revoked: %v. "+
 				"Run the CLI script's --remove by hand.", deviceID, err))
 		return
 	}
 	if err := RestartGateway(ctx); err != nil {
-		s.renderWithError(w, fmt.Sprintf("device %q was removed but the gateway service failed to restart: %v", deviceID, err))
+		s.redirectWithError(w, r, fmt.Sprintf("device %q was removed but the gateway service failed to restart: %v", deviceID, err))
 		return
 	}
 
-	data, err := s.loadPageData()
-	if err != nil {
-		s.render(w, http.StatusInternalServerError, pageData{Error: err.Error()})
-		return
-	}
-	s.render(w, http.StatusOK, data)
+	s.redirectWithMessage(w, r, message{Notice: fmt.Sprintf("Device %q removed.", deviceID)})
 }
 
-func (s *Server) renderWithError(w http.ResponseWriter, message string) {
-	data, err := s.loadPageData()
-	if err != nil {
-		s.render(w, http.StatusInternalServerError, pageData{Error: err.Error()})
-		return
-	}
-	data.Error = message
-	s.render(w, http.StatusBadRequest, data)
+// redirectWithMessage implements Post/Redirect/Get: msg is stashed under a
+// one-time token (never in the URL itself - see messages.go) and the
+// browser is sent to fetch it via an ordinary, safely-repeatable GET.
+func (s *Server) redirectWithMessage(w http.ResponseWriter, r *http.Request, msg message) {
+	token := s.messages.put(msg)
+	http.Redirect(w, r, "/?msg="+token, http.StatusSeeOther)
+}
+
+func (s *Server) redirectWithError(w http.ResponseWriter, r *http.Request, errMessage string) {
+	s.redirectWithMessage(w, r, message{Error: errMessage})
 }
