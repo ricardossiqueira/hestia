@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/ricardossiqueira/iot-gateway/internal/admin"
+	"github.com/ricardossiqueira/iot-gateway/internal/commandapi"
 	"github.com/ricardossiqueira/iot-gateway/internal/config"
 	"github.com/ricardossiqueira/iot-gateway/internal/diagnostics"
 	gatewaymqtt "github.com/ricardossiqueira/iot-gateway/internal/mqtt"
@@ -28,6 +29,8 @@ const (
 	diagnosticsShutdownTimeout = 5 * time.Second
 	adminShutdownTimeout       = 5 * time.Second
 	adminRequestTimeout        = 30 * time.Second
+	commandsShutdownTimeout    = 5 * time.Second
+	commandsRequestTimeout     = 10 * time.Second
 )
 
 func main() {
@@ -202,6 +205,39 @@ func runGateway(args []string, stderr io.Writer) int {
 		gateway.Close()
 		return 1
 	}
+
+	// Opt-in (nil unless "commands:" is in the YAML - config.Commands' doc
+	// comment): reuses this SAME already-connected gateway/MQTT client
+	// rather than opening a second connection, so it never fights the
+	// long-lived session for mqtt.client_id the way a per-request
+	// reconnect (like publish-test-command below) would if done
+	// repeatedly - see docs/decisions.md.
+	var commandsServer *commandapi.Server
+	if cfg.Commands != nil {
+		commandsUsername := os.Getenv("IOT_GATEWAY_COMMANDS_USERNAME")
+		commandsPassword := os.Getenv("IOT_GATEWAY_COMMANDS_PASSWORD")
+		if commandsUsername == "" || commandsPassword == "" {
+			fmt.Fprintln(stderr, "IOT_GATEWAY_COMMANDS_USERNAME and IOT_GATEWAY_COMMANDS_PASSWORD must both be set")
+			gateway.Close()
+			return 1
+		}
+		commandsServer, err = commandapi.New(commandapi.Config{
+			Address:        cfg.Commands.Address,
+			Credentials:    commandapi.Credentials{Username: commandsUsername, Password: commandsPassword},
+			RequestTimeout: commandsRequestTimeout,
+		}, gateway, logger)
+		if err != nil {
+			fmt.Fprintf(stderr, "commands setup failed: %v\n", err)
+			gateway.Close()
+			return 1
+		}
+		if err := commandsServer.Start(); err != nil {
+			fmt.Fprintf(stderr, "commands failed to start: %v\n", err)
+			gateway.Close()
+			return 1
+		}
+	}
+
 	logger.Info("IoT gateway running", "gateway_id", cfg.Gateway.ID)
 	<-ctx.Done()
 	logger.Info("IoT gateway stopping")
@@ -210,6 +246,13 @@ func runGateway(args []string, stderr io.Writer) int {
 		logger.Error("diagnostics shutdown failed", "error", err)
 	}
 	cancel()
+	if commandsServer != nil {
+		commandsShutdownCtx, commandsCancel := context.WithTimeout(context.Background(), commandsShutdownTimeout)
+		if err := commandsServer.Shutdown(commandsShutdownCtx); err != nil {
+			logger.Error("commands shutdown failed", "error", err)
+		}
+		commandsCancel()
+	}
 	gateway.Close()
 	return 0
 }

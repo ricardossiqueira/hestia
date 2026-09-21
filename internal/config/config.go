@@ -26,6 +26,7 @@ type Config struct {
 	MQTT        MQTT        `yaml:"mqtt"`
 	Storage     Storage     `yaml:"storage"`
 	Diagnostics Diagnostics `yaml:"diagnostics"`
+	Commands    *Commands   `yaml:"commands"`
 	Devices     []Device    `yaml:"devices"`
 	Routes      []Route     `yaml:"routes"`
 }
@@ -63,6 +64,16 @@ const (
 	defaultDiagnosticsTimeout = 2 * time.Second
 	maxDiagnosticsTimeout     = 10 * time.Second
 )
+
+// Commands configures the optional, LAN-reachable HTTP endpoint used to
+// publish a command to a device without SSH. Unlike Diagnostics, it is
+// opt-in: a nil *Commands (the "commands:" key absent from the YAML)
+// means the endpoint never starts. Deliberately no loopback restriction
+// here (see validateCommands) - the whole point is reachability from
+// elsewhere on the LAN.
+type Commands struct {
+	Address string `yaml:"address"`
+}
 
 // Duration represents a Go duration written as a YAML string, such as "168h".
 type Duration time.Duration
@@ -230,6 +241,11 @@ func (c Config) Validate() error {
 	if err := validateDiagnostics(c.Diagnostics); err != nil {
 		return err
 	}
+	if c.Commands != nil {
+		if err := validateCommands(*c.Commands); err != nil {
+			return err
+		}
+	}
 	if len(c.Devices) == 0 {
 		return errors.New("configuration must define at least one device")
 	}
@@ -293,6 +309,25 @@ func validateDiagnostics(diagnostics Diagnostics) error {
 	timeout := diagnostics.RequestTimeout.TimeDuration()
 	if timeout <= 0 || timeout > maxDiagnosticsTimeout {
 		return errors.New("diagnostics.request_timeout must be greater than zero and at most 10s")
+	}
+	return nil
+}
+
+// validateCommands only runs when commands is configured at all (see
+// Config.Commands' doc comment) - deliberately no loopback restriction,
+// unlike validateDiagnostics: this endpoint exists specifically to be
+// reachable from elsewhere on the LAN.
+func validateCommands(commands Commands) error {
+	// host may legitimately be empty (e.g. ":8081", meaning all
+	// interfaces) - unlike validateDiagnostics, there is no loopback (or
+	// any other) restriction on it here.
+	_, portText, err := net.SplitHostPort(commands.Address)
+	if err != nil {
+		return errors.New("commands.address must be a host (optional) and port")
+	}
+	port, err := strconv.Atoi(portText)
+	if strings.Trim(portText, "0123456789") != "" || err != nil || port < 1 || port > 65535 {
+		return errors.New("commands.address must include a port between 1 and 65535")
 	}
 	return nil
 }

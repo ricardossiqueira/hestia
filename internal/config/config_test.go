@@ -218,6 +218,56 @@ diagnostics:
 	}
 }
 
+func TestParseCommandsIsOptional(t *testing.T) {
+	cfg, err := Parse([]byte(validYAML))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Commands != nil {
+		t.Errorf("Commands = %#v, want nil when absent from YAML", cfg.Commands)
+	}
+}
+
+func TestParseAcceptsCommandsConfiguration(t *testing.T) {
+	cfg, err := Parse([]byte(validYAML + `
+commands:
+  address: "0.0.0.0:8081"
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Commands == nil || cfg.Commands.Address != "0.0.0.0:8081" {
+		t.Errorf("Commands = %#v", cfg.Commands)
+	}
+}
+
+func TestParseAcceptsCommandsWithoutHost(t *testing.T) {
+	// ":8081" (no host) means "all interfaces" - unlike diagnostics.address,
+	// there is no loopback restriction to enforce here.
+	if _, err := Parse([]byte(validYAML + "\ncommands:\n  address: \":8081\"\n")); err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+}
+
+func TestParseRejectsInvalidCommandsAddress(t *testing.T) {
+	tests := []struct {
+		name    string
+		address string
+	}{
+		{"missing port", "0.0.0.0"},
+		{"non-numeric port", "0.0.0.0:abc"},
+		{"port out of range", "0.0.0.0:70000"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := Parse([]byte(validYAML + "\ncommands:\n  address: \"" + test.address + "\"\n"))
+			if err == nil {
+				t.Fatalf("Parse() with commands.address = %q: want error", test.address)
+			}
+		})
+	}
+}
+
 func TestParseAcceptsEmptyTimezone(t *testing.T) {
 	withoutTimezone := strings.Replace(validYAML, "  timezone: America/Sao_Paulo\n", "", 1)
 	if _, err := Parse([]byte(withoutTimezone)); err != nil {
