@@ -45,6 +45,29 @@ Exemplo de comando:
 }
 ```
 
+## Publicar um comando via HTTP
+
+Alternativa ao `iot-gateway publish-test-command` (CLI) e ao `mosquitto_pub`
+manual: um endpoint HTTP opcional (`internal/commandapi`), habilitado
+adicionando `commands:` ao `gateway.yaml` (ver
+`configs/gateway.example.yaml` e `deploy/README.md`). Roda dentro do
+próprio processo `iot-gateway run`, reaproveitando a conexão MQTT já
+estabelecida — nunca abre uma segunda conexão com o mesmo
+`mqtt.client_id`, o que a cada requisição derrubaria brevemente a sessão
+principal do gateway.
+
+```bash
+curl -u <usuario>:<senha> \
+  -d '{"device_id":"led-1","type":"set_led","parameters":{"on":true}}' \
+  http://<orange-pi>:<porta>/commands
+```
+
+O `command_id` (UUID) é gerado pelo servidor; `type` e `parameters` vêm do
+corpo da requisição e seguem o mesmo contrato de comando desta página. A
+resposta é `200 {"command_id","device_id","status":"published"}` ou um erro
+`4xx` com `{"error": "..."}` — dispositivo desconhecido, desabilitado, sem
+tópico `command`, ou corpo inválido.
+
 ## Qualidade de serviço
 
 - Telemetria: QoS 1 no MVP para reduzir perdas sem complexidade excessiva.

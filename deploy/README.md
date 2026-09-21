@@ -203,3 +203,45 @@ just admin-status
 
 Open `http://<orange-pi-lan-ip>:8081/` from a browser on the same LAN,
 logging in with the credential above.
+
+## Command HTTP endpoint
+
+Sending a device a command (e.g. `set_led`) today means `mosquitto_pub`
+with a hand-built JSON envelope over SSH. `internal/commandapi` adds a
+`POST /commands` HTTP endpoint for this instead - unlike the admin UI, it
+runs **inside** `iot-gateway.service` itself (no separate unit, no root):
+publishing a command only needs the MQTT connection that process already
+holds, reusing it rather than opening a second one (see
+`docs/decisions.md`). It is optional and off by default - add a
+`commands:` section to `gateway.yaml` (see
+`configs/gateway.example.yaml`) to turn it on.
+
+**Same LAN-trusted-only rule as the admin UI**: plain HTTP, one shared
+Basic Auth credential. Add its own two variables to the *existing*
+`/etc/iot-gateway/environment` (not the admin UI's separate file - this
+runs in the main gateway process):
+
+```bash
+openssl rand -base64 24
+sudoedit /etc/iot-gateway/environment
+```
+
+```ini
+IOT_GATEWAY_COMMANDS_USERNAME=commands
+IOT_GATEWAY_COMMANDS_PASSWORD=the-generated-password
+```
+
+Add the `commands:` section to `/etc/iot-gateway/gateway.yaml`, then:
+
+```bash
+sudo systemctl restart iot-gateway.service
+```
+
+Send a command (`configs/gateway.example.yaml` suggests port `8082`,
+since the admin UI already defaults to `8081`):
+
+```bash
+curl -u commands:the-generated-password \
+  -d '{"device_id":"led-1","type":"set_led","parameters":{"on":true}}' \
+  http://<orange-pi-lan-ip>:8082/commands
+```

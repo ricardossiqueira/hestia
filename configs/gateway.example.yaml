@@ -20,6 +20,15 @@ diagnostics:
   address: 127.0.0.1:8080
   request_timeout: 2s
 
+# Optional and off by default (omit this whole section to disable it).
+# Unlike diagnostics, this is a LAN-reachable, mutating HTTP endpoint - see
+# docs/mqtt.md and deploy/README.md. Requires IOT_GATEWAY_COMMANDS_USERNAME
+# and IOT_GATEWAY_COMMANDS_PASSWORD. LAN-trusted only, never port-forward.
+# Port 8082, not 8081: the admin UI (a separate process, deploy/README.md)
+# already defaults to 8081.
+# commands:
+#   address: 0.0.0.0:8082
+
 devices:
   - id: esp32-sala
     type: esp32

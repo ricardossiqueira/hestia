@@ -38,6 +38,17 @@
 - Autenticação HTTP Basic com credencial única vinda de variáveis de
   ambiente; sem TLS — uso restrito à LAN confiável.
 
+## Extensão local — endpoint HTTP de comando (concluído)
+
+- `POST /commands` (`internal/commandapi`), opcional (`commands:` no
+  `gateway.yaml`), rodando dentro do próprio processo `iot-gateway run` —
+  reaproveita a conexão MQTT já estabelecida em vez de abrir uma nova por
+  requisição (ADR-009 em `decisions.md`).
+- `command_id` gerado no servidor; `type`/`parameters` vêm do corpo da
+  requisição e seguem o contrato já existente em `docs/mqtt.md`.
+- Mesma autenticação HTTP Basic e mesma restrição de uso à LAN confiável da
+  UI de admin.
+
 ## Marco 3 — Outbox SQLite
 
 - Criar schema e repositório da fila.
