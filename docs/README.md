@@ -10,6 +10,7 @@
 | [mosquitto-device-provisioning.md](mosquitto-device-provisioning.md) | Como conceder credencial/ACL MQTT a um dispositivo no Mosquitto. |
 | [queue.md](queue.md) | Outbox SQLite e comportamento durante falhas de rede. |
 | [uplink-v1.md](uplink-v1.md) | Contrato gRPC/Protobuf futuro entre o gateway e a VPS. |
+| [api-v1.md](api-v1.md) | Contrato Connect-RPC da API local: comandos, descoberta de schema e status. |
 | [security.md](security.md) | Limites de acesso e gestão de segredos. |
 | [deployment.md](deployment.md) | Premissas para executar no Orange Pi. |
 | [implementation-plan.md](implementation-plan.md) | Marcos incrementais de construção. |

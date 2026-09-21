@@ -38,7 +38,7 @@
 - Autenticação HTTP Basic com credencial única vinda de variáveis de
   ambiente; sem TLS — uso restrito à LAN confiável.
 
-## Extensão local — endpoint HTTP de comando (concluído)
+## Extensão local — endpoint HTTP de comando (concluído, substituído)
 
 - `POST /commands` (`internal/commandapi`), opcional (`commands:` no
   `gateway.yaml`), rodando dentro do próprio processo `iot-gateway run` —
@@ -48,6 +48,26 @@
   requisição e seguem o contrato já existente em `docs/mqtt.md`.
 - Mesma autenticação HTTP Basic e mesma restrição de uso à LAN confiável da
   UI de admin.
+- **Substituído** pela API local Connect-RPC abaixo; `internal/commandapi`
+  foi removido.
+
+## Extensão local — API local Connect-RPC (concluído)
+
+- `internal/api`, opcional (`api:` no `gateway.yaml`), rodando dentro do
+  próprio processo `iot-gateway run` — mesmo motivo de reaproveitar a
+  conexão MQTT já estabelecida (ADR-009 em `decisions.md`).
+- Transporte Connect-RPC (`connectrpc.com/connect`): gRPC, gRPC-Web e
+  HTTP/JSON na mesma porta (ADR-010).
+- `DeviceService` (`ListDevices`, `ListDeviceCommands`, `PublishCommand`) e
+  `GatewayService` (`GetStatus`), definidos em
+  `api/proto/iot/gateway/api/v1/api.proto`.
+- `internal/deviceprofile`: registry compilado de profiles de device
+  (`led.v1` nesta etapa); valida e canoniza `parameters` contra um schema
+  Protobuf antes de publicar; device sem `profile:` cai em fallback opaco
+  (ADR-011).
+- Mesma autenticação HTTP Basic e mesma restrição de uso à LAN confiável da
+  UI de admin.
+- Substitui `internal/commandapi`, removido nesta mesma entrega.
 
 ## Marco 3 — Outbox SQLite
 
