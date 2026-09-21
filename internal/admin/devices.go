@@ -217,6 +217,16 @@ func buildDeviceNode(id string, topicSuffixes []string) (*yaml.Node, error) {
 }
 
 func writeValidated(path string, original []byte, doc *yaml.Node) error {
+	// Captured before writing: the admin service runs as root
+	// (deploy/iot-gateway-admin.service), but the gateway itself reads
+	// this file as the unprivileged iot-gateway user
+	// (deploy/iot-gateway.service) - it must stay owned/grouped the way
+	// its install step set it up (deploy/README.md: root:iot-gateway,
+	// 0640), or the gateway fails closed with a permission error on its
+	// very next restart. os.Stat failing here (path not found, e.g. a
+	// fresh install) just means there is nothing to restore afterwards.
+	originalInfo, statErr := os.Stat(path)
+
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
@@ -237,6 +247,16 @@ func writeValidated(path string, original []byte, doc *yaml.Node) error {
 	}
 	if err := os.WriteFile(path, updated, 0o640); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)
+	}
+
+	// Best-effort, same principle deploy/mosquitto-provision-device.sh
+	// already applies to the Mosquitto files it writes: restore the
+	// pre-write owner/group/mode rather than trust that whatever wrote
+	// the new content preserved them. restoreOwnership is a no-op on
+	// Windows dev machines (see devices_windows.go) and never fails the
+	// overall operation - the write itself already succeeded either way.
+	if statErr == nil {
+		restoreOwnership(path, originalInfo)
 	}
 	return nil
 }
