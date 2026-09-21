@@ -161,6 +161,26 @@ func TestRemoveDeviceRejectsUnknownID(t *testing.T) {
 	}
 }
 
+func TestDeviceExists(t *testing.T) {
+	path := writeFixture(t, baseYAML)
+
+	exists, err := DeviceExists(path, "esp32-sala")
+	if err != nil {
+		t.Fatalf("DeviceExists() error = %v", err)
+	}
+	if !exists {
+		t.Errorf("DeviceExists(%q) = false, want true", "esp32-sala")
+	}
+
+	exists, err = DeviceExists(path, "does-not-exist")
+	if err != nil {
+		t.Fatalf("DeviceExists() error = %v", err)
+	}
+	if exists {
+		t.Errorf("DeviceExists(%q) = true, want false", "does-not-exist")
+	}
+}
+
 func TestListDevices(t *testing.T) {
 	path := writeFixture(t, baseYAML)
 	devices, err := ListDevices(path)

@@ -36,6 +36,30 @@ func ListDevices(path string) ([]config.Device, error) {
 	return cfg.Devices, nil
 }
 
+// DeviceExists reports whether a device with the given id is already
+// declared in the YAML file at path. Callers that are about to provision a
+// new credential (an operation that ROTATES an existing device's password
+// as a side effect - see Provision's doc comment) must check this first:
+// calling Provision for an id that already exists and only discovering the
+// YAML conflict afterwards silently invalidates a working device's
+// password with no way to recover it from the response.
+func DeviceExists(path, id string) (bool, error) {
+	_, doc, err := readDocument(path)
+	if err != nil {
+		return false, err
+	}
+	devicesSeq, err := findDevicesSequence(doc)
+	if err != nil {
+		return false, err
+	}
+	for _, item := range devicesSeq.Content {
+		if deviceNodeID(item) == id {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // AddDevice appends a new device entry to the YAML file at path, built from
 // id and topicSuffixes (a non-empty subset of telemetry/state/event/
 // command/command_result). It edits the file's yaml.Node tree rather than

@@ -217,6 +217,23 @@ func (s *Server) handleAddDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Checked BEFORE provisioning on purpose: Provision() ROTATES an
+	// existing device's Mosquitto password as a side effect (that's what
+	// makes the CLI script's re-run-to-rotate behavior work). Finding out
+	// about a YAML conflict only after that already happened silently
+	// invalidates a working device's credential with no way to recover the
+	// new password from the error response - this bit a real device once,
+	// which is why this check exists.
+	exists, err := DeviceExists(s.cfg.ConfigPath, deviceID)
+	if err != nil {
+		s.renderWithError(w, err.Error())
+		return
+	}
+	if exists {
+		s.renderWithError(w, fmt.Sprintf("device %q already exists - nothing was changed", deviceID))
+		return
+	}
+
 	// Mosquitto first, gateway.yaml second - same order as the manual
 	// checklist in docs/device-onboarding.md. If provisioning fails, the
 	// YAML is never touched at all.
