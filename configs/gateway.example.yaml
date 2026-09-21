@@ -21,18 +21,20 @@ diagnostics:
   request_timeout: 2s
 
 # Optional and off by default (omit this whole section to disable it).
-# Unlike diagnostics, this is a LAN-reachable, mutating HTTP endpoint - see
-# docs/mqtt.md and deploy/README.md. Requires IOT_GATEWAY_COMMANDS_USERNAME
-# and IOT_GATEWAY_COMMANDS_PASSWORD. LAN-trusted only, never port-forward.
+# Unlike diagnostics, this is a LAN-reachable, mutating Connect-RPC
+# endpoint (gRPC, gRPC-Web and HTTP/JSON on one port) - see docs/api-v1.md
+# and deploy/README.md. Requires IOT_GATEWAY_API_USERNAME and
+# IOT_GATEWAY_API_PASSWORD. LAN-trusted only, never port-forward.
 # Port 8082, not 8081: the admin UI (a separate process, deploy/README.md)
 # already defaults to 8081.
-# commands:
+# api:
 #   address: 0.0.0.0:8082
 
 devices:
   - id: esp32-sala
     type: esp32
     enabled: true
+    # profile: led.v1  # optional; enables schema validation via internal/deviceprofile (see docs/api-v1.md). Empty/absent = opaque fallback.
     topics:
       telemetry: devices/esp32-sala/telemetry
       state: devices/esp32-sala/state

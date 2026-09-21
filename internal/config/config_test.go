@@ -218,38 +218,38 @@ diagnostics:
 	}
 }
 
-func TestParseCommandsIsOptional(t *testing.T) {
+func TestParseAPIIsOptional(t *testing.T) {
 	cfg, err := Parse([]byte(validYAML))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Commands != nil {
-		t.Errorf("Commands = %#v, want nil when absent from YAML", cfg.Commands)
+	if cfg.API != nil {
+		t.Errorf("API = %#v, want nil when absent from YAML", cfg.API)
 	}
 }
 
-func TestParseAcceptsCommandsConfiguration(t *testing.T) {
+func TestParseAcceptsAPIConfiguration(t *testing.T) {
 	cfg, err := Parse([]byte(validYAML + `
-commands:
+api:
   address: "0.0.0.0:8081"
 `))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Commands == nil || cfg.Commands.Address != "0.0.0.0:8081" {
-		t.Errorf("Commands = %#v", cfg.Commands)
+	if cfg.API == nil || cfg.API.Address != "0.0.0.0:8081" {
+		t.Errorf("API = %#v", cfg.API)
 	}
 }
 
-func TestParseAcceptsCommandsWithoutHost(t *testing.T) {
+func TestParseAcceptsAPIWithoutHost(t *testing.T) {
 	// ":8081" (no host) means "all interfaces" - unlike diagnostics.address,
 	// there is no loopback restriction to enforce here.
-	if _, err := Parse([]byte(validYAML + "\ncommands:\n  address: \":8081\"\n")); err != nil {
+	if _, err := Parse([]byte(validYAML + "\napi:\n  address: \":8081\"\n")); err != nil {
 		t.Fatalf("Parse() error = %v", err)
 	}
 }
 
-func TestParseRejectsInvalidCommandsAddress(t *testing.T) {
+func TestParseRejectsInvalidAPIAddress(t *testing.T) {
 	tests := []struct {
 		name    string
 		address string
@@ -260,11 +260,30 @@ func TestParseRejectsInvalidCommandsAddress(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := Parse([]byte(validYAML + "\ncommands:\n  address: \"" + test.address + "\"\n"))
+			_, err := Parse([]byte(validYAML + "\napi:\n  address: \"" + test.address + "\"\n"))
 			if err == nil {
-				t.Fatalf("Parse() with commands.address = %q: want error", test.address)
+				t.Fatalf("Parse() with api.address = %q: want error", test.address)
 			}
 		})
+	}
+}
+
+func TestParseAcceptsValidProfile(t *testing.T) {
+	yaml := strings.Replace(validYAML, "type: esp32\n", "type: esp32\n    profile: led.v1\n", 1)
+	cfg, err := Parse([]byte(yaml))
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if cfg.Devices[0].Profile != "led.v1" {
+		t.Errorf("Profile = %q, want led.v1", cfg.Devices[0].Profile)
+	}
+}
+
+func TestParseRejectsUnknownProfile(t *testing.T) {
+	yaml := strings.Replace(validYAML, "type: esp32\n", "type: esp32\n    profile: thermostat.v1\n", 1)
+	_, err := Parse([]byte(yaml))
+	if err == nil || !strings.Contains(err.Error(), "not a known device profile") {
+		t.Fatalf("Parse() error = %v, want unknown profile error", err)
 	}
 }
 

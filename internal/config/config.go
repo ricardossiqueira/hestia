@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ricardossiqueira/iot-gateway/internal/deviceprofile"
 	"gopkg.in/yaml.v3"
 )
 
@@ -26,7 +27,7 @@ type Config struct {
 	MQTT        MQTT        `yaml:"mqtt"`
 	Storage     Storage     `yaml:"storage"`
 	Diagnostics Diagnostics `yaml:"diagnostics"`
-	Commands    *Commands   `yaml:"commands"`
+	API         *API        `yaml:"api"`
 	Devices     []Device    `yaml:"devices"`
 	Routes      []Route     `yaml:"routes"`
 }
@@ -65,13 +66,13 @@ const (
 	maxDiagnosticsTimeout     = 10 * time.Second
 )
 
-// Commands configures the optional, LAN-reachable HTTP endpoint used to
-// publish a command to a device without SSH. Unlike Diagnostics, it is
-// opt-in: a nil *Commands (the "commands:" key absent from the YAML)
-// means the endpoint never starts. Deliberately no loopback restriction
-// here (see validateCommands) - the whole point is reachability from
-// elsewhere on the LAN.
-type Commands struct {
+// API configures the optional, LAN-reachable Connect-RPC endpoint
+// (internal/api) used to list devices/commands and publish a command to a
+// device without SSH. Unlike Diagnostics, it is opt-in: a nil *API (the
+// "api:" key absent from the YAML) means the endpoint never starts.
+// Deliberately no loopback restriction here (see validateAPI) - the whole
+// point is reachability from elsewhere on the LAN.
+type API struct {
 	Address string `yaml:"address"`
 }
 
@@ -124,9 +125,15 @@ func (d *Duration) UnmarshalYAML(value *yaml.Node) error {
 func (d Duration) TimeDuration() time.Duration { return time.Duration(d) }
 
 type Device struct {
-	ID         string     `yaml:"id"`
-	Type       string     `yaml:"type"`
-	Enabled    *bool      `yaml:"enabled"`
+	ID      string `yaml:"id"`
+	Type    string `yaml:"type"`
+	Enabled *bool  `yaml:"enabled"`
+	// Profile names a compiled internal/deviceprofile registry entry (e.g.
+	// "led.v1") whose command schemas validate this device's commands sent
+	// through internal/api. Empty means the device has no profile: commands
+	// fall back to the opaque, schema-less contract in docs/mqtt.md. type
+	// still describes hardware; profile is strictly opt-in and orthogonal.
+	Profile    string     `yaml:"profile,omitempty"`
 	Topics     Topics     `yaml:"topics"`
 	Forwarding Forwarding `yaml:"forwarding"`
 }
@@ -241,8 +248,8 @@ func (c Config) Validate() error {
 	if err := validateDiagnostics(c.Diagnostics); err != nil {
 		return err
 	}
-	if c.Commands != nil {
-		if err := validateCommands(*c.Commands); err != nil {
+	if c.API != nil {
+		if err := validateAPI(*c.API); err != nil {
 			return err
 		}
 	}
@@ -268,6 +275,9 @@ func (c Config) Validate() error {
 		}
 		if device.Enabled == nil {
 			return fmt.Errorf("%s.enabled is required", prefix)
+		}
+		if device.Profile != "" && !deviceprofile.Exists(device.Profile) {
+			return fmt.Errorf("%s.profile %q is not a known device profile", prefix, device.Profile)
 		}
 
 		if err := validateTopics(prefix, device, topicOwners); err != nil {
@@ -313,21 +323,21 @@ func validateDiagnostics(diagnostics Diagnostics) error {
 	return nil
 }
 
-// validateCommands only runs when commands is configured at all (see
-// Config.Commands' doc comment) - deliberately no loopback restriction,
-// unlike validateDiagnostics: this endpoint exists specifically to be
-// reachable from elsewhere on the LAN.
-func validateCommands(commands Commands) error {
+// validateAPI only runs when api is configured at all (see Config.API's
+// doc comment) - deliberately no loopback restriction, unlike
+// validateDiagnostics: this endpoint exists specifically to be reachable
+// from elsewhere on the LAN.
+func validateAPI(api API) error {
 	// host may legitimately be empty (e.g. ":8081", meaning all
 	// interfaces) - unlike validateDiagnostics, there is no loopback (or
 	// any other) restriction on it here.
-	_, portText, err := net.SplitHostPort(commands.Address)
+	_, portText, err := net.SplitHostPort(api.Address)
 	if err != nil {
-		return errors.New("commands.address must be a host (optional) and port")
+		return errors.New("api.address must be a host (optional) and port")
 	}
 	port, err := strconv.Atoi(portText)
 	if strings.Trim(portText, "0123456789") != "" || err != nil || port < 1 || port > 65535 {
-		return errors.New("commands.address must include a port between 1 and 65535")
+		return errors.New("api.address must include a port between 1 and 65535")
 	}
 	return nil
 }

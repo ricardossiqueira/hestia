@@ -1,8 +1,9 @@
 module github.com/ricardossiqueira/iot-gateway
 
-go 1.24.0
+go 1.25.0
 
 require (
+	connectrpc.com/connect v1.21.0
 	github.com/eclipse/paho.mqtt.golang v1.5.1
 	github.com/google/uuid v1.6.0
 	google.golang.org/grpc v1.75.1

@@ -1,0 +1,111 @@
+syntax = "proto3";
+
+package iot.gateway.api.v1;
+
+option go_package = "github.com/ricardossiqueira/iot-gateway/api/gen/go/iot/gateway/api/v1;apiv1";
+
+import "google/protobuf/descriptor.proto";
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+// DeviceService lists configured devices, describes the commands each one
+// accepts, and publishes commands to them. See docs/api-v1.md.
+service DeviceService {
+  rpc ListDevices(ListDevicesRequest) returns (ListDevicesResponse);
+  rpc ListDeviceCommands(ListDeviceCommandsRequest) returns (ListDeviceCommandsResponse);
+  rpc PublishCommand(PublishCommandRequest) returns (PublishCommandResponse);
+}
+
+// GatewayService reports the gateway's own runtime status.
+service GatewayService {
+  rpc GetStatus(GetStatusRequest) returns (GetStatusResponse);
+}
+
+message ListDevicesRequest {}
+
+message ListDevicesResponse {
+  repeated Device devices = 1;
+}
+
+message Device {
+  string id = 1;
+  string type = 2;
+  bool enabled = 3;
+  // profile names an internal/deviceprofile registry entry (e.g.
+  // "led.v1"). Empty means this device has no profile: PublishCommand
+  // falls back to opaque, schema-less validation for it.
+  string profile = 4;
+  DeviceTopics topics = 5;
+}
+
+message DeviceTopics {
+  string telemetry = 1;
+  string state = 2;
+  string event = 3;
+  string command = 4;
+  string command_result = 5;
+}
+
+message ListDeviceCommandsRequest {
+  string device_id = 1;
+}
+
+message ListDeviceCommandsResponse {
+  string device_id = 1;
+  // schema_validated is false when the device has no profile: commands is
+  // then empty and PublishCommand will accept this device's parameters
+  // opaquely, with no schema.
+  bool schema_validated = 2;
+  repeated CommandDescriptor commands = 3;
+}
+
+// CommandDescriptor is the schema for one command type, sufficient on its
+// own for a client to render a form: see internal/deviceprofile's
+// self-contained-message invariant.
+message CommandDescriptor {
+  string type = 1;
+  // parameters_message is the fully qualified Protobuf message name (e.g.
+  // "iot.device.led.v1.SetLed").
+  string parameters_message = 2;
+  google.protobuf.DescriptorProto parameters_schema = 3;
+}
+
+message PublishCommandRequest {
+  string device_id = 1;
+  string type = 2;
+  // parameters is a Struct, not bytes (contrast
+  // api/proto/iot/gateway/uplink/v1/uplink.proto's *_json bytes fields):
+  // a bytes field is base64 in JSON, which would defeat curl/simple-form
+  // clients - the entire point of this API. The cost is Struct's number
+  // precision (JSON numbers decode as double): acceptable because
+  // parameters are validated and recodified against a schema right after
+  // decoding. See docs/decisions.md ADR-012. An integer parameter above
+  // 2^53 must be declared `string` in its command message.
+  google.protobuf.Struct parameters = 3;
+}
+
+message PublishCommandResponse {
+  string command_id = 1;
+  string device_id = 2;
+  // schema_validated is false when the device published opaquely (no
+  // profile) - the same meaning as ListDeviceCommandsResponse's field.
+  bool schema_validated = 3;
+  google.protobuf.Timestamp published_at = 4;
+}
+
+message GetStatusRequest {}
+
+// GetStatusResponse mirrors internal/mqtt.Snapshot field for field.
+message GetStatusResponse {
+  google.protobuf.Timestamp started_at = 1;
+  bool started = 2;
+  bool mqtt_connected = 3;
+  int32 subscriptions = 4;
+  uint64 accepted_messages = 5;
+  uint64 rejected_messages = 6;
+  uint64 local_routes_published = 7;
+  uint64 local_routes_failed = 8;
+  uint64 outbox_stored = 9;
+  uint64 outbox_discarded = 10;
+  uint64 outbox_failed = 11;
+}
