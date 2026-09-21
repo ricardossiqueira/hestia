@@ -94,49 +94,25 @@ mais precisão. A partir de agora, **a todolist priorizada é esta**:
    fire-and-forget puro; não há como saber se o ESP32 executou. Sem prazo
    definido ("Posterior" na matriz do spec).
 
-## Pendência 1 — bug real no `justfile` (ainda não corrigido)
+## Pendência 1 — bug real no `justfile` (✅ corrigido)
 
-**O que aconteceu:** ao aplicar esta mesma entrega em produção, rodar
-`just install-service` sobrescreveu `/etc/iot-gateway/gateway.yaml` (que
-tinha `led-1`, `led-2`, `api:`, editados ao vivo) com o conteúdo de
-`config/gateway.yaml` do checkout local do Orange Pi — um arquivo
-**gitignored** (`.gitignore` tem `config/gateway.yaml`), esquecido de uma
-instalação antiga, sem nenhum device além de `orangepi-monitor` e
-`cyd-monitor`. Causou perda de registro de dois dispositivos em produção.
-Recuperado manualmente durante o handoff, mas a causa raiz **continua no
-código** e vai se repetir em qualquer atualização futura.
+**O que aconteceu:** rodar `just install-service` sobrescreveu
+`/etc/iot-gateway/gateway.yaml` (que tinha `led-1`, `led-2`, `api:`,
+editados ao vivo) com o conteúdo de `config/gateway.yaml` do checkout local
+do Orange Pi — um arquivo **gitignored**, esquecido de uma instalação
+antiga. Causou perda de registro de dois dispositivos em produção,
+recuperado manualmente. Aconteceu de novo (quase) ao pedir para deployar o
+CORS, o que motivou o fix.
 
-**Causa exata**, `justfile`:
-```
-config := "config/gateway.yaml"
-install-service config=config:
-    go build -o bin/iot-gateway ./cmd/gateway
-    ...
-    sudo install -m 0640 -o root -g iot-gateway {{config}} /etc/iot-gateway/gateway.yaml
-    ...
-```
-Essa receita faz duas coisas que deveriam ser independentes: instalar o
-binário (seguro, deveria rodar em toda atualização) e instalar o
-`gateway.yaml` (só faz sentido na primeira instalação — depois disso, o
-arquivo é gerenciado ao vivo, via UI de admin ou edição manual).
-
-**Fix sugerido** (ainda não implementado, decisão de design em aberto —
-confirme com o usuário antes, não é só mecânico):
-- Separar em duas receitas: `install-binary` (só o binário + unit file +
-  `daemon-reload`) e `install-config` (só a cópia do `gateway.yaml`, para uso
-  explícito na primeira instalação). `install-service` pode virar um alias
-  de `install-binary` para não quebrar quem já digita esse nome de cor, ou
-  ser removida em favor dos dois nomes novos — vale perguntar ao usuário.
-- Atualizar `deploy/README.md`: a seção de instalação inicial continua
-  usando os dois passos; a seção "CI and automatic updates" e qualquer
-  instrução de "atualizar para uma versão nova" devem deixar claro que só
-  `install-binary` (ou equivalente) deve rodar depois do primeiro install.
-- Verificar se `deploy/iot-gateway-update.sh` (o agente de atualização
-  automática via `iot-gateway-update.timer`) tem o mesmo problema — o
-  `deploy/README.md` atual diz "The updater never copies a configuration
-  file from Git", então ele provavelmente já está correto e o bug é
-  exclusivo do fluxo manual via `just install-service`. Confirme lendo
-  `deploy/iot-gateway-update.sh` antes de assumir isso.
+**Fix aplicado:** `install-service` foi separada em `install-binary`
+(binário + unit + `daemon-reload`, seguro em toda atualização, nunca toca
+`gateway.yaml`) e `install-config` (só a cópia do `gateway.yaml`, só para a
+primeira instalação numa Orange Pi nova). O nome antigo `install-service`
+agora falha alto explicando a separação, em vez de silenciosamente
+sobrescrever o config ao vivo. `deploy/iot-gateway-update.sh` (o agente de
+atualização automática) foi conferido e nunca teve esse problema — só lê
+`gateway.yaml` para `validate`/`healthcheck`, nunca escreve nele, e não
+chama nenhuma dessas receitas.
 
 ## Pendência 2 — Fase 2: `DeviceAdminService` na mesma API
 

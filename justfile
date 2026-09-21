@@ -58,17 +58,35 @@ healthcheck config=config:
 publish-test-command device config=config:
     go run ./cmd/gateway publish-test-command --config {{config}} --device {{device}}
 
-# Install or update the systemd unit on an Orange Pi. Create the environment
-# file with MQTT_GATEWAY_USERNAME and MQTT_GATEWAY_PASSWORD before enabling it.
-install-service config=config:
+# Build and install the gateway binary and its systemd unit on an Orange Pi.
+# Safe to run on every update: never touches gateway.yaml, which is managed
+# live (by hand, or by the admin UI) after the first install - see
+# install-config below and deploy/README.md.
+install-binary:
     go build -o bin/iot-gateway ./cmd/gateway
     id iot-gateway >/dev/null 2>&1 || sudo useradd --system --user-group --no-create-home --shell /usr/sbin/nologin iot-gateway
     sudo install -d -m 0750 -o root -g iot-gateway /etc/iot-gateway
     sudo install -d -m 0750 -o iot-gateway -g iot-gateway /var/lib/iot-gateway
     sudo install -m 0755 bin/iot-gateway /usr/local/bin/iot-gateway
-    sudo install -m 0640 -o root -g iot-gateway {{config}} /etc/iot-gateway/gateway.yaml
     sudo install -m 0644 deploy/iot-gateway.service /etc/systemd/system/iot-gateway.service
     sudo systemctl daemon-reload
+
+# Install the INITIAL gateway.yaml on a fresh Orange Pi. Never run this
+# again after the first install: gateway.yaml is managed live from then on
+# (by hand, or by the admin UI's device registration) and this recipe would
+# silently overwrite it with the local, gitignored config/gateway.yaml file
+# - exactly the incident documented in HANDOFF.md.
+install-config config=config:
+    sudo install -m 0640 -o root -g iot-gateway {{config}} /etc/iot-gateway/gateway.yaml
+
+# Deprecated alias kept only so muscle memory doesn't silently do the wrong
+# thing: fails loudly instead of overwriting a live gateway.yaml. Use
+# install-binary for a routine update, or install-binary + install-config
+# together only for the very first install on a fresh Orange Pi.
+install-service:
+    @echo "install-service was split: use 'just install-binary' for a routine update."
+    @echo "Only on a FRESH Orange Pi, also run 'just install-config' once - see deploy/README.md."
+    @exit 1
 
 # Enable the service now and on subsequent boots.
 enable-service:

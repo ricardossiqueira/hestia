@@ -64,7 +64,7 @@ microSD card. Validate, install the updated binary, and restart the service:
 
 ```bash
 sudo -u iot-gateway /usr/local/bin/iot-gateway validate --config /etc/iot-gateway/gateway.yaml
-just install-service
+just install-binary
 sudo systemctl restart iot-gateway.service
 ```
 
@@ -258,7 +258,7 @@ api:
 
 ```bash
 sudo -u iot-gateway /usr/local/bin/iot-gateway validate --config /etc/iot-gateway/gateway.yaml
-just install-service
+just install-binary
 sudo systemctl restart iot-gateway.service
 ```
 
