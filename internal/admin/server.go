@@ -282,18 +282,14 @@ func (s *Server) handleRemoveDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := RemoveDevice(s.cfg.ConfigPath, deviceID); err != nil {
-		s.redirectWithError(w, r, fmt.Sprintf("removing %q from gateway.yaml failed: %v", deviceID, err))
-		return
-	}
-	if err := Deprovision(ctx, s.cfg.ProvisionScript, deviceID); err != nil {
-		s.redirectWithError(w, r, fmt.Sprintf(
-			"device %q was removed from gateway.yaml but its Mosquitto credential/ACL could not be revoked: %v. "+
-				"Run the CLI script's --remove by hand.", deviceID, err))
-		return
-	}
-	if err := RestartGateway(ctx); err != nil {
-		s.redirectWithError(w, r, fmt.Sprintf("device %q was removed but the gateway service failed to restart: %v", deviceID, err))
+	// DeregisterDevice (registration.go) is the exact same
+	// RemoveDevice -> Deprovision -> RestartGateway sequence, with
+	// identical error text, that used to live inline here - extracted so
+	// internal/apigateway's DeviceAdminService.RemoveDevice can reuse it
+	// too. See its doc comment for why there is no rollback here (unlike
+	// RegisterDevice).
+	if err := DeregisterDevice(ctx, s.cfg.ConfigPath, s.cfg.ProvisionScript, deviceID); err != nil {
+		s.redirectWithError(w, r, err.Error())
 		return
 	}
 
@@ -310,4 +306,50 @@ func (s *Server) redirectWithMessage(w http.ResponseWriter, r *http.Request, msg
 
 func (s *Server) redirectWithError(w http.ResponseWriter, r *http.Request, errMessage string) {
 	s.redirectWithMessage(w, r, message{Error: errMessage})
+}
+
+// ProvisionDevice, SetDeviceEnabled and RemoveDevice below are thin
+// wrappers around registration.go's free functions, adding the same
+// request timeout the HTML handlers above already apply
+// (s.cfg.RequestTimeout) and supplying s.cfg.ConfigPath/ProvisionScript so
+// a caller doesn't need to know either path. This is how *Server
+// structurally satisfies internal/apigateway's DeviceAdmin interface - the
+// exact same pattern *mqtt.Gateway already uses to satisfy
+// internal/api's CommandPublisher/StatusProvider - so cmd/gateway/main.go
+// can pass the SAME *admin.Server instance already constructed for the
+// HTML UI into apigateway.New, with no second config and no new process.
+
+// ProvisionDevice registers a new device from template and returns its
+// generated Mosquitto password for one-time display - see RegisterDevice's
+// doc comment for the exact ordering and rollback semantics.
+func (s *Server) ProvisionDevice(ctx context.Context, id, template string) (config.Device, string, error) {
+	ctx, cancel := context.WithTimeout(ctx, s.cfg.RequestTimeout)
+	defer cancel()
+	return RegisterDevice(ctx, s.cfg.ConfigPath, s.cfg.ProvisionScript, id, template)
+}
+
+// SetDeviceEnabled toggles a device's enabled field and restarts the
+// sandboxed gateway so the change takes effect.
+func (s *Server) SetDeviceEnabled(ctx context.Context, id string, enabled bool) (config.Device, error) {
+	ctx, cancel := context.WithTimeout(ctx, s.cfg.RequestTimeout)
+	defer cancel()
+	device, err := SetDeviceEnabled(s.cfg.ConfigPath, id, enabled)
+	if err != nil {
+		return config.Device{}, err
+	}
+	if err := RestartGateway(ctx); err != nil {
+		return device, fmt.Errorf(
+			"device %q was updated but the gateway service failed to restart: %w. "+
+				"Restart it by hand to apply the change", id, err)
+	}
+	return device, nil
+}
+
+// RemoveDevice revokes a device's credential and removes it from
+// gateway.yaml - see DeregisterDevice's doc comment for why there is no
+// rollback on a partial failure here.
+func (s *Server) RemoveDevice(ctx context.Context, id string) error {
+	ctx, cancel := context.WithTimeout(ctx, s.cfg.RequestTimeout)
+	defer cancel()
+	return DeregisterDevice(ctx, s.cfg.ConfigPath, s.cfg.ProvisionScript, id)
 }

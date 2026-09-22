@@ -191,3 +191,101 @@ func TestListDevices(t *testing.T) {
 		t.Fatalf("ListDevices() = %#v", devices)
 	}
 }
+
+func TestAddDeviceFromTemplate(t *testing.T) {
+	path := writeFixture(t, baseYAML)
+
+	returned, err := AddDeviceFromTemplate(path, "led-1", "esp32_led.v1")
+	if err != nil {
+		t.Fatalf("AddDeviceFromTemplate() error = %v", err)
+	}
+	if returned.ID != "led-1" || returned.Type != "esp32" || returned.Profile != "led.v1" {
+		t.Errorf("returned device = %#v", returned)
+	}
+	if returned.Topics.Command != "devices/led-1/command" {
+		t.Errorf("returned.Topics.Command = %q", returned.Topics.Command)
+	}
+
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("config.Load() after AddDeviceFromTemplate error = %v", err)
+	}
+	if len(cfg.Devices) != 2 {
+		t.Fatalf("len(devices) = %d, want 2", len(cfg.Devices))
+	}
+	added := cfg.Devices[1]
+	if added.ID != "led-1" || added.Type != "esp32" || added.Profile != "led.v1" {
+		t.Errorf("added = %#v", added)
+	}
+	if added.Topics.Command != "devices/led-1/command" {
+		t.Errorf("added.Topics.Command = %q", added.Topics.Command)
+	}
+	if added.Topics.Telemetry != "" || added.Topics.State != "" {
+		t.Errorf("template should only set command: %#v", added.Topics)
+	}
+}
+
+func TestAddDeviceFromTemplate_UnknownTemplate(t *testing.T) {
+	path := writeFixture(t, baseYAML)
+	_, err := AddDeviceFromTemplate(path, "led-1", "no-such-template")
+	if err == nil || !strings.Contains(err.Error(), "unknown template") {
+		t.Fatalf("AddDeviceFromTemplate() error = %v, want unknown template", err)
+	}
+}
+
+func TestAddDeviceFromTemplate_RejectsDuplicateID(t *testing.T) {
+	path := writeFixture(t, baseYAML)
+	_, err := AddDeviceFromTemplate(path, "esp32-sala", "esp32_led.v1")
+	if err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("AddDeviceFromTemplate() error = %v, want already exists", err)
+	}
+}
+
+func TestSetDeviceEnabled(t *testing.T) {
+	path := writeFixture(t, baseYAML)
+
+	device, err := SetDeviceEnabled(path, "esp32-sala", false)
+	if err != nil {
+		t.Fatalf("SetDeviceEnabled() error = %v", err)
+	}
+	if device.ID != "esp32-sala" || device.Enabled == nil || *device.Enabled {
+		t.Errorf("returned device = %#v", device)
+	}
+	// Everything else about the device must survive untouched.
+	if device.Topics.Telemetry != "devices/esp32-sala/telemetry" {
+		t.Errorf("topics changed unexpectedly: %#v", device.Topics)
+	}
+
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("config.Load() after SetDeviceEnabled error = %v", err)
+	}
+	if cfg.Devices[0].Enabled == nil || *cfg.Devices[0].Enabled {
+		t.Errorf("Enabled on disk = %v, want false", cfg.Devices[0].Enabled)
+	}
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "# comment that must survive a rewrite") {
+		t.Errorf("rewrite dropped the leading comment:\n%s", raw)
+	}
+
+	// Flip it back to true and confirm that direction works too.
+	device, err = SetDeviceEnabled(path, "esp32-sala", true)
+	if err != nil {
+		t.Fatalf("SetDeviceEnabled() (re-enable) error = %v", err)
+	}
+	if device.Enabled == nil || !*device.Enabled {
+		t.Errorf("re-enabled device = %#v", device)
+	}
+}
+
+func TestSetDeviceEnabled_UnknownID(t *testing.T) {
+	path := writeFixture(t, baseYAML)
+	_, err := SetDeviceEnabled(path, "no-such-device", false)
+	if err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("SetDeviceEnabled() error = %v, want not found", err)
+	}
+}

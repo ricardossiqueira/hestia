@@ -255,7 +255,7 @@ func applyDefaults(c *Config) {
 
 // Validate enforces the routing contract documented in docs/configuration.md.
 func (c Config) Validate() error {
-	if err := validateID("gateway.id", c.Gateway.ID); err != nil {
+	if err := ValidateDeviceID("gateway.id", c.Gateway.ID); err != nil {
 		return err
 	}
 	if c.Gateway.Timezone != "" {
@@ -296,7 +296,7 @@ func (c Config) Validate() error {
 	commandTopics := make(map[string]bool)
 	for index, device := range c.Devices {
 		prefix := fmt.Sprintf("devices[%d]", index)
-		if err := validateID(prefix+".id", device.ID); err != nil {
+		if err := ValidateDeviceID(prefix+".id", device.ID); err != nil {
 			return err
 		}
 		if _, exists := deviceIDs[device.ID]; exists {
@@ -432,7 +432,7 @@ func validateRoutes(routes []Route, inboundTopics, commandTopics map[string]bool
 	ids := make(map[string]struct{}, len(routes))
 	for index, route := range routes {
 		prefix := fmt.Sprintf("routes[%d]", index)
-		if err := validateID(prefix+".id", route.ID); err != nil {
+		if err := ValidateDeviceID(prefix+".id", route.ID); err != nil {
 			return err
 		}
 		if _, exists := ids[route.ID]; exists {
@@ -458,7 +458,12 @@ func validateRoutes(routes []Route, inboundTopics, commandTopics map[string]bool
 	return nil
 }
 
-func validateID(field, id string) error {
+// ValidateDeviceID enforces the same ID rule this package uses for every
+// gateway/device/route identifier - exported so internal/admin can apply
+// the identical rule before provisioning a device through the API,
+// instead of duplicating the regex and risking it drifting from what
+// `iot-gateway validate` actually accepts.
+func ValidateDeviceID(field, id string) error {
 	if strings.TrimSpace(id) == "" {
 		return fmt.Errorf("%s is required", field)
 	}

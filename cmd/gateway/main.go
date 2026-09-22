@@ -328,6 +328,10 @@ func runAdmin(args []string, stderr io.Writer) int {
 			InternalAPIURL: "http://" + cfg.API.InternalAddress,
 			Credentials:    apigateway.Credentials{Username: apiUsername, Password: apiPassword},
 			AllowedOrigins: cfg.API.AllowedOrigins,
+			// The SAME *admin.Server already constructed for the HTML UI
+			// above satisfies apigateway.DeviceAdmin structurally (see its
+			// doc comment) - no second config, no new process.
+			Admin: server,
 		}, logger)
 		if err != nil {
 			fmt.Fprintf(stderr, "api gateway setup failed: %v\n", err)

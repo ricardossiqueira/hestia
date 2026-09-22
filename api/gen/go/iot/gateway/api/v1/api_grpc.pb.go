@@ -303,3 +303,191 @@ var GatewayService_ServiceDesc = grpc.ServiceDesc{
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "iot/gateway/api/v1/api.proto",
 }
+
+const (
+	DeviceAdminService_ProvisionDevice_FullMethodName  = "/iot.gateway.api.v1.DeviceAdminService/ProvisionDevice"
+	DeviceAdminService_SetDeviceEnabled_FullMethodName = "/iot.gateway.api.v1.DeviceAdminService/SetDeviceEnabled"
+	DeviceAdminService_RemoveDevice_FullMethodName     = "/iot.gateway.api.v1.DeviceAdminService/RemoveDevice"
+)
+
+// DeviceAdminServiceClient is the client API for DeviceAdminService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// DeviceAdminService registers, enables/disables and removes devices - the
+// privileged operations internal/admin's HTML UI (port 8081) already
+// performs, now also reachable here. See docs/decisions.md ADR-013 for why
+// this is answered directly by the admin (root) process instead of being
+// proxied like DeviceService/GatewayService are.
+type DeviceAdminServiceClient interface {
+	ProvisionDevice(ctx context.Context, in *ProvisionDeviceRequest, opts ...grpc.CallOption) (*ProvisionDeviceResponse, error)
+	SetDeviceEnabled(ctx context.Context, in *SetDeviceEnabledRequest, opts ...grpc.CallOption) (*SetDeviceEnabledResponse, error)
+	RemoveDevice(ctx context.Context, in *RemoveDeviceRequest, opts ...grpc.CallOption) (*RemoveDeviceResponse, error)
+}
+
+type deviceAdminServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewDeviceAdminServiceClient(cc grpc.ClientConnInterface) DeviceAdminServiceClient {
+	return &deviceAdminServiceClient{cc}
+}
+
+func (c *deviceAdminServiceClient) ProvisionDevice(ctx context.Context, in *ProvisionDeviceRequest, opts ...grpc.CallOption) (*ProvisionDeviceResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ProvisionDeviceResponse)
+	err := c.cc.Invoke(ctx, DeviceAdminService_ProvisionDevice_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *deviceAdminServiceClient) SetDeviceEnabled(ctx context.Context, in *SetDeviceEnabledRequest, opts ...grpc.CallOption) (*SetDeviceEnabledResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SetDeviceEnabledResponse)
+	err := c.cc.Invoke(ctx, DeviceAdminService_SetDeviceEnabled_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *deviceAdminServiceClient) RemoveDevice(ctx context.Context, in *RemoveDeviceRequest, opts ...grpc.CallOption) (*RemoveDeviceResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RemoveDeviceResponse)
+	err := c.cc.Invoke(ctx, DeviceAdminService_RemoveDevice_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// DeviceAdminServiceServer is the server API for DeviceAdminService service.
+// All implementations should embed UnimplementedDeviceAdminServiceServer
+// for forward compatibility.
+//
+// DeviceAdminService registers, enables/disables and removes devices - the
+// privileged operations internal/admin's HTML UI (port 8081) already
+// performs, now also reachable here. See docs/decisions.md ADR-013 for why
+// this is answered directly by the admin (root) process instead of being
+// proxied like DeviceService/GatewayService are.
+type DeviceAdminServiceServer interface {
+	ProvisionDevice(context.Context, *ProvisionDeviceRequest) (*ProvisionDeviceResponse, error)
+	SetDeviceEnabled(context.Context, *SetDeviceEnabledRequest) (*SetDeviceEnabledResponse, error)
+	RemoveDevice(context.Context, *RemoveDeviceRequest) (*RemoveDeviceResponse, error)
+}
+
+// UnimplementedDeviceAdminServiceServer should be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedDeviceAdminServiceServer struct{}
+
+func (UnimplementedDeviceAdminServiceServer) ProvisionDevice(context.Context, *ProvisionDeviceRequest) (*ProvisionDeviceResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ProvisionDevice not implemented")
+}
+func (UnimplementedDeviceAdminServiceServer) SetDeviceEnabled(context.Context, *SetDeviceEnabledRequest) (*SetDeviceEnabledResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetDeviceEnabled not implemented")
+}
+func (UnimplementedDeviceAdminServiceServer) RemoveDevice(context.Context, *RemoveDeviceRequest) (*RemoveDeviceResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RemoveDevice not implemented")
+}
+func (UnimplementedDeviceAdminServiceServer) testEmbeddedByValue() {}
+
+// UnsafeDeviceAdminServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to DeviceAdminServiceServer will
+// result in compilation errors.
+type UnsafeDeviceAdminServiceServer interface {
+	mustEmbedUnimplementedDeviceAdminServiceServer()
+}
+
+func RegisterDeviceAdminServiceServer(s grpc.ServiceRegistrar, srv DeviceAdminServiceServer) {
+	// If the following call pancis, it indicates UnimplementedDeviceAdminServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&DeviceAdminService_ServiceDesc, srv)
+}
+
+func _DeviceAdminService_ProvisionDevice_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ProvisionDeviceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DeviceAdminServiceServer).ProvisionDevice(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DeviceAdminService_ProvisionDevice_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DeviceAdminServiceServer).ProvisionDevice(ctx, req.(*ProvisionDeviceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DeviceAdminService_SetDeviceEnabled_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetDeviceEnabledRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DeviceAdminServiceServer).SetDeviceEnabled(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DeviceAdminService_SetDeviceEnabled_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DeviceAdminServiceServer).SetDeviceEnabled(ctx, req.(*SetDeviceEnabledRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DeviceAdminService_RemoveDevice_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RemoveDeviceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DeviceAdminServiceServer).RemoveDevice(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DeviceAdminService_RemoveDevice_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DeviceAdminServiceServer).RemoveDevice(ctx, req.(*RemoveDeviceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// DeviceAdminService_ServiceDesc is the grpc.ServiceDesc for DeviceAdminService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var DeviceAdminService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "iot.gateway.api.v1.DeviceAdminService",
+	HandlerType: (*DeviceAdminServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "ProvisionDevice",
+			Handler:    _DeviceAdminService_ProvisionDevice_Handler,
+		},
+		{
+			MethodName: "SetDeviceEnabled",
+			Handler:    _DeviceAdminService_SetDeviceEnabled_Handler,
+		},
+		{
+			MethodName: "RemoveDevice",
+			Handler:    _DeviceAdminService_RemoveDevice_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "iot/gateway/api/v1/api.proto",
+}

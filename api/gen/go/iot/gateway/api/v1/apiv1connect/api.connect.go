@@ -25,6 +25,8 @@ const (
 	DeviceServiceName = "iot.gateway.api.v1.DeviceService"
 	// GatewayServiceName is the fully-qualified name of the GatewayService service.
 	GatewayServiceName = "iot.gateway.api.v1.GatewayService"
+	// DeviceAdminServiceName is the fully-qualified name of the DeviceAdminService service.
+	DeviceAdminServiceName = "iot.gateway.api.v1.DeviceAdminService"
 )
 
 // These constants are the fully-qualified names of the RPCs defined in this package. They're
@@ -47,6 +49,15 @@ const (
 	// GatewayServiceGetStatusProcedure is the fully-qualified name of the GatewayService's GetStatus
 	// RPC.
 	GatewayServiceGetStatusProcedure = "/iot.gateway.api.v1.GatewayService/GetStatus"
+	// DeviceAdminServiceProvisionDeviceProcedure is the fully-qualified name of the
+	// DeviceAdminService's ProvisionDevice RPC.
+	DeviceAdminServiceProvisionDeviceProcedure = "/iot.gateway.api.v1.DeviceAdminService/ProvisionDevice"
+	// DeviceAdminServiceSetDeviceEnabledProcedure is the fully-qualified name of the
+	// DeviceAdminService's SetDeviceEnabled RPC.
+	DeviceAdminServiceSetDeviceEnabledProcedure = "/iot.gateway.api.v1.DeviceAdminService/SetDeviceEnabled"
+	// DeviceAdminServiceRemoveDeviceProcedure is the fully-qualified name of the DeviceAdminService's
+	// RemoveDevice RPC.
+	DeviceAdminServiceRemoveDeviceProcedure = "/iot.gateway.api.v1.DeviceAdminService/RemoveDevice"
 )
 
 // DeviceServiceClient is a client for the iot.gateway.api.v1.DeviceService service.
@@ -239,4 +250,127 @@ type UnimplementedGatewayServiceHandler struct{}
 
 func (UnimplementedGatewayServiceHandler) GetStatus(context.Context, *connect.Request[v1.GetStatusRequest]) (*connect.Response[v1.GetStatusResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("iot.gateway.api.v1.GatewayService.GetStatus is not implemented"))
+}
+
+// DeviceAdminServiceClient is a client for the iot.gateway.api.v1.DeviceAdminService service.
+type DeviceAdminServiceClient interface {
+	ProvisionDevice(context.Context, *connect.Request[v1.ProvisionDeviceRequest]) (*connect.Response[v1.ProvisionDeviceResponse], error)
+	SetDeviceEnabled(context.Context, *connect.Request[v1.SetDeviceEnabledRequest]) (*connect.Response[v1.SetDeviceEnabledResponse], error)
+	RemoveDevice(context.Context, *connect.Request[v1.RemoveDeviceRequest]) (*connect.Response[v1.RemoveDeviceResponse], error)
+}
+
+// NewDeviceAdminServiceClient constructs a client for the iot.gateway.api.v1.DeviceAdminService
+// service. By default, it uses the Connect protocol with the binary Protobuf Codec, asks for
+// gzipped responses, and sends uncompressed requests. To use the gRPC or gRPC-Web protocols, supply
+// the connect.WithGRPC() or connect.WithGRPCWeb() options.
+//
+// The URL supplied here should be the base URL for the Connect or gRPC server (for example,
+// http://api.acme.com or https://acme.com/grpc).
+func NewDeviceAdminServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) DeviceAdminServiceClient {
+	baseURL = strings.TrimRight(baseURL, "/")
+	deviceAdminServiceMethods := v1.File_iot_gateway_api_v1_api_proto.Services().ByName("DeviceAdminService").Methods()
+	return &deviceAdminServiceClient{
+		provisionDevice: connect.NewClient[v1.ProvisionDeviceRequest, v1.ProvisionDeviceResponse](
+			httpClient,
+			baseURL+DeviceAdminServiceProvisionDeviceProcedure,
+			connect.WithSchema(deviceAdminServiceMethods.ByName("ProvisionDevice")),
+			connect.WithClientOptions(opts...),
+		),
+		setDeviceEnabled: connect.NewClient[v1.SetDeviceEnabledRequest, v1.SetDeviceEnabledResponse](
+			httpClient,
+			baseURL+DeviceAdminServiceSetDeviceEnabledProcedure,
+			connect.WithSchema(deviceAdminServiceMethods.ByName("SetDeviceEnabled")),
+			connect.WithClientOptions(opts...),
+		),
+		removeDevice: connect.NewClient[v1.RemoveDeviceRequest, v1.RemoveDeviceResponse](
+			httpClient,
+			baseURL+DeviceAdminServiceRemoveDeviceProcedure,
+			connect.WithSchema(deviceAdminServiceMethods.ByName("RemoveDevice")),
+			connect.WithClientOptions(opts...),
+		),
+	}
+}
+
+// deviceAdminServiceClient implements DeviceAdminServiceClient.
+type deviceAdminServiceClient struct {
+	provisionDevice  *connect.Client[v1.ProvisionDeviceRequest, v1.ProvisionDeviceResponse]
+	setDeviceEnabled *connect.Client[v1.SetDeviceEnabledRequest, v1.SetDeviceEnabledResponse]
+	removeDevice     *connect.Client[v1.RemoveDeviceRequest, v1.RemoveDeviceResponse]
+}
+
+// ProvisionDevice calls iot.gateway.api.v1.DeviceAdminService.ProvisionDevice.
+func (c *deviceAdminServiceClient) ProvisionDevice(ctx context.Context, req *connect.Request[v1.ProvisionDeviceRequest]) (*connect.Response[v1.ProvisionDeviceResponse], error) {
+	return c.provisionDevice.CallUnary(ctx, req)
+}
+
+// SetDeviceEnabled calls iot.gateway.api.v1.DeviceAdminService.SetDeviceEnabled.
+func (c *deviceAdminServiceClient) SetDeviceEnabled(ctx context.Context, req *connect.Request[v1.SetDeviceEnabledRequest]) (*connect.Response[v1.SetDeviceEnabledResponse], error) {
+	return c.setDeviceEnabled.CallUnary(ctx, req)
+}
+
+// RemoveDevice calls iot.gateway.api.v1.DeviceAdminService.RemoveDevice.
+func (c *deviceAdminServiceClient) RemoveDevice(ctx context.Context, req *connect.Request[v1.RemoveDeviceRequest]) (*connect.Response[v1.RemoveDeviceResponse], error) {
+	return c.removeDevice.CallUnary(ctx, req)
+}
+
+// DeviceAdminServiceHandler is an implementation of the iot.gateway.api.v1.DeviceAdminService
+// service.
+type DeviceAdminServiceHandler interface {
+	ProvisionDevice(context.Context, *connect.Request[v1.ProvisionDeviceRequest]) (*connect.Response[v1.ProvisionDeviceResponse], error)
+	SetDeviceEnabled(context.Context, *connect.Request[v1.SetDeviceEnabledRequest]) (*connect.Response[v1.SetDeviceEnabledResponse], error)
+	RemoveDevice(context.Context, *connect.Request[v1.RemoveDeviceRequest]) (*connect.Response[v1.RemoveDeviceResponse], error)
+}
+
+// NewDeviceAdminServiceHandler builds an HTTP handler from the service implementation. It returns
+// the path on which to mount the handler and the handler itself.
+//
+// By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
+// and JSON codecs. They also support gzip compression.
+func NewDeviceAdminServiceHandler(svc DeviceAdminServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	deviceAdminServiceMethods := v1.File_iot_gateway_api_v1_api_proto.Services().ByName("DeviceAdminService").Methods()
+	deviceAdminServiceProvisionDeviceHandler := connect.NewUnaryHandler(
+		DeviceAdminServiceProvisionDeviceProcedure,
+		svc.ProvisionDevice,
+		connect.WithSchema(deviceAdminServiceMethods.ByName("ProvisionDevice")),
+		connect.WithHandlerOptions(opts...),
+	)
+	deviceAdminServiceSetDeviceEnabledHandler := connect.NewUnaryHandler(
+		DeviceAdminServiceSetDeviceEnabledProcedure,
+		svc.SetDeviceEnabled,
+		connect.WithSchema(deviceAdminServiceMethods.ByName("SetDeviceEnabled")),
+		connect.WithHandlerOptions(opts...),
+	)
+	deviceAdminServiceRemoveDeviceHandler := connect.NewUnaryHandler(
+		DeviceAdminServiceRemoveDeviceProcedure,
+		svc.RemoveDevice,
+		connect.WithSchema(deviceAdminServiceMethods.ByName("RemoveDevice")),
+		connect.WithHandlerOptions(opts...),
+	)
+	return "/iot.gateway.api.v1.DeviceAdminService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case DeviceAdminServiceProvisionDeviceProcedure:
+			deviceAdminServiceProvisionDeviceHandler.ServeHTTP(w, r)
+		case DeviceAdminServiceSetDeviceEnabledProcedure:
+			deviceAdminServiceSetDeviceEnabledHandler.ServeHTTP(w, r)
+		case DeviceAdminServiceRemoveDeviceProcedure:
+			deviceAdminServiceRemoveDeviceHandler.ServeHTTP(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	})
+}
+
+// UnimplementedDeviceAdminServiceHandler returns CodeUnimplemented from all methods.
+type UnimplementedDeviceAdminServiceHandler struct{}
+
+func (UnimplementedDeviceAdminServiceHandler) ProvisionDevice(context.Context, *connect.Request[v1.ProvisionDeviceRequest]) (*connect.Response[v1.ProvisionDeviceResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("iot.gateway.api.v1.DeviceAdminService.ProvisionDevice is not implemented"))
+}
+
+func (UnimplementedDeviceAdminServiceHandler) SetDeviceEnabled(context.Context, *connect.Request[v1.SetDeviceEnabledRequest]) (*connect.Response[v1.SetDeviceEnabledResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("iot.gateway.api.v1.DeviceAdminService.SetDeviceEnabled is not implemented"))
+}
+
+func (UnimplementedDeviceAdminServiceHandler) RemoveDevice(context.Context, *connect.Request[v1.RemoveDeviceRequest]) (*connect.Response[v1.RemoveDeviceResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("iot.gateway.api.v1.DeviceAdminService.RemoveDevice is not implemented"))
 }

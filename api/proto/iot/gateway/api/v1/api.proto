@@ -21,6 +21,54 @@ service GatewayService {
   rpc GetStatus(GetStatusRequest) returns (GetStatusResponse);
 }
 
+// DeviceAdminService registers, enables/disables and removes devices - the
+// privileged operations internal/admin's HTML UI (port 8081) already
+// performs, now also reachable here. See docs/decisions.md ADR-013 for why
+// this is answered directly by the admin (root) process instead of being
+// proxied like DeviceService/GatewayService are.
+service DeviceAdminService {
+  rpc ProvisionDevice(ProvisionDeviceRequest) returns (ProvisionDeviceResponse);
+  rpc SetDeviceEnabled(SetDeviceEnabledRequest) returns (SetDeviceEnabledResponse);
+  rpc RemoveDevice(RemoveDeviceRequest) returns (RemoveDeviceResponse);
+}
+
+message ProvisionDeviceRequest {
+  string device_id = 1;
+  // template names a compiled internal/admin registry entry. Only
+  // "esp32_led.v1" exists for now - see docs/api-v1.md.
+  string template = 2;
+}
+
+message ProvisionDeviceResponse {
+  Device device = 1;
+  // mqtt_username always equals device.id - included explicitly so a
+  // client can write secrets.h without hardcoding that convention itself.
+  string mqtt_username = 2;
+  // mqtt_password is a one-time-display secret: the caller must show it to
+  // the operator once and never log, store or re-request it - the
+  // provisioning script does not remember it either.
+  string mqtt_password = 3;
+  google.protobuf.Timestamp restarted_at = 4;
+}
+
+message SetDeviceEnabledRequest {
+  string device_id = 1;
+  bool enabled = 2;
+}
+
+message SetDeviceEnabledResponse {
+  Device device = 1;
+  google.protobuf.Timestamp restarted_at = 2;
+}
+
+message RemoveDeviceRequest {
+  string device_id = 1;
+}
+
+message RemoveDeviceResponse {
+  google.protobuf.Timestamp restarted_at = 1;
+}
+
 message ListDevicesRequest {}
 
 message ListDevicesResponse {

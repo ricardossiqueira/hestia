@@ -5,8 +5,9 @@
 // It is the ONLY process that binds api.address, the LAN-reachable port
 // gateway-web and any other client talk to. It authenticates (HTTP Basic)
 // and applies CORS once, at this edge, then either answers a request
-// itself (DeviceAdminService, a later phase - not implemented yet, so
-// those paths 404 for now) or reverse-proxies it (DeviceService,
+// itself (DeviceAdminService - registering, enabling/disabling and
+// removing devices, delegated to internal/admin's *Server via the
+// DeviceAdmin interface below) or reverse-proxies it (DeviceService,
 // GatewayService) to internal/api, which runs inside the sandboxed
 // `iot-gateway run` process and binds only api.internal_address, a
 // loopback address unreachable from the LAN.
@@ -34,7 +35,24 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/ricardossiqueira/iot-gateway/api/gen/go/iot/gateway/api/v1/apiv1connect"
+	"github.com/ricardossiqueira/iot-gateway/internal/config"
 )
+
+// DeviceAdmin is the one capability this package needs to answer
+// DeviceAdminService directly (instead of proxying it) - satisfied
+// structurally by *admin.Server (internal/admin), the same pattern
+// internal/api uses for CommandPublisher/StatusProvider. Declared here,
+// not imported from internal/admin, so this package depends on a
+// capability, not a concrete type - internal/admin and internal/apigateway
+// happen to run in the same OS process today (both constructed by
+// cmd/gateway's runAdmin), but nothing here assumes that.
+type DeviceAdmin interface {
+	ProvisionDevice(ctx context.Context, id, template string) (config.Device, string, error)
+	SetDeviceEnabled(ctx context.Context, id string, enabled bool) (config.Device, error)
+	RemoveDevice(ctx context.Context, id string) error
+}
 
 // Credentials gate every request behind HTTP Basic Auth, read from
 // environment variables by cmd/gateway - never a flag (which would leak
@@ -63,10 +81,14 @@ type Config struct {
 	// AllowedOrigins is api.cors_allowed_origins passed through unchanged.
 	// Empty means CORS is off - see cors' doc comment.
 	AllowedOrigins []string
+	// Admin answers DeviceAdminService directly - see the DeviceAdmin
+	// doc comment above.
+	Admin DeviceAdmin
 }
 
 // Server is the public-facing Connect-RPC edge: auth + CORS + a reverse
-// proxy to the sandboxed process's internal/api.
+// proxy to the sandboxed process's internal/api, plus DeviceAdminService
+// answered directly via cfg.Admin.
 type Server struct {
 	cfg    Config
 	logger *slog.Logger
@@ -87,6 +109,9 @@ func New(cfg Config, logger *slog.Logger) (*Server, error) {
 	if cfg.Credentials.Username == "" || cfg.Credentials.Password == "" {
 		return nil, errors.New("apigateway username and password are required")
 	}
+	if cfg.Admin == nil {
+		return nil, errors.New("apigateway admin is required")
+	}
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -100,10 +125,10 @@ func New(cfg Config, logger *slog.Logger) (*Server, error) {
 	}
 
 	mux := http.NewServeMux()
-	// DeviceAdminService is not implemented yet (next phase) - any path
-	// under it, or anything else, falls through to the mux's own 404.
 	mux.Handle("/iot.gateway.api.v1.DeviceService/", proxy)
 	mux.Handle("/iot.gateway.api.v1.GatewayService/", proxy)
+	adminPath, adminHandler := apiv1connect.NewDeviceAdminServiceHandler(s)
+	mux.Handle(adminPath, adminHandler)
 
 	// cors wraps basicAuth, not the reverse: a browser's CORS preflight
 	// (OPTIONS) never carries the Authorization header being negotiated,
