@@ -132,34 +132,29 @@ atualização automática) foi conferido e nunca teve esse problema — só lê
 `gateway.yaml` para `validate`/`healthcheck`, nunca escreve nele, e não
 chama nenhuma dessas receitas.
 
-## Pendência 2 — Fase 2: `DeviceAdminService` na mesma API
+## Pendência 2 — auto-updater não reiniciava o processo admin (✅ corrigido)
 
-Hoje registrar/remover dispositivo só existe na UI HTML em 8081
-(`internal/admin`, processo root separado — ADR-008 em `docs/decisions.md`,
-motivo ainda válido: escreve `/etc/mosquitto/*` e `gateway.yaml`, chama
-`systemctl`, coisas que o processo sandboxed do `iot-gateway run` nunca deve
-fazer). O objetivo de longo prazo (dito explicitamente pelo usuário ao pedir
-esta etapa) é finalmente descartar essa página HTML: mover essas mutações
-para a mesma API Connect-RPC, servida pelo **processo root** (não pelo
-`iot-gateway run` sandboxed) — ver a seção "Fora de escopo (próxima fase)"
-em `docs/api-v1.md` e em `docs/implementation-plan.md`.
+**O que aconteceu:** depois de ADR-013 (composição de porta — item #3),
+`iot-gateway-admin.service` virou a única borda pública de `:8082`, mas
+`deploy/iot-gateway-update.sh` (o timer que atualiza sozinho a cada 5 min)
+só reiniciava `iot-gateway.service`. Um deploy manual reproduziu o mesmo
+problema: o binário novo foi instalado e `iot-gateway.service` reiniciado,
+mas `iot-gateway-admin.service` continuou rodando o binário antigo em
+memória (só sabia servir `:8081`) — `:8082` ficou sem ninguém escutando e
+`gateway-web` parou de funcionar. Diagnosticado via `ss -tlnp` (mostrou só
+`:8081` e `:8083` escutando, nada em `:8082`) e `git log -1`/timestamp do
+binário (confirmando que o arquivo em disco já era o novo, só o processo
+admin não tinha sido reiniciado).
 
-**Por onde começar:**
-- Ler `internal/admin/devices.go` (`AddDevice`, `RemoveDevice`,
-  `DeviceExists`, a edição via `yaml.Node` que preserva comentários/
-  formatação) e `internal/admin/provision.go`/`restart.go` — a lógica em si
-  não muda, só o transporte por cima dela.
-- Provavelmente um novo serviço Protobuf (`DeviceAdminService`?) no mesmo
-  pacote `iot.gateway.api.v1` ou um pacote próprio, servido por um
-  `internal/api`-like server rodando **dentro do processo `iot-gateway-admin`
-  atual** (não do `iot-gateway run`), reaproveitando exatamente a mesma lógica
-  de `internal/admin/devices.go`.
-- Decisão em aberto que precisa ser levada ao usuário: a UI HTML em
-  `internal/admin/templates/index.html` é descartada nesta fase, ou ela vira
-  um cliente da nova API (mantendo a página, mas ela passa a chamar
-  Connect-RPC em vez de manipular `gateway.yaml` diretamente)? O pedido
-  original do usuário foi para "finalmente descartar a página HTML", então
-  a expectativa provável é substituição, mas confirme antes de remover a UI.
+**Fix aplicado:** `deploy/iot-gateway-update.sh` agora reinicia
+`iot-gateway-admin.service` logo depois que `iot-gateway.service` passa no
+healthcheck (mesmo binário para os dois — nenhuma instalação nova
+necessária, só o restart). Se o admin falhar ao subir, o script reverte
+**os dois** serviços para o binário anterior, nunca só um — evita a
+mesma inconsistência remotamente. Uma instalação sem a UI de admin
+configurada (`iot-gateway-admin.service` não existe) pula essa parte
+inteira sem erro. Ver `deploy/README.md`, seção "CI and automatic
+updates".
 
 ## Notas de ambiente (Windows/Git Bash, relevantes para continuar)
 

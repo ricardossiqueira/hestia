@@ -88,6 +88,18 @@ back the previous binary and unit. On the first installation there is no prior
 binary or unit to restore; in that case the updater leaves the failed service
 stopped and logs this explicitly.
 
+If `iot-gateway-admin.service` is installed (see "Admin UI" below), the
+updater also restarts it once `iot-gateway.service` passes its healthcheck -
+both services `ExecStart` the same `/usr/local/bin/iot-gateway` binary, and
+since `docs/decisions.md` ADR-013, admin is the only public listener for the
+local API (`internal/apigateway`). It has no reason to restart on its own,
+so leaving this step out would silently strand it on the old binary on every
+future update that touches the API - which is exactly what happened once in
+production before this was added. If admin fails to come back up, the
+updater rolls back **both** services to the previous binary together, never
+just the core gateway - an installation with no admin service configured
+skips this step entirely.
+
 You can query the same payload-free endpoint manually, without MQTT
 credentials or SQLite access:
 
