@@ -32,7 +32,7 @@ iot-gateway admin (root, :8082 público)
       |                              :internal_address, sem auth própria -
       |                              loopback é o limite de confiança)
       |
-      `-- DeviceAdminService (fase futura, atendido aqui mesmo)
+      `-- DeviceAdminService (atendido aqui mesmo, sem proxy)
 ```
 
 `iot-gateway run` continua sendo o único processo com a conexão MQTT viva
@@ -42,15 +42,18 @@ HTML em 8081) é o único que autentica e aplica CORS.
 
 ## Limites desta versão
 
-- Escopo: comandos + leitura (dispositivos, schema de comandos, status).
-  Mutação de cadastro (registrar/remover device) continua só na UI de
-  admin em 8081 — ver `docs/decisions.md` ADR-008.
+- Escopo: comandos, leitura e administração de dispositivos
+  (`DeviceAdminService`). A UI HTML em 8081 continua existindo em paralelo
+  — mesmas operações, caminho diferente — até ser validada e aposentada
+  (ver "Fora de escopo").
 - Publicação de comando é fire-and-forget: a resposta confirma que o
   broker aceitou a publicação (QoS 1), não que o dispositivo executou o
   comando.
 - Só o profile `led.v1` está registrado nesta etapa
   (`internal/deviceprofile`). Um dispositivo sem `profile:` continua
   funcionando, sem validação de schema (fallback opaco).
+- Só o template de provisionamento `esp32_led.v1` existe por enquanto —
+  ver "Administração de dispositivos" abaixo.
 
 ## Transporte e autenticação
 
@@ -122,6 +125,14 @@ Regras:
 | `ListDeviceCommands` | `DeviceService` | Descreve os comandos que um dispositivo aceita (schema Protobuf). |
 | `PublishCommand` | `DeviceService` | Publica um comando, validado por schema quando o dispositivo tem profile. |
 | `GetStatus` | `GatewayService` | Espelha `internal/mqtt.Snapshot`: sessão MQTT, contadores, sem payloads. |
+| `ProvisionDevice` | `DeviceAdminService` | Cadastra um device novo a partir de um template. Devolve a senha MQTT uma única vez. |
+| `SetDeviceEnabled` | `DeviceAdminService` | Habilita/desabilita um device e reinicia o gateway. |
+| `RemoveDevice` | `DeviceAdminService` | Revoga a credencial Mosquitto e remove o device do `gateway.yaml`. |
+
+`DeviceAdminService` é atendido **diretamente** pelo processo `iot-gateway
+admin` — não passa pelo reverse proxy que `DeviceService`/`GatewayService`
+usam, porque a lógica em si (escrever `gateway.yaml`, credencial Mosquitto,
+`systemctl restart`) só pode rodar ali (ADR-008).
 
 ## Profile, validação e fallback opaco
 
@@ -170,6 +181,56 @@ contra um schema Protobuf logo em seguida (ver ADR-012 em
 `docs/decisions.md`). Um parâmetro inteiro acima de 2^53 deve ser
 declarado `string` na mensagem do comando.
 
+## Administração de dispositivos
+
+`DeviceAdminService` reaproveita a mesma lógica que a UI HTML em 8081 já
+usa (`internal/admin/registration.go`), só muda o transporte.
+
+### Templates de provisionamento
+
+`ProvisionDevice` não aceita tipo/tópicos livres como a UI HTML — cria o
+device a partir de um template compilado em `internal/admin` (registry no
+mesmo espírito do `internal/deviceprofile`). Só existe um por enquanto:
+
+| Template | `type` | `profile` | Tópicos |
+| --- | --- | --- | --- |
+| `esp32_led.v1` | `esp32` | `led.v1` | `command` |
+
+Um device criado por esse template já sai com `profile: led.v1`, então
+`PublishCommand`/`ListDeviceCommands` já validam `set_led` nele sem
+nenhum passo extra.
+
+### Operação atômica e reinício
+
+As três RPCs reiniciam o `iot-gateway.service` sandboxed como parte do
+sucesso — é assim que a mudança em `gateway.yaml` passa a valer. Uma
+falha *só* no restart (`gateway.yaml` e a credencial Mosquitto já
+consistentes entre si) não desfaz nada: a resposta volta como erro
+pedindo um restart manual, mas o device fica registrado.
+
+`ProvisionDevice` tem rollback automático num caso específico: se a
+credencial Mosquitto for criada mas a escrita em `gateway.yaml` falhar, a
+credencial é revogada automaticamente, evitando um `secrets.h` recém
+gerado sem device correspondente no gateway. `RemoveDevice` **não**
+desfaz uma remoção parcial: uma falha ao revogar a credencial Mosquitto
+depois do `gateway.yaml` já ter sido atualizado retorna erro pedindo para
+rodar `deploy/mosquitto-provision-device.sh --remove` à mão — recriar
+automaticamente um device que acabou de ser removido é mais arriscado do
+que desfazer uma criação recém-feita.
+
+### Códigos de erro
+
+Ao contrário de `DeviceService` (que colapsa a maioria dos erros em
+`connect.CodeInvalidArgument` por serem poucos casos de MVP),
+`DeviceAdminService` distingue mais, por envolver mutação e privilégio:
+
+| Código | Quando |
+| --- | --- |
+| `AlreadyExists` | `ProvisionDevice` para um `device_id` já cadastrado. |
+| `InvalidArgument` | `device_id` inválido ou `template` desconhecido. |
+| `NotFound` | `SetDeviceEnabled`/`RemoveDevice` para um device inexistente. |
+| `Internal` | Falha do script de provisionamento, escrita em `gateway.yaml` ou `systemctl` — nada que o cliente resolva mudando a requisição. |
+
 ## Exemplos `curl`
 
 Connect aceita JSON simples via `POST` com `Content-Type: application/json`
@@ -214,11 +275,40 @@ curl -u <usuario>:<senha> \
   http://<orange-pi>:<porta>/iot.gateway.api.v1.GatewayService/GetStatus
 ```
 
+Cadastrar um LED novo (devolve a senha MQTT uma única vez — anote-a, ela
+não aparece de novo em nenhuma outra chamada):
+
+```bash
+curl -u <usuario>:<senha> \
+  -H 'Content-Type: application/json' \
+  -d '{"deviceId":"led-3","template":"esp32_led.v1"}' \
+  http://<orange-pi>:<porta>/iot.gateway.api.v1.DeviceAdminService/ProvisionDevice
+```
+
+Desabilitar um device (fica cadastrado, só para de aceitar comandos):
+
+```bash
+curl -u <usuario>:<senha> \
+  -H 'Content-Type: application/json' \
+  -d '{"deviceId":"led-3","enabled":false}' \
+  http://<orange-pi>:<porta>/iot.gateway.api.v1.DeviceAdminService/SetDeviceEnabled
+```
+
+Remover um device (revoga a credencial Mosquitto e tira do `gateway.yaml`):
+
+```bash
+curl -u <usuario>:<senha> \
+  -H 'Content-Type: application/json' \
+  -d '{"deviceId":"led-3"}' \
+  http://<orange-pi>:<porta>/iot.gateway.api.v1.DeviceAdminService/RemoveDevice
+```
+
 ## Fora de escopo (próxima fase)
 
-Registrar e remover dispositivo continuam só na UI de admin em 8081. A
-composição de porta que permite isso (`internal/apigateway`, ADR-013) já
-está pronta; falta só `DeviceAdminService` em si — as RPCs que o processo
-admin vai atender diretamente em `:8082`, sem proxy nenhum, reaproveitando
-`internal/admin/devices.go`. É isso que vai permitir finalmente descartar a
-página HTML (ver `docs/implementation-plan.md`).
+A UI HTML em 8081 continua no ar como contingência — `DeviceAdminService`
+já cobre as mesmas três operações, mas só é aposentada depois de validada
+fim a fim em produção (cadastro, habilitar/desabilitar, remoção, rollback e
+recuperação após reinício — ver `gateway-web/docs/spec.md` Marco 2). Depois
+disso: API de observabilidade/fila (contadores por device, histórico) e
+correlação de `command_result` (`PublishCommand` continua fire-and-forget
+até lá) — ver `docs/implementation-plan.md`.

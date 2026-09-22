@@ -69,6 +69,39 @@
   UI de admin.
 - Substitui `internal/commandapi`, removido nesta mesma entrega.
 
+## Extensão local — CORS na API local (concluído)
+
+- `cors_allowed_origins` opcional em `api:` (`gateway.yaml`): allowlist
+  exata de origens (nunca `*`), permitindo um cliente de browser (ex.:
+  `gateway-web`) chamar a API entre origens diferentes com credenciais.
+- Desligado por padrão — sem a chave, nenhum cabeçalho `Access-Control-*` é
+  adicionado, comportamento idêntico a antes do CORS existir.
+
+## Extensão local — composição de porta pública (concluído)
+
+- `internal/apigateway` (novo), dentro do processo `iot-gateway admin`
+  (root), passa a ser a única borda pública de `api.address`: autentica,
+  aplica CORS, e encaminha `DeviceService`/`GatewayService` por
+  `httputil.ReverseProxy` para `internal/api`, que passa a escutar só
+  `api.internal_address` (loopback, sem auth/CORS próprios) dentro do
+  processo `iot-gateway run` sandboxed (ADR-013).
+- Motivada por `DeviceAdminService` (abaixo) precisar responder na mesma
+  porta pública que `DeviceService`/`GatewayService`, mas só o processo
+  root pode executar suas operações.
+
+## Extensão local — DeviceAdminService (concluído)
+
+- `ProvisionDevice`, `SetDeviceEnabled`, `RemoveDevice` em
+  `internal/apigateway`, atendidos diretamente (sem proxy) reaproveitando
+  `internal/admin/registration.go` — a mesma lógica que a UI HTML em 8081
+  já usa, agora também acessível via Connect-RPC.
+- `ProvisionDevice` cria a partir de um template compilado (só
+  `esp32_led.v1` por enquanto) e tem rollback automático se a escrita em
+  `gateway.yaml` falhar depois da credencial Mosquitto já criada;
+  `RemoveDevice` não desfaz uma remoção parcial (ADR-014).
+- UI HTML em 8081 continua no ar como contingência até esse fluxo ser
+  validado fim a fim em produção — ver `gateway-web/docs/spec.md` Marco 2.
+
 ## Marco 3 — Outbox SQLite
 
 - Criar schema e repositório da fila.

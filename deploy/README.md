@@ -223,9 +223,18 @@ for where credentials and env vars go:
   process reverse-proxies to it. It needs no credentials of its own: the
   loopback binding is its whole trust boundary.
 
-Both read the **same** `api:` section in `gateway.yaml` - no duplication
-needed there. It is optional and off by default - add the section (see
-`configs/gateway.example.yaml`) to turn the whole thing on.
+`DeviceAdminService` (`ProvisionDevice`, `SetDeviceEnabled`,
+`RemoveDevice`) is answered directly by `iot-gateway-admin.service` - no
+proxy, no separate credential, no new port: it reuses the exact same
+`api.address` and `IOT_GATEWAY_API_USERNAME`/`PASSWORD` set up below, and
+the exact same device-mutation logic (`internal/admin`) the HTML UI at
+`:8081` already uses. **The HTML UI stays enabled** - this is a second way
+to reach the same operations, not a replacement yet (see `docs/api-v1.md`
+"Fora de escopo").
+
+Both processes read the **same** `api:` section in `gateway.yaml` - no
+duplication needed there. It is optional and off by default - add the
+section (see `configs/gateway.example.yaml`) to turn the whole thing on.
 
 **Same LAN-trusted-only rule as the admin UI**: plain HTTP, one shared
 Basic Auth credential, this time in the **admin** environment file (not

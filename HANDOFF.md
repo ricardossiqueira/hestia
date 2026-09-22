@@ -86,15 +86,23 @@ mais precisão. A partir de agora, **a todolist priorizada é esta**:
    `IOT_GATEWAY_API_USERNAME`/`PASSWORD` de `/etc/iot-gateway/environment`
    para `/etc/iot-gateway/admin-environment` — `api.address` não muda de
    valor, nenhum `.service` muda.
-4. **`DeviceAdminService`** — desbloqueado pelo item 3: as RPCs entram
-   direto em `internal/apigateway`'s mux (hoje `/iot.gateway.api.v1.
-   DeviceAdminService/*` cai no 404 padrão), sem precisar de nenhuma
-   composição nova. Contrato já rascunhado em `gateway-web/docs/spec.md`
-   §8.1: `ProvisionDevice`, `SetDeviceEnabled`, `RemoveDevice`. Reaproveita
-   a lógica de `internal/admin/devices.go` (`AddDevice`/`RemoveDevice`/
-   `DeviceExists`, edição via `yaml.Node`), só muda o transporte.
-   `ProvisionDevice`/`RemoveDevice` precisam de rollback automático em
-   falha parcial (YAML + credencial MQTT + restart).
+4. ~~**`DeviceAdminService`**~~ — ✅ feito. `ProvisionDevice`,
+   `SetDeviceEnabled`, `RemoveDevice` atendidos diretamente por
+   `internal/apigateway` (sem proxy), reaproveitando
+   `internal/admin/registration.go` (`RegisterDevice`/`DeregisterDevice`,
+   novos) sobre `internal/admin/devices.go` (`AddDeviceFromTemplate`/
+   `SetDeviceEnabled`, novos; `AddDevice`/`RemoveDevice` existentes
+   inalterados). Templates como registry compilado
+   (`internal/admin/device_templates.go`, só `esp32_led.v1` por enquanto).
+   Rollback automático só em `ProvisionDevice` (credencial Mosquitto
+   desfeita se a escrita em `gateway.yaml` falhar); `RemoveDevice` mantém a
+   postura de erro + instrução manual (ADR-014). `handleRemoveDevice` (UI
+   HTML) foi refatorado para chamar `DeregisterDevice` — mesma sequência,
+   mesmo texto de erro, zero mudança de comportamento (suíte
+   `internal/admin` inteira + testes novos de rollback confirmam). **UI
+   HTML em 8081 continua no ar** — não foi tocada além dessa refatoração
+   interna, permanece como contingência até `gateway-web` validar o fluxo
+   completo em produção (spec Marco 2).
 5. **API de observabilidade/fila** (`gateway-web/docs/spec.md` §8.3) —
    contrato ainda não desenhado; precisa primeiro de um modelo de
    persistência (a SQLite atual é outbox de encaminhamento, não histórico
