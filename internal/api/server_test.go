@@ -17,6 +17,7 @@ import (
 	"github.com/ricardossiqueira/iot-gateway/api/gen/go/iot/gateway/api/v1/apiv1connect"
 	"github.com/ricardossiqueira/iot-gateway/internal/config"
 	"github.com/ricardossiqueira/iot-gateway/internal/mqtt"
+	"github.com/ricardossiqueira/iot-gateway/internal/outbox"
 )
 
 type publishCall struct {
@@ -73,6 +74,13 @@ func (f fakeTelemetry) LastTelemetry(deviceID string) ([]byte, time.Time, bool) 
 	return entry.payload, entry.observedAt, true
 }
 
+type fakeQueue struct {
+	snap outbox.Snapshot
+	err  error
+}
+
+func (f fakeQueue) Snapshot(context.Context) (outbox.Snapshot, error) { return f.snap, f.err }
+
 func testDevices() []config.Device {
 	enabled := true
 	return []config.Device{
@@ -98,14 +106,14 @@ func testDevices() []config.Device {
 // lives in package api and can reach the unexported s.http field. No auth
 // is exercised here any more (ADR-013): this package is loopback-only and
 // trusts its caller (internal/apigateway's reverse proxy) unconditionally.
-func newTestServer(t *testing.T, publisher *fakePublisher, status fakeStatus, telemetry fakeTelemetry) *httptest.Server {
+func newTestServer(t *testing.T, publisher *fakePublisher, status fakeStatus, telemetry fakeTelemetry, queue fakeQueue) *httptest.Server {
 	t.Helper()
 	cfg := Config{
 		Address:        "127.0.0.1:0",
 		RequestTimeout: time.Second,
 		Registry:       config.Config{Devices: testDevices()},
 	}
-	srv, err := New(cfg, publisher, status, telemetry, nil)
+	srv, err := New(cfg, publisher, status, telemetry, queue, nil)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -115,7 +123,7 @@ func newTestServer(t *testing.T, publisher *fakePublisher, status fakeStatus, te
 }
 
 func TestListDevices(t *testing.T) {
-	ts := newTestServer(t, &fakePublisher{}, fakeStatus{}, fakeTelemetry{})
+	ts := newTestServer(t, &fakePublisher{}, fakeStatus{}, fakeTelemetry{}, fakeQueue{})
 	client := apiv1connect.NewDeviceServiceClient(ts.Client(), ts.URL)
 	resp, err := client.ListDevices(context.Background(), connect.NewRequest(&apiv1.ListDevicesRequest{}))
 	if err != nil {
@@ -133,7 +141,7 @@ func TestListDevices(t *testing.T) {
 }
 
 func TestListDeviceCommands_WithProfile(t *testing.T) {
-	ts := newTestServer(t, &fakePublisher{}, fakeStatus{}, fakeTelemetry{})
+	ts := newTestServer(t, &fakePublisher{}, fakeStatus{}, fakeTelemetry{}, fakeQueue{})
 	client := apiv1connect.NewDeviceServiceClient(ts.Client(), ts.URL)
 	req := connect.NewRequest(&apiv1.ListDeviceCommandsRequest{DeviceId: "led-1"})
 	resp, err := client.ListDeviceCommands(context.Background(), req)
@@ -153,7 +161,7 @@ func TestListDeviceCommands_WithProfile(t *testing.T) {
 }
 
 func TestListDeviceCommands_Opaque(t *testing.T) {
-	ts := newTestServer(t, &fakePublisher{}, fakeStatus{}, fakeTelemetry{})
+	ts := newTestServer(t, &fakePublisher{}, fakeStatus{}, fakeTelemetry{}, fakeQueue{})
 	client := apiv1connect.NewDeviceServiceClient(ts.Client(), ts.URL)
 	req := connect.NewRequest(&apiv1.ListDeviceCommandsRequest{DeviceId: "opaque-1"})
 	resp, err := client.ListDeviceCommands(context.Background(), req)
@@ -170,7 +178,7 @@ func TestListDeviceCommands_Opaque(t *testing.T) {
 
 func TestPublishCommand_Success_SchemaValidated(t *testing.T) {
 	publisher := &fakePublisher{}
-	ts := newTestServer(t, publisher, fakeStatus{}, fakeTelemetry{})
+	ts := newTestServer(t, publisher, fakeStatus{}, fakeTelemetry{}, fakeQueue{})
 	client := apiv1connect.NewDeviceServiceClient(ts.Client(), ts.URL)
 	params, _ := structpb.NewStruct(map[string]any{"on": true})
 	req := connect.NewRequest(&apiv1.PublishCommandRequest{DeviceId: "led-1", Type: "set_led", Parameters: params})
@@ -201,7 +209,7 @@ func TestPublishCommand_Success_SchemaValidated(t *testing.T) {
 
 func TestPublishCommand_SchemaRejection_WrongType(t *testing.T) {
 	publisher := &fakePublisher{}
-	ts := newTestServer(t, publisher, fakeStatus{}, fakeTelemetry{})
+	ts := newTestServer(t, publisher, fakeStatus{}, fakeTelemetry{}, fakeQueue{})
 	client := apiv1connect.NewDeviceServiceClient(ts.Client(), ts.URL)
 	params, _ := structpb.NewStruct(map[string]any{"on": "sim"})
 	req := connect.NewRequest(&apiv1.PublishCommandRequest{DeviceId: "led-1", Type: "set_led", Parameters: params})
@@ -219,7 +227,7 @@ func TestPublishCommand_SchemaRejection_WrongType(t *testing.T) {
 
 func TestPublishCommand_SchemaRejection_MissingField(t *testing.T) {
 	publisher := &fakePublisher{}
-	ts := newTestServer(t, publisher, fakeStatus{}, fakeTelemetry{})
+	ts := newTestServer(t, publisher, fakeStatus{}, fakeTelemetry{}, fakeQueue{})
 	client := apiv1connect.NewDeviceServiceClient(ts.Client(), ts.URL)
 	req := connect.NewRequest(&apiv1.PublishCommandRequest{DeviceId: "led-1", Type: "set_led", Parameters: &structpb.Struct{}})
 	_, err := client.PublishCommand(context.Background(), req)
@@ -236,7 +244,7 @@ func TestPublishCommand_SchemaRejection_MissingField(t *testing.T) {
 
 func TestPublishCommand_OpaqueFallback(t *testing.T) {
 	publisher := &fakePublisher{}
-	ts := newTestServer(t, publisher, fakeStatus{}, fakeTelemetry{})
+	ts := newTestServer(t, publisher, fakeStatus{}, fakeTelemetry{}, fakeQueue{})
 	client := apiv1connect.NewDeviceServiceClient(ts.Client(), ts.URL)
 	params, _ := structpb.NewStruct(map[string]any{"ligado": true})
 	req := connect.NewRequest(&apiv1.PublishCommandRequest{DeviceId: "opaque-1", Type: "set_output", Parameters: params})
@@ -256,7 +264,7 @@ func TestPublishCommand_OpaqueFallback(t *testing.T) {
 }
 
 func TestPublishCommand_UnknownDevice(t *testing.T) {
-	ts := newTestServer(t, &fakePublisher{}, fakeStatus{}, fakeTelemetry{})
+	ts := newTestServer(t, &fakePublisher{}, fakeStatus{}, fakeTelemetry{}, fakeQueue{})
 	client := apiv1connect.NewDeviceServiceClient(ts.Client(), ts.URL)
 	req := connect.NewRequest(&apiv1.PublishCommandRequest{DeviceId: "nope", Type: "set_led"})
 	_, err := client.PublishCommand(context.Background(), req)
@@ -270,7 +278,7 @@ func TestPublishCommand_UnknownDevice(t *testing.T) {
 
 func TestPublishCommand_PublisherError(t *testing.T) {
 	publisher := &fakePublisher{err: errors.New(`device "led-1" is disabled`)}
-	ts := newTestServer(t, publisher, fakeStatus{}, fakeTelemetry{})
+	ts := newTestServer(t, publisher, fakeStatus{}, fakeTelemetry{}, fakeQueue{})
 	client := apiv1connect.NewDeviceServiceClient(ts.Client(), ts.URL)
 	params, _ := structpb.NewStruct(map[string]any{"on": true})
 	req := connect.NewRequest(&apiv1.PublishCommandRequest{DeviceId: "led-1", Type: "set_led", Parameters: params})
@@ -298,7 +306,7 @@ func TestGetStatus(t *testing.T) {
 		OutboxDiscarded:      1,
 		OutboxFailed:         0,
 	}}
-	ts := newTestServer(t, &fakePublisher{}, status, fakeTelemetry{})
+	ts := newTestServer(t, &fakePublisher{}, status, fakeTelemetry{}, fakeQueue{})
 	client := apiv1connect.NewGatewayServiceClient(ts.Client(), ts.URL)
 	resp, err := client.GetStatus(context.Background(), connect.NewRequest(&apiv1.GetStatusRequest{}))
 	if err != nil {
@@ -321,7 +329,7 @@ func TestGetStatus(t *testing.T) {
 func TestGetDeviceTelemetryReturnsCachedPayload(t *testing.T) {
 	observedAt := time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC)
 	telemetry := fakeTelemetry{"led-1": {payload: []byte(`{"cpu_pct":12.5}`), observedAt: observedAt}}
-	ts := newTestServer(t, &fakePublisher{}, fakeStatus{}, telemetry)
+	ts := newTestServer(t, &fakePublisher{}, fakeStatus{}, telemetry, fakeQueue{})
 	client := apiv1connect.NewDeviceServiceClient(ts.Client(), ts.URL)
 
 	resp, err := client.GetDeviceTelemetry(context.Background(), connect.NewRequest(&apiv1.GetDeviceTelemetryRequest{DeviceId: "led-1"}))
@@ -340,7 +348,7 @@ func TestGetDeviceTelemetryReturnsCachedPayload(t *testing.T) {
 }
 
 func TestGetDeviceTelemetryAvailableFalseWhenNothingReceivedYet(t *testing.T) {
-	ts := newTestServer(t, &fakePublisher{}, fakeStatus{}, fakeTelemetry{})
+	ts := newTestServer(t, &fakePublisher{}, fakeStatus{}, fakeTelemetry{}, fakeQueue{})
 	client := apiv1connect.NewDeviceServiceClient(ts.Client(), ts.URL)
 
 	resp, err := client.GetDeviceTelemetry(context.Background(), connect.NewRequest(&apiv1.GetDeviceTelemetryRequest{DeviceId: "led-1"}))
@@ -353,7 +361,7 @@ func TestGetDeviceTelemetryAvailableFalseWhenNothingReceivedYet(t *testing.T) {
 }
 
 func TestGetDeviceTelemetryRejectsUnknownDevice(t *testing.T) {
-	ts := newTestServer(t, &fakePublisher{}, fakeStatus{}, fakeTelemetry{})
+	ts := newTestServer(t, &fakePublisher{}, fakeStatus{}, fakeTelemetry{}, fakeQueue{})
 	client := apiv1connect.NewDeviceServiceClient(ts.Client(), ts.URL)
 
 	_, err := client.GetDeviceTelemetry(context.Background(), connect.NewRequest(&apiv1.GetDeviceTelemetryRequest{DeviceId: "ghost"}))
@@ -362,5 +370,55 @@ func TestGetDeviceTelemetryRejectsUnknownDevice(t *testing.T) {
 	}
 	if connect.CodeOf(err) != connect.CodeInvalidArgument {
 		t.Errorf("code = %v, want InvalidArgument", connect.CodeOf(err))
+	}
+}
+
+func TestGetQueueSummaryEmpty(t *testing.T) {
+	ts := newTestServer(t, &fakePublisher{}, fakeStatus{}, fakeTelemetry{}, fakeQueue{snap: outbox.Snapshot{}})
+	client := apiv1connect.NewGatewayServiceClient(ts.Client(), ts.URL)
+
+	resp, err := client.GetQueueSummary(context.Background(), connect.NewRequest(&apiv1.GetQueueSummaryRequest{}))
+	if err != nil {
+		t.Fatalf("GetQueueSummary() error = %v", err)
+	}
+	if resp.Msg.PendingMessages != 0 || resp.Msg.PendingBytes != 0 {
+		t.Errorf("response = %#v, want zero", resp.Msg)
+	}
+	if resp.Msg.OldestEnqueuedAt != nil {
+		t.Errorf("OldestEnqueuedAt = %v, want unset for an empty queue", resp.Msg.OldestEnqueuedAt)
+	}
+}
+
+func TestGetQueueSummaryWithPendingMessages(t *testing.T) {
+	oldest := time.Date(2026, 9, 23, 10, 0, 0, 0, time.UTC)
+	snap := outbox.Snapshot{
+		Stats:            outbox.Stats{Messages: 3, PayloadBytes: 512},
+		OldestEnqueuedAt: &oldest,
+	}
+	ts := newTestServer(t, &fakePublisher{}, fakeStatus{}, fakeTelemetry{}, fakeQueue{snap: snap})
+	client := apiv1connect.NewGatewayServiceClient(ts.Client(), ts.URL)
+
+	resp, err := client.GetQueueSummary(context.Background(), connect.NewRequest(&apiv1.GetQueueSummaryRequest{}))
+	if err != nil {
+		t.Fatalf("GetQueueSummary() error = %v", err)
+	}
+	if resp.Msg.PendingMessages != 3 || resp.Msg.PendingBytes != 512 {
+		t.Errorf("response = %#v", resp.Msg)
+	}
+	if resp.Msg.OldestEnqueuedAt == nil || !resp.Msg.OldestEnqueuedAt.AsTime().Equal(oldest) {
+		t.Errorf("OldestEnqueuedAt = %v, want %v", resp.Msg.OldestEnqueuedAt, oldest)
+	}
+}
+
+func TestGetQueueSummaryPropagatesStoreError(t *testing.T) {
+	ts := newTestServer(t, &fakePublisher{}, fakeStatus{}, fakeTelemetry{}, fakeQueue{err: errors.New("outbox unavailable")})
+	client := apiv1connect.NewGatewayServiceClient(ts.Client(), ts.URL)
+
+	_, err := client.GetQueueSummary(context.Background(), connect.NewRequest(&apiv1.GetQueueSummaryRequest{}))
+	if err == nil {
+		t.Fatal("GetQueueSummary() error = nil, want the store error surfaced")
+	}
+	if connect.CodeOf(err) != connect.CodeInternal {
+		t.Errorf("code = %v, want Internal", connect.CodeOf(err))
 	}
 }

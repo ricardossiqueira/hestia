@@ -24,6 +24,9 @@ service DeviceService {
 // GatewayService reports the gateway's own runtime status.
 service GatewayService {
   rpc GetStatus(GetStatusRequest) returns (GetStatusResponse);
+  // GetQueueSummary reads the outbox's current pending state (not the
+  // lifetime counters GetStatus already reports) - see docs/api-v1.md.
+  rpc GetQueueSummary(GetQueueSummaryRequest) returns (GetQueueSummaryResponse);
 }
 
 // DeviceAdminService registers, enables/disables and removes devices - the
@@ -266,4 +269,16 @@ message GetStatusResponse {
   uint64 outbox_stored = 9;
   uint64 outbox_discarded = 10;
   uint64 outbox_failed = 11;
+}
+
+message GetQueueSummaryRequest {}
+
+// GetQueueSummaryResponse mirrors internal/outbox.Snapshot field for field -
+// the outbox's current pending state, not the lifetime counters
+// GetStatusResponse already reports (outbox_stored/discarded/failed).
+message GetQueueSummaryResponse {
+  uint64 pending_messages = 1;
+  int64 pending_bytes = 2;
+  // Unset when pending_messages is 0.
+  google.protobuf.Timestamp oldest_enqueued_at = 3;
 }

@@ -247,7 +247,8 @@ var DeviceService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	GatewayService_GetStatus_FullMethodName = "/iot.gateway.api.v1.GatewayService/GetStatus"
+	GatewayService_GetStatus_FullMethodName       = "/iot.gateway.api.v1.GatewayService/GetStatus"
+	GatewayService_GetQueueSummary_FullMethodName = "/iot.gateway.api.v1.GatewayService/GetQueueSummary"
 )
 
 // GatewayServiceClient is the client API for GatewayService service.
@@ -257,6 +258,9 @@ const (
 // GatewayService reports the gateway's own runtime status.
 type GatewayServiceClient interface {
 	GetStatus(ctx context.Context, in *GetStatusRequest, opts ...grpc.CallOption) (*GetStatusResponse, error)
+	// GetQueueSummary reads the outbox's current pending state (not the
+	// lifetime counters GetStatus already reports) - see docs/api-v1.md.
+	GetQueueSummary(ctx context.Context, in *GetQueueSummaryRequest, opts ...grpc.CallOption) (*GetQueueSummaryResponse, error)
 }
 
 type gatewayServiceClient struct {
@@ -277,6 +281,16 @@ func (c *gatewayServiceClient) GetStatus(ctx context.Context, in *GetStatusReque
 	return out, nil
 }
 
+func (c *gatewayServiceClient) GetQueueSummary(ctx context.Context, in *GetQueueSummaryRequest, opts ...grpc.CallOption) (*GetQueueSummaryResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetQueueSummaryResponse)
+	err := c.cc.Invoke(ctx, GatewayService_GetQueueSummary_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // GatewayServiceServer is the server API for GatewayService service.
 // All implementations should embed UnimplementedGatewayServiceServer
 // for forward compatibility.
@@ -284,6 +298,9 @@ func (c *gatewayServiceClient) GetStatus(ctx context.Context, in *GetStatusReque
 // GatewayService reports the gateway's own runtime status.
 type GatewayServiceServer interface {
 	GetStatus(context.Context, *GetStatusRequest) (*GetStatusResponse, error)
+	// GetQueueSummary reads the outbox's current pending state (not the
+	// lifetime counters GetStatus already reports) - see docs/api-v1.md.
+	GetQueueSummary(context.Context, *GetQueueSummaryRequest) (*GetQueueSummaryResponse, error)
 }
 
 // UnimplementedGatewayServiceServer should be embedded to have
@@ -295,6 +312,9 @@ type UnimplementedGatewayServiceServer struct{}
 
 func (UnimplementedGatewayServiceServer) GetStatus(context.Context, *GetStatusRequest) (*GetStatusResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetStatus not implemented")
+}
+func (UnimplementedGatewayServiceServer) GetQueueSummary(context.Context, *GetQueueSummaryRequest) (*GetQueueSummaryResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetQueueSummary not implemented")
 }
 func (UnimplementedGatewayServiceServer) testEmbeddedByValue() {}
 
@@ -334,6 +354,24 @@ func _GatewayService_GetStatus_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _GatewayService_GetQueueSummary_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetQueueSummaryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GatewayServiceServer).GetQueueSummary(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GatewayService_GetQueueSummary_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GatewayServiceServer).GetQueueSummary(ctx, req.(*GetQueueSummaryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // GatewayService_ServiceDesc is the grpc.ServiceDesc for GatewayService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -344,6 +382,10 @@ var GatewayService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetStatus",
 			Handler:    _GatewayService_GetStatus_Handler,
+		},
+		{
+			MethodName: "GetQueueSummary",
+			Handler:    _GatewayService_GetQueueSummary_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

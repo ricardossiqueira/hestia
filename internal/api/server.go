@@ -34,6 +34,7 @@ import (
 	"github.com/ricardossiqueira/iot-gateway/api/gen/go/iot/gateway/api/v1/apiv1connect"
 	"github.com/ricardossiqueira/iot-gateway/internal/config"
 	"github.com/ricardossiqueira/iot-gateway/internal/mqtt"
+	"github.com/ricardossiqueira/iot-gateway/internal/outbox"
 )
 
 // CommandPublisher is the one capability this package needs from the
@@ -56,6 +57,15 @@ type StatusProvider interface {
 // same pattern as CommandPublisher/StatusProvider above.
 type TelemetryProvider interface {
 	LastTelemetry(deviceID string) ([]byte, time.Time, bool)
+}
+
+// QueueProvider is the one capability this package needs to serve
+// GetQueueSummary - satisfied structurally by *outbox.Store directly. Unlike
+// CommandPublisher/StatusProvider/TelemetryProvider above, this one is not
+// backed by *mqtt.Gateway: the outbox is its own component, and this
+// interface names only the read this package actually needs from it.
+type QueueProvider interface {
+	Snapshot(ctx context.Context) (outbox.Snapshot, error)
 }
 
 type DeviceProvider interface {
@@ -84,6 +94,7 @@ type Server struct {
 	publisher CommandPublisher
 	status    StatusProvider
 	telemetry TelemetryProvider
+	queue     QueueProvider
 	logger    *slog.Logger
 	http      *http.Server
 
@@ -92,7 +103,7 @@ type Server struct {
 	deviceProvider DeviceProvider
 }
 
-func New(cfg Config, publisher CommandPublisher, status StatusProvider, telemetry TelemetryProvider, logger *slog.Logger) (*Server, error) {
+func New(cfg Config, publisher CommandPublisher, status StatusProvider, telemetry TelemetryProvider, queue QueueProvider, logger *slog.Logger) (*Server, error) {
 	if strings.TrimSpace(cfg.Address) == "" {
 		return nil, errors.New("api address is required")
 	}
@@ -104,6 +115,9 @@ func New(cfg Config, publisher CommandPublisher, status StatusProvider, telemetr
 	}
 	if telemetry == nil {
 		return nil, errors.New("api telemetry provider is required")
+	}
+	if queue == nil {
+		return nil, errors.New("api queue provider is required")
 	}
 	if cfg.RequestTimeout <= 0 {
 		cfg.RequestTimeout = 10 * time.Second
@@ -125,6 +139,7 @@ func New(cfg Config, publisher CommandPublisher, status StatusProvider, telemetr
 		publisher:      publisher,
 		status:         status,
 		telemetry:      telemetry,
+		queue:          queue,
 		logger:         logger,
 		devices:        devices,
 		deviceList:     deviceList,

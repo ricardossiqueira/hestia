@@ -52,6 +52,9 @@ const (
 	// GatewayServiceGetStatusProcedure is the fully-qualified name of the GatewayService's GetStatus
 	// RPC.
 	GatewayServiceGetStatusProcedure = "/iot.gateway.api.v1.GatewayService/GetStatus"
+	// GatewayServiceGetQueueSummaryProcedure is the fully-qualified name of the GatewayService's
+	// GetQueueSummary RPC.
+	GatewayServiceGetQueueSummaryProcedure = "/iot.gateway.api.v1.GatewayService/GetQueueSummary"
 	// DeviceAdminServiceRegisterExistingDeviceProcedure is the fully-qualified name of the
 	// DeviceAdminService's RegisterExistingDevice RPC.
 	DeviceAdminServiceRegisterExistingDeviceProcedure = "/iot.gateway.api.v1.DeviceAdminService/RegisterExistingDevice"
@@ -240,6 +243,9 @@ func (UnimplementedDeviceServiceHandler) GetDeviceTelemetry(context.Context, *co
 // GatewayServiceClient is a client for the iot.gateway.api.v1.GatewayService service.
 type GatewayServiceClient interface {
 	GetStatus(context.Context, *connect.Request[v1.GetStatusRequest]) (*connect.Response[v1.GetStatusResponse], error)
+	// GetQueueSummary reads the outbox's current pending state (not the
+	// lifetime counters GetStatus already reports) - see docs/api-v1.md.
+	GetQueueSummary(context.Context, *connect.Request[v1.GetQueueSummaryRequest]) (*connect.Response[v1.GetQueueSummaryResponse], error)
 }
 
 // NewGatewayServiceClient constructs a client for the iot.gateway.api.v1.GatewayService service. By
@@ -259,12 +265,19 @@ func NewGatewayServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(gatewayServiceMethods.ByName("GetStatus")),
 			connect.WithClientOptions(opts...),
 		),
+		getQueueSummary: connect.NewClient[v1.GetQueueSummaryRequest, v1.GetQueueSummaryResponse](
+			httpClient,
+			baseURL+GatewayServiceGetQueueSummaryProcedure,
+			connect.WithSchema(gatewayServiceMethods.ByName("GetQueueSummary")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // gatewayServiceClient implements GatewayServiceClient.
 type gatewayServiceClient struct {
-	getStatus *connect.Client[v1.GetStatusRequest, v1.GetStatusResponse]
+	getStatus       *connect.Client[v1.GetStatusRequest, v1.GetStatusResponse]
+	getQueueSummary *connect.Client[v1.GetQueueSummaryRequest, v1.GetQueueSummaryResponse]
 }
 
 // GetStatus calls iot.gateway.api.v1.GatewayService.GetStatus.
@@ -272,9 +285,17 @@ func (c *gatewayServiceClient) GetStatus(ctx context.Context, req *connect.Reque
 	return c.getStatus.CallUnary(ctx, req)
 }
 
+// GetQueueSummary calls iot.gateway.api.v1.GatewayService.GetQueueSummary.
+func (c *gatewayServiceClient) GetQueueSummary(ctx context.Context, req *connect.Request[v1.GetQueueSummaryRequest]) (*connect.Response[v1.GetQueueSummaryResponse], error) {
+	return c.getQueueSummary.CallUnary(ctx, req)
+}
+
 // GatewayServiceHandler is an implementation of the iot.gateway.api.v1.GatewayService service.
 type GatewayServiceHandler interface {
 	GetStatus(context.Context, *connect.Request[v1.GetStatusRequest]) (*connect.Response[v1.GetStatusResponse], error)
+	// GetQueueSummary reads the outbox's current pending state (not the
+	// lifetime counters GetStatus already reports) - see docs/api-v1.md.
+	GetQueueSummary(context.Context, *connect.Request[v1.GetQueueSummaryRequest]) (*connect.Response[v1.GetQueueSummaryResponse], error)
 }
 
 // NewGatewayServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -290,10 +311,18 @@ func NewGatewayServiceHandler(svc GatewayServiceHandler, opts ...connect.Handler
 		connect.WithSchema(gatewayServiceMethods.ByName("GetStatus")),
 		connect.WithHandlerOptions(opts...),
 	)
+	gatewayServiceGetQueueSummaryHandler := connect.NewUnaryHandler(
+		GatewayServiceGetQueueSummaryProcedure,
+		svc.GetQueueSummary,
+		connect.WithSchema(gatewayServiceMethods.ByName("GetQueueSummary")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/iot.gateway.api.v1.GatewayService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case GatewayServiceGetStatusProcedure:
 			gatewayServiceGetStatusHandler.ServeHTTP(w, r)
+		case GatewayServiceGetQueueSummaryProcedure:
+			gatewayServiceGetQueueSummaryHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -305,6 +334,10 @@ type UnimplementedGatewayServiceHandler struct{}
 
 func (UnimplementedGatewayServiceHandler) GetStatus(context.Context, *connect.Request[v1.GetStatusRequest]) (*connect.Response[v1.GetStatusResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("iot.gateway.api.v1.GatewayService.GetStatus is not implemented"))
+}
+
+func (UnimplementedGatewayServiceHandler) GetQueueSummary(context.Context, *connect.Request[v1.GetQueueSummaryRequest]) (*connect.Response[v1.GetQueueSummaryResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("iot.gateway.api.v1.GatewayService.GetQueueSummary is not implemented"))
 }
 
 // DeviceAdminServiceClient is a client for the iot.gateway.api.v1.DeviceAdminService service.

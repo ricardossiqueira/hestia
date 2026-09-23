@@ -188,6 +188,24 @@ func (s *Server) GetDeviceTelemetry(ctx context.Context, req *connect.Request[ap
 	}), nil
 }
 
+// GetQueueSummary mirrors outbox.Snapshot 1:1 - the outbox's current
+// pending state, not the lifetime counters GetStatus already reports.
+func (s *Server) GetQueueSummary(ctx context.Context, req *connect.Request[apiv1.GetQueueSummaryRequest]) (*connect.Response[apiv1.GetQueueSummaryResponse], error) {
+	snap, err := s.queue.Snapshot(ctx)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("read queue snapshot: %w", err))
+	}
+	var oldest *timestamppb.Timestamp
+	if snap.OldestEnqueuedAt != nil {
+		oldest = timestamppb.New(*snap.OldestEnqueuedAt)
+	}
+	return connect.NewResponse(&apiv1.GetQueueSummaryResponse{
+		PendingMessages:  uint64(snap.Messages),
+		PendingBytes:     snap.PayloadBytes,
+		OldestEnqueuedAt: oldest,
+	}), nil
+}
+
 // GetStatus mirrors mqtt.Snapshot 1:1 - see api.proto's GetStatusResponse
 // doc comment.
 func (s *Server) GetStatus(ctx context.Context, req *connect.Request[apiv1.GetStatusRequest]) (*connect.Response[apiv1.GetStatusResponse], error) {

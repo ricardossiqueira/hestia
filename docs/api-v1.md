@@ -127,6 +127,7 @@ Regras:
 | `PublishCommand` | `DeviceService` | Publica um comando, validado por schema quando o dispositivo tem profile. |
 | `GetDeviceTelemetry` | `DeviceService` | Devolve a última mensagem `telemetry` aceita de um device, em cache (sem histórico). |
 | `GetStatus` | `GatewayService` | Espelha `internal/mqtt.Snapshot`: sessão MQTT, contadores, sem payloads. |
+| `GetQueueSummary` | `GatewayService` | Espelha `internal/outbox.Snapshot`: pendentes agora, bytes, idade do item mais antigo. |
 | `RegisterExistingDevice` | `DeviceAdminService` | Adota um serviço local com identidade MQTT já existente, sem alterar senha. |
 | `ListRoutes` | `DeviceAdminService` | Lista as rotas locais persistidas no SQLite. |
 | `CreateRoute` | `DeviceAdminService` | Cria uma rota entre um tópico inbound e um `command` habilitados. |
@@ -177,6 +178,21 @@ continua sendo `connect.CodeInvalidArgument`, como as demais RPCs de
 `parameters` de `PublishCommand` — ver a seção abaixo) com o JSON que o
 device publicou; `observed_at` é o `timestamp` que o próprio payload
 declarou, não o instante da chamada.
+
+### Resumo da fila (outbox)
+
+`GetQueueSummary` espelha `internal/outbox.Snapshot` 1:1: quantas mensagens
+estão pendentes de encaminhamento à VPS agora, quantos bytes de payload elas
+ocupam, e o horário de enfileiramento da mais antiga. É diferente dos
+contadores `outbox_stored/discarded/failed` que `GetStatus` já reporta -
+aqueles são acumulados desde que o processo subiu; este é o estado atual da
+fila. Só existe outbox para `telemetry`/`state`/`event` de devices com o
+respectivo `forwarding.*_to_vps` habilitado (ver [queue.md](queue.md)) -
+sem nenhum device configurado assim, o resumo sempre volta zerado. Não expõe
+item, payload ou device por item: paginação/filtro por device e histórico de
+7 dias continuam fora de escopo (`gateway-web/docs/spec.md` §8.3) até
+existir um modelo de persistência novo - a outbox é uma fila de trabalho
+pendente, não um log.
 
 ## Profile, validação e fallback opaco
 
@@ -325,6 +341,16 @@ curl -u <usuario>:<senha> \
   -H 'Content-Type: application/json' \
   -d '{}' \
   http://<orange-pi>:<porta>/iot.gateway.api.v1.GatewayService/GetStatus
+```
+
+Ler o resumo da fila (outbox) - pendentes agora, não os contadores
+acumulados de `GetStatus`:
+
+```bash
+curl -u <usuario>:<senha> \
+  -H 'Content-Type: application/json' \
+  -d '{}' \
+  http://<orange-pi>:<porta>/iot.gateway.api.v1.GatewayService/GetQueueSummary
 ```
 
 Cadastrar um LED novo (devolve a senha MQTT uma única vez — anote-a, ela
