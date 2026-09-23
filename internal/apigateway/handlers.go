@@ -78,6 +78,28 @@ func (s *Server) ProvisionDevice(ctx context.Context, req *connect.Request[apiv1
 	}), nil
 }
 
+// ProvisionCYD delivers the newly generated MQTT identity directly to the
+// first-boot CYD. The API intentionally has no MQTT password field: that
+// secret is never visible to gateway-web or persisted by the registry.
+func (s *Server) ProvisionCYD(ctx context.Context, req *connect.Request[apiv1.ProvisionCYDRequest]) (*connect.Response[apiv1.ProvisionCYDResponse], error) {
+	device, address, err := s.cfg.Admin.ProvisionCYD(ctx, req.Msg.GetDeviceId(), req.Msg.GetDeviceIp())
+	if err != nil {
+		switch {
+		case errors.Is(err, admin.ErrDeviceAlreadyExists):
+			return nil, connect.NewError(connect.CodeAlreadyExists, err)
+		case errors.Is(err, admin.ErrInvalidDeviceID), errors.Is(err, admin.ErrInvalidDeviceAddress):
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		case errors.Is(err, admin.ErrDeviceNotProvisionable):
+			return nil, connect.NewError(connect.CodeFailedPrecondition, err)
+		default:
+			return nil, connect.NewError(connect.CodeInternal, err)
+		}
+	}
+	return connect.NewResponse(&apiv1.ProvisionCYDResponse{
+		Device: deviceToProto(device), DeviceIp: address, AppliedAt: timestamppb.Now(),
+	}), nil
+}
+
 // SetDeviceEnabled toggles a device's enabled field. CodeNotFound for an
 // unknown device, CodeInternal for a restart failure - see
 // admin.Server.SetDeviceEnabled's doc comment for why a restart failure
@@ -94,8 +116,8 @@ func (s *Server) SetDeviceEnabled(ctx context.Context, req *connect.Request[apiv
 	}
 
 	return connect.NewResponse(&apiv1.SetDeviceEnabledResponse{
-		Device:      deviceToProto(device),
-		AppliedAt:   timestamppb.Now(),
+		Device:    deviceToProto(device),
+		AppliedAt: timestamppb.Now(),
 	}), nil
 }
 

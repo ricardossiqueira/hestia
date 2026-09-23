@@ -52,6 +52,9 @@ const (
 	// DeviceAdminServiceProvisionDeviceProcedure is the fully-qualified name of the
 	// DeviceAdminService's ProvisionDevice RPC.
 	DeviceAdminServiceProvisionDeviceProcedure = "/iot.gateway.api.v1.DeviceAdminService/ProvisionDevice"
+	// DeviceAdminServiceProvisionCYDProcedure is the fully-qualified name of the DeviceAdminService's
+	// ProvisionCYD RPC.
+	DeviceAdminServiceProvisionCYDProcedure = "/iot.gateway.api.v1.DeviceAdminService/ProvisionCYD"
 	// DeviceAdminServiceSetDeviceEnabledProcedure is the fully-qualified name of the
 	// DeviceAdminService's SetDeviceEnabled RPC.
 	DeviceAdminServiceSetDeviceEnabledProcedure = "/iot.gateway.api.v1.DeviceAdminService/SetDeviceEnabled"
@@ -255,6 +258,10 @@ func (UnimplementedGatewayServiceHandler) GetStatus(context.Context, *connect.Re
 // DeviceAdminServiceClient is a client for the iot.gateway.api.v1.DeviceAdminService service.
 type DeviceAdminServiceClient interface {
 	ProvisionDevice(context.Context, *connect.Request[v1.ProvisionDeviceRequest]) (*connect.Response[v1.ProvisionDeviceResponse], error)
+	// ProvisionCYD delivers the MQTT identity to an unprovisioned CYD over its
+	// temporary LAN endpoint. Unlike ProvisionDevice, it never returns a
+	// password to the caller.
+	ProvisionCYD(context.Context, *connect.Request[v1.ProvisionCYDRequest]) (*connect.Response[v1.ProvisionCYDResponse], error)
 	SetDeviceEnabled(context.Context, *connect.Request[v1.SetDeviceEnabledRequest]) (*connect.Response[v1.SetDeviceEnabledResponse], error)
 	RemoveDevice(context.Context, *connect.Request[v1.RemoveDeviceRequest]) (*connect.Response[v1.RemoveDeviceResponse], error)
 }
@@ -276,6 +283,12 @@ func NewDeviceAdminServiceClient(httpClient connect.HTTPClient, baseURL string, 
 			connect.WithSchema(deviceAdminServiceMethods.ByName("ProvisionDevice")),
 			connect.WithClientOptions(opts...),
 		),
+		provisionCYD: connect.NewClient[v1.ProvisionCYDRequest, v1.ProvisionCYDResponse](
+			httpClient,
+			baseURL+DeviceAdminServiceProvisionCYDProcedure,
+			connect.WithSchema(deviceAdminServiceMethods.ByName("ProvisionCYD")),
+			connect.WithClientOptions(opts...),
+		),
 		setDeviceEnabled: connect.NewClient[v1.SetDeviceEnabledRequest, v1.SetDeviceEnabledResponse](
 			httpClient,
 			baseURL+DeviceAdminServiceSetDeviceEnabledProcedure,
@@ -294,6 +307,7 @@ func NewDeviceAdminServiceClient(httpClient connect.HTTPClient, baseURL string, 
 // deviceAdminServiceClient implements DeviceAdminServiceClient.
 type deviceAdminServiceClient struct {
 	provisionDevice  *connect.Client[v1.ProvisionDeviceRequest, v1.ProvisionDeviceResponse]
+	provisionCYD     *connect.Client[v1.ProvisionCYDRequest, v1.ProvisionCYDResponse]
 	setDeviceEnabled *connect.Client[v1.SetDeviceEnabledRequest, v1.SetDeviceEnabledResponse]
 	removeDevice     *connect.Client[v1.RemoveDeviceRequest, v1.RemoveDeviceResponse]
 }
@@ -301,6 +315,11 @@ type deviceAdminServiceClient struct {
 // ProvisionDevice calls iot.gateway.api.v1.DeviceAdminService.ProvisionDevice.
 func (c *deviceAdminServiceClient) ProvisionDevice(ctx context.Context, req *connect.Request[v1.ProvisionDeviceRequest]) (*connect.Response[v1.ProvisionDeviceResponse], error) {
 	return c.provisionDevice.CallUnary(ctx, req)
+}
+
+// ProvisionCYD calls iot.gateway.api.v1.DeviceAdminService.ProvisionCYD.
+func (c *deviceAdminServiceClient) ProvisionCYD(ctx context.Context, req *connect.Request[v1.ProvisionCYDRequest]) (*connect.Response[v1.ProvisionCYDResponse], error) {
+	return c.provisionCYD.CallUnary(ctx, req)
 }
 
 // SetDeviceEnabled calls iot.gateway.api.v1.DeviceAdminService.SetDeviceEnabled.
@@ -317,6 +336,10 @@ func (c *deviceAdminServiceClient) RemoveDevice(ctx context.Context, req *connec
 // service.
 type DeviceAdminServiceHandler interface {
 	ProvisionDevice(context.Context, *connect.Request[v1.ProvisionDeviceRequest]) (*connect.Response[v1.ProvisionDeviceResponse], error)
+	// ProvisionCYD delivers the MQTT identity to an unprovisioned CYD over its
+	// temporary LAN endpoint. Unlike ProvisionDevice, it never returns a
+	// password to the caller.
+	ProvisionCYD(context.Context, *connect.Request[v1.ProvisionCYDRequest]) (*connect.Response[v1.ProvisionCYDResponse], error)
 	SetDeviceEnabled(context.Context, *connect.Request[v1.SetDeviceEnabledRequest]) (*connect.Response[v1.SetDeviceEnabledResponse], error)
 	RemoveDevice(context.Context, *connect.Request[v1.RemoveDeviceRequest]) (*connect.Response[v1.RemoveDeviceResponse], error)
 }
@@ -332,6 +355,12 @@ func NewDeviceAdminServiceHandler(svc DeviceAdminServiceHandler, opts ...connect
 		DeviceAdminServiceProvisionDeviceProcedure,
 		svc.ProvisionDevice,
 		connect.WithSchema(deviceAdminServiceMethods.ByName("ProvisionDevice")),
+		connect.WithHandlerOptions(opts...),
+	)
+	deviceAdminServiceProvisionCYDHandler := connect.NewUnaryHandler(
+		DeviceAdminServiceProvisionCYDProcedure,
+		svc.ProvisionCYD,
+		connect.WithSchema(deviceAdminServiceMethods.ByName("ProvisionCYD")),
 		connect.WithHandlerOptions(opts...),
 	)
 	deviceAdminServiceSetDeviceEnabledHandler := connect.NewUnaryHandler(
@@ -350,6 +379,8 @@ func NewDeviceAdminServiceHandler(svc DeviceAdminServiceHandler, opts ...connect
 		switch r.URL.Path {
 		case DeviceAdminServiceProvisionDeviceProcedure:
 			deviceAdminServiceProvisionDeviceHandler.ServeHTTP(w, r)
+		case DeviceAdminServiceProvisionCYDProcedure:
+			deviceAdminServiceProvisionCYDHandler.ServeHTTP(w, r)
 		case DeviceAdminServiceSetDeviceEnabledProcedure:
 			deviceAdminServiceSetDeviceEnabledHandler.ServeHTTP(w, r)
 		case DeviceAdminServiceRemoveDeviceProcedure:
@@ -365,6 +396,10 @@ type UnimplementedDeviceAdminServiceHandler struct{}
 
 func (UnimplementedDeviceAdminServiceHandler) ProvisionDevice(context.Context, *connect.Request[v1.ProvisionDeviceRequest]) (*connect.Response[v1.ProvisionDeviceResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("iot.gateway.api.v1.DeviceAdminService.ProvisionDevice is not implemented"))
+}
+
+func (UnimplementedDeviceAdminServiceHandler) ProvisionCYD(context.Context, *connect.Request[v1.ProvisionCYDRequest]) (*connect.Response[v1.ProvisionCYDResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("iot.gateway.api.v1.DeviceAdminService.ProvisionCYD is not implemented"))
 }
 
 func (UnimplementedDeviceAdminServiceHandler) SetDeviceEnabled(context.Context, *connect.Request[v1.SetDeviceEnabledRequest]) (*connect.Response[v1.SetDeviceEnabledResponse], error) {

@@ -29,6 +29,10 @@ service GatewayService {
 // like DeviceService/GatewayService are.
 service DeviceAdminService {
   rpc ProvisionDevice(ProvisionDeviceRequest) returns (ProvisionDeviceResponse);
+  // ProvisionCYD delivers the MQTT identity to an unprovisioned CYD over its
+  // temporary LAN endpoint. Unlike ProvisionDevice, it never returns a
+  // password to the caller.
+  rpc ProvisionCYD(ProvisionCYDRequest) returns (ProvisionCYDResponse);
   rpc SetDeviceEnabled(SetDeviceEnabledRequest) returns (SetDeviceEnabledResponse);
   rpc RemoveDevice(RemoveDeviceRequest) returns (RemoveDeviceResponse);
 }
@@ -52,6 +56,18 @@ message ProvisionDeviceResponse {
   // applied_at records when the registry mutation was durably committed.
   // It does not imply a process or broker restart.
   google.protobuf.Timestamp applied_at = 4;
+}
+
+message ProvisionCYDRequest {
+  string device_id = 1;
+  // IPv4 printed by the CYD over Serial before its first MQTT connection.
+  string device_ip = 2;
+}
+
+message ProvisionCYDResponse {
+  Device device = 1;
+  string device_ip = 2;
+  google.protobuf.Timestamp applied_at = 3;
 }
 
 message SetDeviceEnabledRequest {

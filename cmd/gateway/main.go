@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -22,6 +23,7 @@ import (
 	"github.com/ricardossiqueira/iot-gateway/internal/api"
 	"github.com/ricardossiqueira/iot-gateway/internal/apigateway"
 	"github.com/ricardossiqueira/iot-gateway/internal/config"
+	"github.com/ricardossiqueira/iot-gateway/internal/cydprovision"
 	"github.com/ricardossiqueira/iot-gateway/internal/diagnostics"
 	"github.com/ricardossiqueira/iot-gateway/internal/dynsec"
 	gatewaymqtt "github.com/ricardossiqueira/iot-gateway/internal/mqtt"
@@ -364,11 +366,14 @@ func runAdmin(args []string, stderr io.Writer) int {
 		return 1
 	}
 	adminEngine, err := admin.New(admin.Config{
-		ConfigPath:      *configPath,
-		ProvisionScript: *provisionScript,
-		Credentials:     credentials,
-		Registry:        deviceRegistry,
-		RequestTimeout:  adminRequestTimeout,
+		ConfigPath:       *configPath,
+		ProvisionScript:  *provisionScript,
+		Credentials:      credentials,
+		Registry:         deviceRegistry,
+		CYD:              cydprovision.NewHTTPClient(adminRequestTimeout),
+		DeviceBrokerHost: strings.TrimSpace(os.Getenv("IOT_GATEWAY_DEVICE_MQTT_HOST")),
+		DeviceBrokerPort: mqttPort(cfg.MQTT.URL),
+		RequestTimeout:   adminRequestTimeout,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "admin setup failed: %v\n", err)
@@ -411,6 +416,23 @@ func runAdmin(args []string, stderr io.Writer) int {
 		logger.Error("api gateway shutdown failed", "error", err)
 	}
 	return 0
+}
+
+// mqttPort is intentionally derived from the gateway's own broker URL, so a
+// CYD receives the same listener port the long-lived gateway is using. The
+// LAN-reachable host is supplied separately via IOT_GATEWAY_DEVICE_MQTT_HOST:
+// mqtt.url commonly uses 127.0.0.1, which is correct for the Orange Pi but
+// would be wrong when written into an ESP.
+func mqttPort(rawURL string) uint16 {
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.Port() == "" {
+		return 1883
+	}
+	port, err := strconv.ParseUint(parsed.Port(), 10, 16)
+	if err != nil || port == 0 {
+		return 0
+	}
+	return uint16(port)
 }
 
 // dynsecCredentialsFromEnvironment is intentionally opt-in during migration.

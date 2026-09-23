@@ -14,10 +14,12 @@ import (
 // InvalidArgument) instead of collapsing every failure to Internal. Wrapped
 // with %w, so callers use errors.Is against these, never string matching.
 var (
-	ErrDeviceAlreadyExists = errors.New("device already exists")
-	ErrDeviceNotFound      = errors.New("device not found")
-	ErrUnknownTemplate     = errors.New("unknown template")
-	ErrInvalidDeviceID     = errors.New("invalid device id")
+	ErrDeviceAlreadyExists    = errors.New("device already exists")
+	ErrDeviceNotFound         = errors.New("device not found")
+	ErrUnknownTemplate        = errors.New("unknown template")
+	ErrInvalidDeviceID        = errors.New("invalid device id")
+	ErrInvalidDeviceAddress   = errors.New("invalid device address")
+	ErrDeviceNotProvisionable = errors.New("device is not ready for provisioning")
 )
 
 // RegisterDevice provisions a Mosquitto credential/ACL for a new device

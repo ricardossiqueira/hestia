@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/ricardossiqueira/iot-gateway/internal/config"
+	"github.com/ricardossiqueira/iot-gateway/internal/cydprovision"
 	"github.com/ricardossiqueira/iot-gateway/internal/registry"
 )
 
@@ -25,6 +26,12 @@ type Config struct {
 	// Registry is the runtime source of truth. ConfigPath is retained only
 	// for the temporary YAML migration fallback when Registry is nil.
 	Registry *registry.Store
+	// CYD is the first device type with in-band first-boot provisioning. Its
+	// client and broker endpoint are deployment inputs, not YAML or SQLite
+	// state. DeviceBrokerHost must be LAN-reachable from the ESP (not 127.0.0.1).
+	CYD              cydprovision.Client
+	DeviceBrokerHost string
+	DeviceBrokerPort uint16
 	// RequestTimeout bounds how long a single provisioning request (which
 	// shells out to a script and restarts a systemd unit) may run.
 	RequestTimeout time.Duration
@@ -75,6 +82,87 @@ func (s *Server) ProvisionDevice(ctx context.Context, id, template string) (conf
 		return s.provisionRegistry(ctx, id, template)
 	}
 	return RegisterDevice(ctx, s.cfg.ConfigPath, s.cfg.ProvisionScript, id, template)
+}
+
+// ProvisionCYD supplies a new, Wi-Fi-connected CYD with its broker identity
+// over its one-time local HTTP endpoint. The password is kept in memory only:
+// it is sent directly to the CYD and never returned to gateway-web.
+func (s *Server) ProvisionCYD(ctx context.Context, id, address string) (config.Device, string, error) {
+	ctx, cancel := context.WithTimeout(ctx, s.cfg.RequestTimeout)
+	defer cancel()
+	if s.cfg.Registry == nil {
+		return config.Device{}, "", errors.New("CYD provisioning requires the SQLite registry")
+	}
+	if s.cfg.CYD == nil || strings.TrimSpace(s.cfg.DeviceBrokerHost) == "" || s.cfg.DeviceBrokerPort == 0 {
+		return config.Device{}, "", errors.New("CYD provisioning is not configured")
+	}
+	tmpl, ok := deviceTemplates["cyd_monitor.v1"]
+	if !ok {
+		return config.Device{}, "", errors.New("cyd_monitor.v1 template is missing")
+	}
+	if err := config.ValidateDeviceID("device_id", id); err != nil {
+		return config.Device{}, "", fmt.Errorf("%w: %v", ErrInvalidDeviceID, err)
+	}
+	if _, err := s.cfg.CYD.Inspect(ctx, address); err != nil {
+		if errors.Is(err, cydprovision.ErrInvalidIPAddress) {
+			return config.Device{}, "", fmt.Errorf("%w: %v", ErrInvalidDeviceAddress, err)
+		}
+		if errors.Is(err, cydprovision.ErrUnexpectedDevice) {
+			return config.Device{}, "", fmt.Errorf("%w: %v", ErrDeviceNotProvisionable, err)
+		}
+		return config.Device{}, "", fmt.Errorf("inspect CYD: %w", err)
+	}
+
+	// The registry intentionally starts disabled. If delivery is interrupted
+	// after NVS was written, the operator can safely use SetDeviceEnabled to
+	// finish activation without rotating a password the CYD already holds.
+	device := buildDevice(id, tmpl.Type, tmpl.Profile, tmpl.Topics)
+	disabled := false
+	device.Enabled = &disabled
+	if _, err := s.cfg.Registry.AddDevice(ctx, device, uuid.NewString()); err != nil {
+		if errors.Is(err, registry.ErrDeviceAlreadyExists) {
+			return config.Device{}, "", fmt.Errorf("%w: %q", ErrDeviceAlreadyExists, id)
+		}
+		return config.Device{}, "", fmt.Errorf("add CYD to registry: %w", err)
+	}
+	cleanupBeforeDelivery := func(cause error) (config.Device, string, error) {
+		if revokeErr := s.cfg.Credentials.Revoke(ctx, id); revokeErr != nil {
+			return config.Device{}, "", fmt.Errorf("%v; revoke CYD credential also failed: %w", cause, revokeErr)
+		}
+		if removeErr := s.cfg.Registry.RemoveDevice(ctx, id, uuid.NewString()); removeErr != nil {
+			return config.Device{}, "", fmt.Errorf("%v; remove pending CYD registry entry also failed: %w", cause, removeErr)
+		}
+		return config.Device{}, "", cause
+	}
+
+	password, err := s.cfg.Credentials.Provision(ctx, id, tmpl.Topics)
+	if err != nil {
+		if removeErr := s.cfg.Registry.RemoveDevice(ctx, id, uuid.NewString()); removeErr != nil {
+			return config.Device{}, "", fmt.Errorf("create CYD credential: %v; remove pending registry entry also failed: %w", err, removeErr)
+		}
+		return config.Device{}, "", fmt.Errorf("create CYD credential: %w", err)
+	}
+	if err := s.cfg.Credentials.SetEnabled(ctx, id, false); err != nil {
+		return cleanupBeforeDelivery(fmt.Errorf("disable new CYD credential: %w", err))
+	}
+	settings := cydprovision.Settings{
+		DeviceID: id, BrokerHost: s.cfg.DeviceBrokerHost, BrokerPort: s.cfg.DeviceBrokerPort,
+		Username: id, Password: password,
+	}
+	if err := s.cfg.CYD.Provision(ctx, address, settings); err != nil {
+		return cleanupBeforeDelivery(fmt.Errorf("deliver CYD configuration: %w", err))
+	}
+	if err := s.cfg.Credentials.SetEnabled(ctx, id, true); err != nil {
+		return config.Device{}, "", fmt.Errorf("CYD stored its configuration but its broker credential remains disabled: %w", err)
+	}
+	active, err := s.cfg.Registry.SetDeviceEnabled(ctx, id, true, uuid.NewString())
+	if err != nil {
+		// Keep the recovery state coherent: a configured but disabled CYD can
+		// be activated later using SetDeviceEnabled, without resending secrets.
+		_ = s.cfg.Credentials.SetEnabled(context.Background(), id, false)
+		return config.Device{}, "", fmt.Errorf("CYD stored its configuration but registry activation failed: %w", err)
+	}
+	return active, address, nil
 }
 
 // SetDeviceEnabled toggles a device's enabled field and restarts the

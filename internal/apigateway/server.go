@@ -50,6 +50,7 @@ import (
 // cmd/gateway's runAdmin), but nothing here assumes that.
 type DeviceAdmin interface {
 	ProvisionDevice(ctx context.Context, id, template string) (config.Device, string, error)
+	ProvisionCYD(ctx context.Context, id, address string) (config.Device, string, error)
 	SetDeviceEnabled(ctx context.Context, id string, enabled bool) (config.Device, error)
 	RemoveDevice(ctx context.Context, id string) error
 }

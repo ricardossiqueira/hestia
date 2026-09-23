@@ -226,6 +226,8 @@ sudoedit /etc/iot-gateway/admin-environment
 ```ini
 IOT_GATEWAY_API_USERNAME=api
 IOT_GATEWAY_API_PASSWORD=the-generated-password
+# Host LAN do broker enviado ao CYD no primeiro boot; nao use 127.0.0.1.
+IOT_GATEWAY_DEVICE_MQTT_HOST=192.168.15.195
 ```
 
 ```bash
@@ -249,6 +251,15 @@ leave.
 need `IOT_GATEWAY_API_USERNAME`/`PASSWORD` - only
 `MQTT_GATEWAY_USERNAME`/`PASSWORD`. If a previous install left the API
 variables there, they are simply unused now; safe to remove or to leave.
+
+### Primeiro boot do CYD
+
+O CYD recebe host, porta, usuario e senha MQTT diretamente no NVS pelo
+`DeviceAdminService.ProvisionCYD`; o navegador nunca recebe a senha. Defina
+`IOT_GATEWAY_DEVICE_MQTT_HOST` no `admin-environment` com o IP LAN do Orange
+Pi (nunca `127.0.0.1`) e reinicie somente `iot-gateway-admin.service`. O
+procedimento completo, incluindo o IP exibido pelo Serial Monitor, esta em
+[docs/cyd-first-boot-provisioning.md](../docs/cyd-first-boot-provisioning.md).
 
 ### CORS (for a browser client, e.g. `gateway-web`)
 

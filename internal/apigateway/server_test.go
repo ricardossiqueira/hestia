@@ -55,9 +55,12 @@ func newFakeInternalAPI(t *testing.T) (*httptest.Server, *recordedRequest) {
 type fakeDeviceAdmin struct {
 	mu sync.Mutex
 
-	provisionErr error
-	provisioned  config.Device
-	password     string
+	provisionErr    error
+	provisioned     config.Device
+	password        string
+	cydProvisionErr error
+	cydProvisioned  config.Device
+	cydAddress      string
 
 	setEnabledErr error
 	setEnabled    config.Device
@@ -74,6 +77,15 @@ func (f *fakeDeviceAdmin) ProvisionDevice(ctx context.Context, id, template stri
 		return config.Device{}, "", f.provisionErr
 	}
 	return f.provisioned, f.password, nil
+}
+
+func (f *fakeDeviceAdmin) ProvisionCYD(ctx context.Context, id, address string) (config.Device, string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.cydProvisionErr != nil {
+		return config.Device{}, "", f.cydProvisionErr
+	}
+	return f.cydProvisioned, f.cydAddress, nil
 }
 
 func (f *fakeDeviceAdmin) SetDeviceEnabled(ctx context.Context, id string, enabled bool) (config.Device, error) {
@@ -401,6 +413,38 @@ func TestDeviceAdminService_ProvisionDevice_Internal(t *testing.T) {
 	}))
 	if connect.CodeOf(err) != connect.CodeInternal {
 		t.Errorf("code = %v, want Internal", connect.CodeOf(err))
+	}
+}
+
+func TestDeviceAdminService_ProvisionCYD_DoesNotExposeMQTTPassword(t *testing.T) {
+	backend, _ := newFakeInternalAPI(t)
+	enabled := true
+	fake := &fakeDeviceAdmin{
+		cydProvisioned: config.Device{ID: "cyd-sala", Type: "esp32-cyd", Enabled: &enabled},
+		cydAddress:     "192.168.15.42",
+	}
+	ts := newTestGatewayWithAdmin(t, backend.URL, nil, fake)
+
+	response, err := connectClient(ts).ProvisionCYD(context.Background(), authedRequest(&apiv1.ProvisionCYDRequest{
+		DeviceId: "cyd-sala", DeviceIp: "192.168.15.42",
+	}))
+	if err != nil {
+		t.Fatalf("ProvisionCYD() error = %v", err)
+	}
+	if response.Msg.GetDevice().GetId() != "cyd-sala" || response.Msg.GetDeviceIp() != "192.168.15.42" || response.Msg.GetAppliedAt() == nil {
+		t.Fatalf("response = %#v", response.Msg)
+	}
+}
+
+func TestDeviceAdminService_ProvisionCYD_MapsInvalidAddress(t *testing.T) {
+	backend, _ := newFakeInternalAPI(t)
+	fake := &fakeDeviceAdmin{cydProvisionErr: admin.ErrInvalidDeviceAddress}
+	ts := newTestGatewayWithAdmin(t, backend.URL, nil, fake)
+	_, err := connectClient(ts).ProvisionCYD(context.Background(), authedRequest(&apiv1.ProvisionCYDRequest{
+		DeviceId: "cyd-sala", DeviceIp: "8.8.8.8",
+	}))
+	if connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Errorf("code = %v, want InvalidArgument", connect.CodeOf(err))
 	}
 }
 

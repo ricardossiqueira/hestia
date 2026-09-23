@@ -306,6 +306,7 @@ var GatewayService_ServiceDesc = grpc.ServiceDesc{
 
 const (
 	DeviceAdminService_ProvisionDevice_FullMethodName  = "/iot.gateway.api.v1.DeviceAdminService/ProvisionDevice"
+	DeviceAdminService_ProvisionCYD_FullMethodName     = "/iot.gateway.api.v1.DeviceAdminService/ProvisionCYD"
 	DeviceAdminService_SetDeviceEnabled_FullMethodName = "/iot.gateway.api.v1.DeviceAdminService/SetDeviceEnabled"
 	DeviceAdminService_RemoveDevice_FullMethodName     = "/iot.gateway.api.v1.DeviceAdminService/RemoveDevice"
 )
@@ -322,6 +323,10 @@ const (
 // like DeviceService/GatewayService are.
 type DeviceAdminServiceClient interface {
 	ProvisionDevice(ctx context.Context, in *ProvisionDeviceRequest, opts ...grpc.CallOption) (*ProvisionDeviceResponse, error)
+	// ProvisionCYD delivers the MQTT identity to an unprovisioned CYD over its
+	// temporary LAN endpoint. Unlike ProvisionDevice, it never returns a
+	// password to the caller.
+	ProvisionCYD(ctx context.Context, in *ProvisionCYDRequest, opts ...grpc.CallOption) (*ProvisionCYDResponse, error)
 	SetDeviceEnabled(ctx context.Context, in *SetDeviceEnabledRequest, opts ...grpc.CallOption) (*SetDeviceEnabledResponse, error)
 	RemoveDevice(ctx context.Context, in *RemoveDeviceRequest, opts ...grpc.CallOption) (*RemoveDeviceResponse, error)
 }
@@ -338,6 +343,16 @@ func (c *deviceAdminServiceClient) ProvisionDevice(ctx context.Context, in *Prov
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ProvisionDeviceResponse)
 	err := c.cc.Invoke(ctx, DeviceAdminService_ProvisionDevice_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *deviceAdminServiceClient) ProvisionCYD(ctx context.Context, in *ProvisionCYDRequest, opts ...grpc.CallOption) (*ProvisionCYDResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ProvisionCYDResponse)
+	err := c.cc.Invoke(ctx, DeviceAdminService_ProvisionCYD_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -376,6 +391,10 @@ func (c *deviceAdminServiceClient) RemoveDevice(ctx context.Context, in *RemoveD
 // like DeviceService/GatewayService are.
 type DeviceAdminServiceServer interface {
 	ProvisionDevice(context.Context, *ProvisionDeviceRequest) (*ProvisionDeviceResponse, error)
+	// ProvisionCYD delivers the MQTT identity to an unprovisioned CYD over its
+	// temporary LAN endpoint. Unlike ProvisionDevice, it never returns a
+	// password to the caller.
+	ProvisionCYD(context.Context, *ProvisionCYDRequest) (*ProvisionCYDResponse, error)
 	SetDeviceEnabled(context.Context, *SetDeviceEnabledRequest) (*SetDeviceEnabledResponse, error)
 	RemoveDevice(context.Context, *RemoveDeviceRequest) (*RemoveDeviceResponse, error)
 }
@@ -389,6 +408,9 @@ type UnimplementedDeviceAdminServiceServer struct{}
 
 func (UnimplementedDeviceAdminServiceServer) ProvisionDevice(context.Context, *ProvisionDeviceRequest) (*ProvisionDeviceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ProvisionDevice not implemented")
+}
+func (UnimplementedDeviceAdminServiceServer) ProvisionCYD(context.Context, *ProvisionCYDRequest) (*ProvisionCYDResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ProvisionCYD not implemented")
 }
 func (UnimplementedDeviceAdminServiceServer) SetDeviceEnabled(context.Context, *SetDeviceEnabledRequest) (*SetDeviceEnabledResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetDeviceEnabled not implemented")
@@ -430,6 +452,24 @@ func _DeviceAdminService_ProvisionDevice_Handler(srv interface{}, ctx context.Co
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(DeviceAdminServiceServer).ProvisionDevice(ctx, req.(*ProvisionDeviceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DeviceAdminService_ProvisionCYD_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ProvisionCYDRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DeviceAdminServiceServer).ProvisionCYD(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DeviceAdminService_ProvisionCYD_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DeviceAdminServiceServer).ProvisionCYD(ctx, req.(*ProvisionCYDRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -480,6 +520,10 @@ var DeviceAdminService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ProvisionDevice",
 			Handler:    _DeviceAdminService_ProvisionDevice_Handler,
+		},
+		{
+			MethodName: "ProvisionCYD",
+			Handler:    _DeviceAdminService_ProvisionCYD_Handler,
 		},
 		{
 			MethodName: "SetDeviceEnabled",

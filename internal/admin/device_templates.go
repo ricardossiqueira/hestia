@@ -27,6 +27,13 @@ var deviceTemplates = map[string]DeviceTemplate{
 		Profile: "led.v1",
 		Topics:  []string{"command"},
 	},
+	// CYD renders the generic render_system_status contract in its firmware.
+	// It has no Protobuf command profile yet, so the gateway accepts its
+	// command payload as the existing opaque-device contract.
+	"cyd_monitor.v1": {
+		Type:   "esp32-cyd",
+		Topics: []string{"command"},
+	},
 }
 
 // TemplateExists reports whether name names a registry entry.
