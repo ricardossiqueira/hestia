@@ -60,6 +60,85 @@ type Event struct {
 	Payload json.RawMessage `json:"payload"`
 }
 
+// ValidateCommandParameters verifies one command against the compact v1
+// parameter-schema vocabulary used by manifests. An empty schema accepts any
+// JSON object; a non-empty schema permits only its declared fields.
+func ValidateCommandParameters(document Document, commandType string, parameters []byte) ([]byte, error) {
+	var schema json.RawMessage
+	for _, command := range document.Capabilities.Commands {
+		if command.Type == commandType {
+			schema = command.Parameters
+			break
+		}
+	}
+	if len(schema) == 0 {
+		return nil, fmt.Errorf("command type %q is not declared by manifest", commandType)
+	}
+	var values map[string]json.RawMessage
+	if err := json.Unmarshal(parameters, &values); err != nil || values == nil {
+		return nil, errors.New("command parameters must be a JSON object")
+	}
+	var fields map[string]struct {
+		Type     string `json:"type"`
+		Required bool   `json:"required"`
+	}
+	if err := json.Unmarshal(schema, &fields); err != nil {
+		return nil, errors.New("manifest command parameters are invalid")
+	}
+	if len(fields) == 0 {
+		return compactJSONObject(parameters)
+	}
+	for name, definition := range fields {
+		if definition.Type != "boolean" && definition.Type != "string" && definition.Type != "number" && definition.Type != "integer" {
+			return nil, fmt.Errorf("manifest command parameter %q has unsupported type %q", name, definition.Type)
+		}
+		value, exists := values[name]
+		if !exists {
+			if definition.Required {
+				return nil, fmt.Errorf("command parameter %q is required", name)
+			}
+			continue
+		}
+		var decoded any
+		if json.Unmarshal(value, &decoded) != nil || !matchesParameterType(decoded, definition.Type) {
+			return nil, fmt.Errorf("command parameter %q must be %s", name, definition.Type)
+		}
+	}
+	for name := range values {
+		if _, known := fields[name]; !known {
+			return nil, fmt.Errorf("command parameter %q is not declared", name)
+		}
+	}
+	return compactJSONObject(parameters)
+}
+
+func compactJSONObject(value []byte) ([]byte, error) {
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, value); err != nil {
+		return nil, err
+	}
+	return compact.Bytes(), nil
+}
+
+func matchesParameterType(value any, kind string) bool {
+	switch kind {
+	case "boolean":
+		_, ok := value.(bool)
+		return ok
+	case "string":
+		_, ok := value.(string)
+		return ok
+	case "number":
+		_, ok := value.(float64)
+		return ok
+	case "integer":
+		number, ok := value.(float64)
+		return ok && number == float64(int64(number))
+	default:
+		return false
+	}
+}
+
 // Parse validates one document and returns a compact canonical encoding. The
 // canonical text is what goes into SQLite, so equivalent whitespace-only
 // edits do not produce ambiguous persisted data.

@@ -14,6 +14,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	apiv1 "github.com/ricardossiqueira/iot-gateway/api/gen/go/iot/gateway/api/v1"
+	"github.com/ricardossiqueira/iot-gateway/internal/devicemanifest"
 	"github.com/ricardossiqueira/iot-gateway/internal/deviceprofile"
 	"github.com/ricardossiqueira/iot-gateway/internal/mqtt"
 )
@@ -50,6 +51,19 @@ func (s *Server) ListDeviceCommands(ctx context.Context, req *connect.Request[ap
 	device, ok := s.deviceByID(deviceID)
 	if !ok {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("unknown device %q", deviceID))
+	}
+	if s.manifestResolver != nil {
+		document, found, err := s.manifestResolver.ResolveDeviceManifest(ctx, deviceID)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInternal, err)
+		}
+		if found {
+			commands := make([]*apiv1.CommandDescriptor, 0, len(document.Capabilities.Commands))
+			for _, command := range document.Capabilities.Commands {
+				commands = append(commands, &apiv1.CommandDescriptor{Type: command.Type})
+			}
+			return connect.NewResponse(&apiv1.ListDeviceCommandsResponse{DeviceId: deviceID, SchemaValidated: true, Commands: commands}), nil
+		}
 	}
 	if device.Profile == "" {
 		return connect.NewResponse(&apiv1.ListDeviceCommandsResponse{
@@ -130,7 +144,20 @@ func (s *Server) PublishCommand(ctx context.Context, req *connect.Request[apiv1.
 
 	finalParams := paramsJSON
 	schemaValidated := false
-	if device.Profile != "" {
+	if s.manifestResolver != nil {
+		document, found, resolveErr := s.manifestResolver.ResolveDeviceManifest(ctx, deviceID)
+		if resolveErr != nil {
+			return nil, connect.NewError(connect.CodeInternal, resolveErr)
+		}
+		if found {
+			canonical, validationErr := devicemanifest.ValidateCommandParameters(document, commandType, paramsJSON)
+			if validationErr != nil {
+				return nil, connect.NewError(connect.CodeInvalidArgument, validationErr)
+			}
+			finalParams, schemaValidated = canonical, true
+		}
+	}
+	if !schemaValidated && device.Profile != "" {
 		canonical, err := deviceprofile.ValidateAndCanonicalize(device.Profile, commandType, paramsJSON)
 		if err != nil {
 			return nil, connect.NewError(connect.CodeInvalidArgument, err)

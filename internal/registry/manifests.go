@@ -272,6 +272,27 @@ func (s *Store) ListDeviceManifestBindings(ctx context.Context) ([]DeviceManifes
 	return bindings, nil
 }
 
+// ResolveDeviceManifest reads the exact revision pinned to a device. It may
+// be archived today, which is intentional: later publications must not alter
+// command policy for an existing device implicitly.
+func (s *Store) ResolveDeviceManifest(ctx context.Context, deviceID string) (devicemanifest.Document, bool, error) {
+	var document string
+	err := s.db.QueryRowContext(ctx, `SELECT r.document_json FROM registry_device_manifest_bindings b
+		JOIN registry_device_manifest_revisions r ON r.manifest_id = b.manifest_id AND r.revision = b.manifest_revision
+		WHERE b.device_id = ?`, strings.TrimSpace(deviceID)).Scan(&document)
+	if errors.Is(err, sql.ErrNoRows) {
+		return devicemanifest.Document{}, false, nil
+	}
+	if err != nil {
+		return devicemanifest.Document{}, false, fmt.Errorf("resolve device manifest: %w", err)
+	}
+	parsed, _, err := devicemanifest.Parse(document)
+	if err != nil {
+		return devicemanifest.Document{}, false, fmt.Errorf("stored device manifest is invalid: %w", err)
+	}
+	return parsed, true, nil
+}
+
 func (s *Store) seedDefaultManifests(ctx context.Context) error {
 	tx, err := s.begin(ctx)
 	if err != nil {

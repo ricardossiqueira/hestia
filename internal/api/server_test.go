@@ -17,6 +17,7 @@ import (
 	apiv1 "github.com/ricardossiqueira/iot-gateway/api/gen/go/iot/gateway/api/v1"
 	"github.com/ricardossiqueira/iot-gateway/api/gen/go/iot/gateway/api/v1/apiv1connect"
 	"github.com/ricardossiqueira/iot-gateway/internal/config"
+	"github.com/ricardossiqueira/iot-gateway/internal/devicemanifest"
 	"github.com/ricardossiqueira/iot-gateway/internal/mqtt"
 	"github.com/ricardossiqueira/iot-gateway/internal/outbox"
 )
@@ -118,6 +119,16 @@ func testDevices() []config.Device {
 	}
 }
 
+type fakeManifestResolver struct {
+	document devicemanifest.Document
+	found    bool
+	err      error
+}
+
+func (f fakeManifestResolver) ResolveDeviceManifest(context.Context, string) (devicemanifest.Document, bool, error) {
+	return f.document, f.found, f.err
+}
+
 // newTestServer starts an httptest server directly on the Server's
 // http.Handler (bypassing Start/net.Listen, which would bind a real port)
 // so tests stay fast and hermetic. This is safe because server_test.go
@@ -193,6 +204,31 @@ func TestListDeviceCommands_Opaque(t *testing.T) {
 	}
 	if len(resp.Msg.Commands) != 0 {
 		t.Fatalf("Commands = %#v, want empty", resp.Msg.Commands)
+	}
+}
+
+func TestPublishCommand_UsesBoundManifest(t *testing.T) {
+	publisher := &fakePublisher{}
+	document, _, err := devicemanifest.Parse(`{"schema_version":1,"id":"led","display_name":"LED","provisioning":{"protocol":"http-nvs-v1","model":"esp32","required_protocol_version":1},"mqtt":{"topics":["command"]},"capabilities":{"commands":[{"type":"blink","parameters":{"times":{"type":"integer","required":true}}}],"events":[]}}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := Config{Address: "127.0.0.1:0", RequestTimeout: time.Second, Registry: config.Config{Devices: testDevices()}, ManifestResolver: fakeManifestResolver{document: document, found: true}}
+	srv, err := New(cfg, publisher, fakeStatus{}, fakeTelemetry{}, fakeQueue{}, &fakeEvents{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(srv.http.Handler)
+	t.Cleanup(ts.Close)
+	client := apiv1connect.NewDeviceServiceClient(ts.Client(), ts.URL)
+	params, _ := structpb.NewStruct(map[string]any{"times": 3})
+	response, err := client.PublishCommand(context.Background(), connect.NewRequest(&apiv1.PublishCommandRequest{DeviceId: "led-1", Type: "blink", Parameters: params}))
+	if err != nil || !response.Msg.GetSchemaValidated() || publisher.callCount() != 1 {
+		t.Fatalf("response=%#v err=%v calls=%d", response.Msg, err, publisher.callCount())
+	}
+	_, err = client.PublishCommand(context.Background(), connect.NewRequest(&apiv1.PublishCommandRequest{DeviceId: "led-1", Type: "set_led"}))
+	if connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("code=%v", connect.CodeOf(err))
 	}
 }
 

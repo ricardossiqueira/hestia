@@ -195,10 +195,10 @@ nunca receberão credenciais ou endereços uns dos outros.
 
 ### Marco 4 — comandos declarativos
 
-- [ ] Ler comandos e schemas do manifest no runtime em vez de profiles Go
+- [x] Ler comandos e schemas do manifest no runtime em vez de profiles Go
   compilados.
 - [ ] Renderizar formulário de comando genérico no Gateway Web.
-- [ ] Validar parâmetros no gateway antes de publicar MQTT.
+- [x] Validar parâmetros no gateway antes de publicar MQTT.
 - [ ] Migrar `led.v1` e remover templates/profiles específicos quando não
   houver devices dependentes da compatibilidade legada.
 

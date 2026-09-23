@@ -33,6 +33,7 @@ import (
 
 	"github.com/ricardossiqueira/iot-gateway/api/gen/go/iot/gateway/api/v1/apiv1connect"
 	"github.com/ricardossiqueira/iot-gateway/internal/config"
+	"github.com/ricardossiqueira/iot-gateway/internal/devicemanifest"
 	"github.com/ricardossiqueira/iot-gateway/internal/mqtt"
 	"github.com/ricardossiqueira/iot-gateway/internal/outbox"
 )
@@ -79,6 +80,13 @@ type DeviceProvider interface {
 	Devices() []config.Device
 }
 
+// DeviceManifestResolver supplies the immutable manifest revision pinned to
+// an instance. A missing binding means the device follows the legacy profile
+// path during the migration.
+type DeviceManifestResolver interface {
+	ResolveDeviceManifest(context.Context, string) (devicemanifest.Document, bool, error)
+}
+
 // Config is everything the API server needs to run.
 type Config struct {
 	// Address is api.internal_address - a loopback address only
@@ -91,7 +99,8 @@ type Config struct {
 	Registry config.Config
 	// DeviceProvider supersedes Registry.Devices for live reads after a
 	// registry revision is applied.
-	DeviceProvider DeviceProvider
+	DeviceProvider   DeviceProvider
+	ManifestResolver DeviceManifestResolver
 }
 
 // Server is the loopback-only Connect-RPC server (gRPC, gRPC-Web and
@@ -106,9 +115,10 @@ type Server struct {
 	logger    *slog.Logger
 	http      *http.Server
 
-	devices        map[string]config.Device
-	deviceList     []config.Device
-	deviceProvider DeviceProvider
+	devices          map[string]config.Device
+	deviceList       []config.Device
+	deviceProvider   DeviceProvider
+	manifestResolver DeviceManifestResolver
 }
 
 func New(cfg Config, publisher CommandPublisher, status StatusProvider, telemetry TelemetryProvider, queue QueueProvider, events EventProvider, logger *slog.Logger) (*Server, error) {
@@ -146,16 +156,17 @@ func New(cfg Config, publisher CommandPublisher, status StatusProvider, telemetr
 	}
 
 	s := &Server{
-		cfg:            cfg,
-		publisher:      publisher,
-		status:         status,
-		telemetry:      telemetry,
-		queue:          queue,
-		events:         events,
-		logger:         logger,
-		devices:        devices,
-		deviceList:     deviceList,
-		deviceProvider: cfg.DeviceProvider,
+		cfg:              cfg,
+		publisher:        publisher,
+		status:           status,
+		telemetry:        telemetry,
+		queue:            queue,
+		events:           events,
+		logger:           logger,
+		devices:          devices,
+		deviceList:       deviceList,
+		deviceProvider:   cfg.DeviceProvider,
+		manifestResolver: cfg.ManifestResolver,
 	}
 
 	mux := http.NewServeMux()

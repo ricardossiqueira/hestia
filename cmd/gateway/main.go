@@ -245,10 +245,11 @@ func runGateway(args []string, stderr io.Writer) int {
 	var apiServer *api.Server
 	if cfg.API != nil {
 		apiServer, err = api.New(api.Config{
-			Address:        cfg.API.InternalAddress,
-			RequestTimeout: apiRequestTimeout,
-			Registry:       runtimeConfig,
-			DeviceProvider: gateway,
+			Address:          cfg.API.InternalAddress,
+			RequestTimeout:   apiRequestTimeout,
+			Registry:         runtimeConfig,
+			DeviceProvider:   gateway,
+			ManifestResolver: deviceRegistry,
 		}, gateway, gateway, gateway, store, gateway, logger)
 		if err != nil {
 			fmt.Fprintf(stderr, "api setup failed: %v\n", err)
