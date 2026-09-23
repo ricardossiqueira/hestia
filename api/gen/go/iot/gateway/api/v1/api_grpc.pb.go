@@ -437,19 +437,22 @@ var GatewayService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	DeviceAdminService_RegisterExistingDevice_FullMethodName = "/iot.gateway.api.v1.DeviceAdminService/RegisterExistingDevice"
-	DeviceAdminService_ListRoutes_FullMethodName             = "/iot.gateway.api.v1.DeviceAdminService/ListRoutes"
-	DeviceAdminService_CreateRoute_FullMethodName            = "/iot.gateway.api.v1.DeviceAdminService/CreateRoute"
-	DeviceAdminService_RemoveRoute_FullMethodName            = "/iot.gateway.api.v1.DeviceAdminService/RemoveRoute"
-	DeviceAdminService_ListDeviceManifests_FullMethodName    = "/iot.gateway.api.v1.DeviceAdminService/ListDeviceManifests"
-	DeviceAdminService_GetDeviceManifest_FullMethodName      = "/iot.gateway.api.v1.DeviceAdminService/GetDeviceManifest"
-	DeviceAdminService_ProvisionDevice_FullMethodName        = "/iot.gateway.api.v1.DeviceAdminService/ProvisionDevice"
-	DeviceAdminService_ProvisionCYD_FullMethodName           = "/iot.gateway.api.v1.DeviceAdminService/ProvisionCYD"
-	DeviceAdminService_ProvisionLED_FullMethodName           = "/iot.gateway.api.v1.DeviceAdminService/ProvisionLED"
-	DeviceAdminService_SetDeviceEnabled_FullMethodName       = "/iot.gateway.api.v1.DeviceAdminService/SetDeviceEnabled"
-	DeviceAdminService_RemoveDevice_FullMethodName           = "/iot.gateway.api.v1.DeviceAdminService/RemoveDevice"
-	DeviceAdminService_ListInconsistencies_FullMethodName    = "/iot.gateway.api.v1.DeviceAdminService/ListInconsistencies"
-	DeviceAdminService_ResolveInconsistency_FullMethodName   = "/iot.gateway.api.v1.DeviceAdminService/ResolveInconsistency"
+	DeviceAdminService_RegisterExistingDevice_FullMethodName            = "/iot.gateway.api.v1.DeviceAdminService/RegisterExistingDevice"
+	DeviceAdminService_ListRoutes_FullMethodName                        = "/iot.gateway.api.v1.DeviceAdminService/ListRoutes"
+	DeviceAdminService_CreateRoute_FullMethodName                       = "/iot.gateway.api.v1.DeviceAdminService/CreateRoute"
+	DeviceAdminService_RemoveRoute_FullMethodName                       = "/iot.gateway.api.v1.DeviceAdminService/RemoveRoute"
+	DeviceAdminService_ListDeviceManifests_FullMethodName               = "/iot.gateway.api.v1.DeviceAdminService/ListDeviceManifests"
+	DeviceAdminService_GetDeviceManifest_FullMethodName                 = "/iot.gateway.api.v1.DeviceAdminService/GetDeviceManifest"
+	DeviceAdminService_CreateDeviceManifestDraft_FullMethodName         = "/iot.gateway.api.v1.DeviceAdminService/CreateDeviceManifestDraft"
+	DeviceAdminService_CreateDeviceManifestRevisionDraft_FullMethodName = "/iot.gateway.api.v1.DeviceAdminService/CreateDeviceManifestRevisionDraft"
+	DeviceAdminService_PublishDeviceManifest_FullMethodName             = "/iot.gateway.api.v1.DeviceAdminService/PublishDeviceManifest"
+	DeviceAdminService_ProvisionDevice_FullMethodName                   = "/iot.gateway.api.v1.DeviceAdminService/ProvisionDevice"
+	DeviceAdminService_ProvisionCYD_FullMethodName                      = "/iot.gateway.api.v1.DeviceAdminService/ProvisionCYD"
+	DeviceAdminService_ProvisionLED_FullMethodName                      = "/iot.gateway.api.v1.DeviceAdminService/ProvisionLED"
+	DeviceAdminService_SetDeviceEnabled_FullMethodName                  = "/iot.gateway.api.v1.DeviceAdminService/SetDeviceEnabled"
+	DeviceAdminService_RemoveDevice_FullMethodName                      = "/iot.gateway.api.v1.DeviceAdminService/RemoveDevice"
+	DeviceAdminService_ListInconsistencies_FullMethodName               = "/iot.gateway.api.v1.DeviceAdminService/ListInconsistencies"
+	DeviceAdminService_ResolveInconsistency_FullMethodName              = "/iot.gateway.api.v1.DeviceAdminService/ResolveInconsistency"
 )
 
 // DeviceAdminServiceClient is the client API for DeviceAdminService service.
@@ -476,6 +479,9 @@ type DeviceAdminServiceClient interface {
 	// editing/publishing is deliberately a later milestone.
 	ListDeviceManifests(ctx context.Context, in *ListDeviceManifestsRequest, opts ...grpc.CallOption) (*ListDeviceManifestsResponse, error)
 	GetDeviceManifest(ctx context.Context, in *GetDeviceManifestRequest, opts ...grpc.CallOption) (*GetDeviceManifestResponse, error)
+	CreateDeviceManifestDraft(ctx context.Context, in *CreateDeviceManifestDraftRequest, opts ...grpc.CallOption) (*CreateDeviceManifestDraftResponse, error)
+	CreateDeviceManifestRevisionDraft(ctx context.Context, in *CreateDeviceManifestRevisionDraftRequest, opts ...grpc.CallOption) (*CreateDeviceManifestRevisionDraftResponse, error)
+	PublishDeviceManifest(ctx context.Context, in *PublishDeviceManifestRequest, opts ...grpc.CallOption) (*PublishDeviceManifestResponse, error)
 	ProvisionDevice(ctx context.Context, in *ProvisionDeviceRequest, opts ...grpc.CallOption) (*ProvisionDeviceResponse, error)
 	// ProvisionCYD delivers the MQTT identity to an unprovisioned CYD over its
 	// temporary LAN endpoint. Unlike ProvisionDevice, it never returns a
@@ -556,6 +562,36 @@ func (c *deviceAdminServiceClient) GetDeviceManifest(ctx context.Context, in *Ge
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetDeviceManifestResponse)
 	err := c.cc.Invoke(ctx, DeviceAdminService_GetDeviceManifest_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *deviceAdminServiceClient) CreateDeviceManifestDraft(ctx context.Context, in *CreateDeviceManifestDraftRequest, opts ...grpc.CallOption) (*CreateDeviceManifestDraftResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateDeviceManifestDraftResponse)
+	err := c.cc.Invoke(ctx, DeviceAdminService_CreateDeviceManifestDraft_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *deviceAdminServiceClient) CreateDeviceManifestRevisionDraft(ctx context.Context, in *CreateDeviceManifestRevisionDraftRequest, opts ...grpc.CallOption) (*CreateDeviceManifestRevisionDraftResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateDeviceManifestRevisionDraftResponse)
+	err := c.cc.Invoke(ctx, DeviceAdminService_CreateDeviceManifestRevisionDraft_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *deviceAdminServiceClient) PublishDeviceManifest(ctx context.Context, in *PublishDeviceManifestRequest, opts ...grpc.CallOption) (*PublishDeviceManifestResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PublishDeviceManifestResponse)
+	err := c.cc.Invoke(ctx, DeviceAdminService_PublishDeviceManifest_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -656,6 +692,9 @@ type DeviceAdminServiceServer interface {
 	// editing/publishing is deliberately a later milestone.
 	ListDeviceManifests(context.Context, *ListDeviceManifestsRequest) (*ListDeviceManifestsResponse, error)
 	GetDeviceManifest(context.Context, *GetDeviceManifestRequest) (*GetDeviceManifestResponse, error)
+	CreateDeviceManifestDraft(context.Context, *CreateDeviceManifestDraftRequest) (*CreateDeviceManifestDraftResponse, error)
+	CreateDeviceManifestRevisionDraft(context.Context, *CreateDeviceManifestRevisionDraftRequest) (*CreateDeviceManifestRevisionDraftResponse, error)
+	PublishDeviceManifest(context.Context, *PublishDeviceManifestRequest) (*PublishDeviceManifestResponse, error)
 	ProvisionDevice(context.Context, *ProvisionDeviceRequest) (*ProvisionDeviceResponse, error)
 	// ProvisionCYD delivers the MQTT identity to an unprovisioned CYD over its
 	// temporary LAN endpoint. Unlike ProvisionDevice, it never returns a
@@ -698,6 +737,15 @@ func (UnimplementedDeviceAdminServiceServer) ListDeviceManifests(context.Context
 }
 func (UnimplementedDeviceAdminServiceServer) GetDeviceManifest(context.Context, *GetDeviceManifestRequest) (*GetDeviceManifestResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetDeviceManifest not implemented")
+}
+func (UnimplementedDeviceAdminServiceServer) CreateDeviceManifestDraft(context.Context, *CreateDeviceManifestDraftRequest) (*CreateDeviceManifestDraftResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CreateDeviceManifestDraft not implemented")
+}
+func (UnimplementedDeviceAdminServiceServer) CreateDeviceManifestRevisionDraft(context.Context, *CreateDeviceManifestRevisionDraftRequest) (*CreateDeviceManifestRevisionDraftResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CreateDeviceManifestRevisionDraft not implemented")
+}
+func (UnimplementedDeviceAdminServiceServer) PublishDeviceManifest(context.Context, *PublishDeviceManifestRequest) (*PublishDeviceManifestResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method PublishDeviceManifest not implemented")
 }
 func (UnimplementedDeviceAdminServiceServer) ProvisionDevice(context.Context, *ProvisionDeviceRequest) (*ProvisionDeviceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ProvisionDevice not implemented")
@@ -844,6 +892,60 @@ func _DeviceAdminService_GetDeviceManifest_Handler(srv interface{}, ctx context.
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(DeviceAdminServiceServer).GetDeviceManifest(ctx, req.(*GetDeviceManifestRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DeviceAdminService_CreateDeviceManifestDraft_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateDeviceManifestDraftRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DeviceAdminServiceServer).CreateDeviceManifestDraft(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DeviceAdminService_CreateDeviceManifestDraft_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DeviceAdminServiceServer).CreateDeviceManifestDraft(ctx, req.(*CreateDeviceManifestDraftRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DeviceAdminService_CreateDeviceManifestRevisionDraft_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateDeviceManifestRevisionDraftRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DeviceAdminServiceServer).CreateDeviceManifestRevisionDraft(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DeviceAdminService_CreateDeviceManifestRevisionDraft_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DeviceAdminServiceServer).CreateDeviceManifestRevisionDraft(ctx, req.(*CreateDeviceManifestRevisionDraftRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DeviceAdminService_PublishDeviceManifest_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PublishDeviceManifestRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DeviceAdminServiceServer).PublishDeviceManifest(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DeviceAdminService_PublishDeviceManifest_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DeviceAdminServiceServer).PublishDeviceManifest(ctx, req.(*PublishDeviceManifestRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1004,6 +1106,18 @@ var DeviceAdminService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetDeviceManifest",
 			Handler:    _DeviceAdminService_GetDeviceManifest_Handler,
+		},
+		{
+			MethodName: "CreateDeviceManifestDraft",
+			Handler:    _DeviceAdminService_CreateDeviceManifestDraft_Handler,
+		},
+		{
+			MethodName: "CreateDeviceManifestRevisionDraft",
+			Handler:    _DeviceAdminService_CreateDeviceManifestRevisionDraft_Handler,
+		},
+		{
+			MethodName: "PublishDeviceManifest",
+			Handler:    _DeviceAdminService_PublishDeviceManifest_Handler,
 		},
 		{
 			MethodName: "ProvisionDevice",

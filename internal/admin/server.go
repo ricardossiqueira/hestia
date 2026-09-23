@@ -153,6 +153,27 @@ func (s *Server) GetPublishedDeviceManifest(ctx context.Context, id string) (reg
 	return s.cfg.Registry.GetPublishedManifest(ctx, id)
 }
 
+func (s *Server) CreateDeviceManifestDraft(ctx context.Context, document, actor string) (registry.DeviceManifest, error) {
+	if s.cfg.Registry == nil {
+		return registry.DeviceManifest{}, errors.New("editing device manifests requires the SQLite registry")
+	}
+	return s.cfg.Registry.CreateDeviceManifestDraft(ctx, document, actor)
+}
+
+func (s *Server) CreateDeviceManifestRevisionDraft(ctx context.Context, id, document, actor string) (registry.DeviceManifest, error) {
+	if s.cfg.Registry == nil {
+		return registry.DeviceManifest{}, errors.New("editing device manifests requires the SQLite registry")
+	}
+	return s.cfg.Registry.CreateDeviceManifestRevisionDraft(ctx, id, document, actor)
+}
+
+func (s *Server) PublishDeviceManifest(ctx context.Context, id string, revision uint64, actor string) (registry.DeviceManifest, error) {
+	if s.cfg.Registry == nil {
+		return registry.DeviceManifest{}, errors.New("editing device manifests requires the SQLite registry")
+	}
+	return s.cfg.Registry.PublishDeviceManifest(ctx, id, revision, actor)
+}
+
 // CreateRoute records a route in SQLite. It deliberately has no broker or
 // systemd side effect: the long-lived gateway sees the new revision itself.
 func (s *Server) CreateRoute(ctx context.Context, route config.Route) error {

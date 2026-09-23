@@ -156,6 +156,42 @@ func (s *Server) GetDeviceManifest(ctx context.Context, req *connect.Request[api
 	return connect.NewResponse(&apiv1.GetDeviceManifestResponse{Manifest: manifestToProto(manifest)}), nil
 }
 
+func (s *Server) CreateDeviceManifestDraft(ctx context.Context, req *connect.Request[apiv1.CreateDeviceManifestDraftRequest]) (*connect.Response[apiv1.CreateDeviceManifestDraftResponse], error) {
+	manifest, err := s.cfg.Admin.CreateDeviceManifestDraft(ctx, req.Msg.GetDocumentJson(), authenticatedActor(ctx))
+	if err != nil {
+		if errors.Is(err, registry.ErrManifestAlreadyExists) {
+			return nil, connect.NewError(connect.CodeAlreadyExists, err)
+		}
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	return connect.NewResponse(&apiv1.CreateDeviceManifestDraftResponse{Manifest: manifestToProto(manifest)}), nil
+}
+
+func (s *Server) CreateDeviceManifestRevisionDraft(ctx context.Context, req *connect.Request[apiv1.CreateDeviceManifestRevisionDraftRequest]) (*connect.Response[apiv1.CreateDeviceManifestRevisionDraftResponse], error) {
+	manifest, err := s.cfg.Admin.CreateDeviceManifestRevisionDraft(ctx, req.Msg.GetManifestId(), req.Msg.GetDocumentJson(), authenticatedActor(ctx))
+	if errors.Is(err, registry.ErrManifestNotFound) {
+		return nil, connect.NewError(connect.CodeNotFound, err)
+	}
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	return connect.NewResponse(&apiv1.CreateDeviceManifestRevisionDraftResponse{Manifest: manifestToProto(manifest)}), nil
+}
+
+func (s *Server) PublishDeviceManifest(ctx context.Context, req *connect.Request[apiv1.PublishDeviceManifestRequest]) (*connect.Response[apiv1.PublishDeviceManifestResponse], error) {
+	manifest, err := s.cfg.Admin.PublishDeviceManifest(ctx, req.Msg.GetManifestId(), req.Msg.GetRevision(), authenticatedActor(ctx))
+	if errors.Is(err, registry.ErrManifestNotFound) || errors.Is(err, registry.ErrManifestRevisionNotFound) {
+		return nil, connect.NewError(connect.CodeNotFound, err)
+	}
+	if errors.Is(err, registry.ErrManifestRevisionNotDraft) {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, err)
+	}
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	return connect.NewResponse(&apiv1.PublishDeviceManifestResponse{Manifest: manifestToProto(manifest)}), nil
+}
+
 // ProvisionDevice creates a new device from a template, returning its
 // one-time-display Mosquitto password. Error codes are more granular here
 // than DeviceService's (which collapses most failures to InvalidArgument

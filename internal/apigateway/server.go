@@ -56,6 +56,9 @@ type DeviceAdmin interface {
 	RemoveRoute(ctx context.Context, id string) error
 	ListPublishedDeviceManifests(ctx context.Context) ([]registry.DeviceManifest, error)
 	GetPublishedDeviceManifest(ctx context.Context, id string) (registry.DeviceManifest, error)
+	CreateDeviceManifestDraft(ctx context.Context, document, actor string) (registry.DeviceManifest, error)
+	CreateDeviceManifestRevisionDraft(ctx context.Context, id, document, actor string) (registry.DeviceManifest, error)
+	PublishDeviceManifest(ctx context.Context, id string, revision uint64, actor string) (registry.DeviceManifest, error)
 	ProvisionDevice(ctx context.Context, id, template string) (config.Device, string, error)
 	ProvisionCYD(ctx context.Context, id, address string) (config.Device, string, error)
 	ProvisionLED(ctx context.Context, id, address string) (config.Device, string, error)
@@ -72,6 +75,13 @@ type DeviceAdmin interface {
 type Credentials struct {
 	Username string
 	Password string
+}
+
+type authenticatedActorKey struct{}
+
+func authenticatedActor(ctx context.Context) string {
+	actor, _ := ctx.Value(authenticatedActorKey{}).(string)
+	return actor
 }
 
 // Config is everything the public API edge needs to run.
@@ -240,7 +250,7 @@ func basicAuth(creds Credentials, next http.Handler) http.Handler {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 			return
 		}
-		next.ServeHTTP(w, r)
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), authenticatedActorKey{}, username)))
 	})
 }
 

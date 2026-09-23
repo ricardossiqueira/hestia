@@ -83,10 +83,16 @@ type fakeDeviceAdmin struct {
 	removeRouteErr error
 	removedRouteID string
 
-	manifests        []registry.DeviceManifest
-	listManifestsErr error
-	manifest         registry.DeviceManifest
-	getManifestErr   error
+	manifests          []registry.DeviceManifest
+	listManifestsErr   error
+	manifest           registry.DeviceManifest
+	getManifestErr     error
+	createdManifest    registry.DeviceManifest
+	createManifestErr  error
+	revisionDraft      registry.DeviceManifest
+	revisionDraftErr   error
+	publishedManifest  registry.DeviceManifest
+	publishManifestErr error
 
 	inconsistencies         []registry.Inconsistency
 	listInconsistenciesErr  error
@@ -130,6 +136,24 @@ func (f *fakeDeviceAdmin) GetPublishedDeviceManifest(ctx context.Context, id str
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.manifest, f.getManifestErr
+}
+
+func (f *fakeDeviceAdmin) CreateDeviceManifestDraft(ctx context.Context, document, actor string) (registry.DeviceManifest, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.createdManifest, f.createManifestErr
+}
+
+func (f *fakeDeviceAdmin) CreateDeviceManifestRevisionDraft(ctx context.Context, id, document, actor string) (registry.DeviceManifest, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.revisionDraft, f.revisionDraftErr
+}
+
+func (f *fakeDeviceAdmin) PublishDeviceManifest(ctx context.Context, id string, revision uint64, actor string) (registry.DeviceManifest, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.publishedManifest, f.publishManifestErr
 }
 
 func (f *fakeDeviceAdmin) ProvisionDevice(ctx context.Context, id, template string) (config.Device, string, error) {

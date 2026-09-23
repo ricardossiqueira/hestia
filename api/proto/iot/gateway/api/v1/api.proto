@@ -53,6 +53,9 @@ service DeviceAdminService {
   // editing/publishing is deliberately a later milestone.
   rpc ListDeviceManifests(ListDeviceManifestsRequest) returns (ListDeviceManifestsResponse);
   rpc GetDeviceManifest(GetDeviceManifestRequest) returns (GetDeviceManifestResponse);
+  rpc CreateDeviceManifestDraft(CreateDeviceManifestDraftRequest) returns (CreateDeviceManifestDraftResponse);
+  rpc CreateDeviceManifestRevisionDraft(CreateDeviceManifestRevisionDraftRequest) returns (CreateDeviceManifestRevisionDraftResponse);
+  rpc PublishDeviceManifest(PublishDeviceManifestRequest) returns (PublishDeviceManifestResponse);
   rpc ProvisionDevice(ProvisionDeviceRequest) returns (ProvisionDeviceResponse);
   // ProvisionCYD delivers the MQTT identity to an unprovisioned CYD over its
   // temporary LAN endpoint. Unlike ProvisionDevice, it never returns a
@@ -136,6 +139,32 @@ message GetDeviceManifestRequest {
 }
 
 message GetDeviceManifestResponse {
+  DeviceManifest manifest = 1;
+}
+
+message CreateDeviceManifestDraftRequest {
+  string document_json = 1;
+}
+
+message CreateDeviceManifestDraftResponse {
+  DeviceManifest manifest = 1;
+}
+
+message CreateDeviceManifestRevisionDraftRequest {
+  string manifest_id = 1;
+  string document_json = 2;
+}
+
+message CreateDeviceManifestRevisionDraftResponse {
+  DeviceManifest manifest = 1;
+}
+
+message PublishDeviceManifestRequest {
+  string manifest_id = 1;
+  uint64 revision = 2;
+}
+
+message PublishDeviceManifestResponse {
   DeviceManifest manifest = 1;
 }
 
