@@ -87,8 +87,10 @@ type ProvisionDeviceResponse struct {
 	// mqtt_password is a one-time-display secret: the caller must show it to
 	// the operator once and never log, store or re-request it - the
 	// provisioning script does not remember it either.
-	MqttPassword  string                 `protobuf:"bytes,3,opt,name=mqtt_password,json=mqttPassword,proto3" json:"mqtt_password,omitempty"`
-	RestartedAt   *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=restarted_at,json=restartedAt,proto3" json:"restarted_at,omitempty"`
+	MqttPassword string `protobuf:"bytes,3,opt,name=mqtt_password,json=mqttPassword,proto3" json:"mqtt_password,omitempty"`
+	// applied_at records when the registry mutation was durably committed.
+	// It does not imply a process or broker restart.
+	AppliedAt     *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=applied_at,json=appliedAt,proto3" json:"applied_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -144,9 +146,9 @@ func (x *ProvisionDeviceResponse) GetMqttPassword() string {
 	return ""
 }
 
-func (x *ProvisionDeviceResponse) GetRestartedAt() *timestamppb.Timestamp {
+func (x *ProvisionDeviceResponse) GetAppliedAt() *timestamppb.Timestamp {
 	if x != nil {
-		return x.RestartedAt
+		return x.AppliedAt
 	}
 	return nil
 }
@@ -206,7 +208,7 @@ func (x *SetDeviceEnabledRequest) GetEnabled() bool {
 type SetDeviceEnabledResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Device        *Device                `protobuf:"bytes,1,opt,name=device,proto3" json:"device,omitempty"`
-	RestartedAt   *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=restarted_at,json=restartedAt,proto3" json:"restarted_at,omitempty"`
+	AppliedAt     *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=applied_at,json=appliedAt,proto3" json:"applied_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -248,9 +250,9 @@ func (x *SetDeviceEnabledResponse) GetDevice() *Device {
 	return nil
 }
 
-func (x *SetDeviceEnabledResponse) GetRestartedAt() *timestamppb.Timestamp {
+func (x *SetDeviceEnabledResponse) GetAppliedAt() *timestamppb.Timestamp {
 	if x != nil {
-		return x.RestartedAt
+		return x.AppliedAt
 	}
 	return nil
 }
@@ -301,7 +303,7 @@ func (x *RemoveDeviceRequest) GetDeviceId() string {
 
 type RemoveDeviceResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	RestartedAt   *timestamppb.Timestamp `protobuf:"bytes,1,opt,name=restarted_at,json=restartedAt,proto3" json:"restarted_at,omitempty"`
+	AppliedAt     *timestamppb.Timestamp `protobuf:"bytes,1,opt,name=applied_at,json=appliedAt,proto3" json:"applied_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -336,9 +338,9 @@ func (*RemoveDeviceResponse) Descriptor() ([]byte, []int) {
 	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{5}
 }
 
-func (x *RemoveDeviceResponse) GetRestartedAt() *timestamppb.Timestamp {
+func (x *RemoveDeviceResponse) GetAppliedAt() *timestamppb.Timestamp {
 	if x != nil {
-		return x.RestartedAt
+		return x.AppliedAt
 	}
 	return nil
 }
@@ -1056,22 +1058,25 @@ const file_iot_gateway_api_v1_api_proto_rawDesc = "" +
 	"\x1ciot/gateway/api/v1/api.proto\x12\x12iot.gateway.api.v1\x1a google/protobuf/descriptor.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"Q\n" +
 	"\x16ProvisionDeviceRequest\x12\x1b\n" +
 	"\tdevice_id\x18\x01 \x01(\tR\bdeviceId\x12\x1a\n" +
-	"\btemplate\x18\x02 \x01(\tR\btemplate\"\xd6\x01\n" +
+	"\btemplate\x18\x02 \x01(\tR\btemplate\"\xd2\x01\n" +
 	"\x17ProvisionDeviceResponse\x122\n" +
 	"\x06device\x18\x01 \x01(\v2\x1a.iot.gateway.api.v1.DeviceR\x06device\x12#\n" +
 	"\rmqtt_username\x18\x02 \x01(\tR\fmqttUsername\x12#\n" +
-	"\rmqtt_password\x18\x03 \x01(\tR\fmqttPassword\x12=\n" +
-	"\frestarted_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\vrestartedAt\"P\n" +
+	"\rmqtt_password\x18\x03 \x01(\tR\fmqttPassword\x129\n" +
+	"\n" +
+	"applied_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tappliedAt\"P\n" +
 	"\x17SetDeviceEnabledRequest\x12\x1b\n" +
 	"\tdevice_id\x18\x01 \x01(\tR\bdeviceId\x12\x18\n" +
-	"\aenabled\x18\x02 \x01(\bR\aenabled\"\x8d\x01\n" +
+	"\aenabled\x18\x02 \x01(\bR\aenabled\"\x89\x01\n" +
 	"\x18SetDeviceEnabledResponse\x122\n" +
-	"\x06device\x18\x01 \x01(\v2\x1a.iot.gateway.api.v1.DeviceR\x06device\x12=\n" +
-	"\frestarted_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\vrestartedAt\"2\n" +
+	"\x06device\x18\x01 \x01(\v2\x1a.iot.gateway.api.v1.DeviceR\x06device\x129\n" +
+	"\n" +
+	"applied_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\tappliedAt\"2\n" +
 	"\x13RemoveDeviceRequest\x12\x1b\n" +
-	"\tdevice_id\x18\x01 \x01(\tR\bdeviceId\"U\n" +
-	"\x14RemoveDeviceResponse\x12=\n" +
-	"\frestarted_at\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\vrestartedAt\"\x14\n" +
+	"\tdevice_id\x18\x01 \x01(\tR\bdeviceId\"Q\n" +
+	"\x14RemoveDeviceResponse\x129\n" +
+	"\n" +
+	"applied_at\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\tappliedAt\"\x14\n" +
 	"\x12ListDevicesRequest\"K\n" +
 	"\x13ListDevicesResponse\x124\n" +
 	"\adevices\x18\x01 \x03(\v2\x1a.iot.gateway.api.v1.DeviceR\adevices\"\x9a\x01\n" +
@@ -1172,10 +1177,10 @@ var file_iot_gateway_api_v1_api_proto_goTypes = []any{
 }
 var file_iot_gateway_api_v1_api_proto_depIdxs = []int32{
 	8,  // 0: iot.gateway.api.v1.ProvisionDeviceResponse.device:type_name -> iot.gateway.api.v1.Device
-	17, // 1: iot.gateway.api.v1.ProvisionDeviceResponse.restarted_at:type_name -> google.protobuf.Timestamp
+	17, // 1: iot.gateway.api.v1.ProvisionDeviceResponse.applied_at:type_name -> google.protobuf.Timestamp
 	8,  // 2: iot.gateway.api.v1.SetDeviceEnabledResponse.device:type_name -> iot.gateway.api.v1.Device
-	17, // 3: iot.gateway.api.v1.SetDeviceEnabledResponse.restarted_at:type_name -> google.protobuf.Timestamp
-	17, // 4: iot.gateway.api.v1.RemoveDeviceResponse.restarted_at:type_name -> google.protobuf.Timestamp
+	17, // 3: iot.gateway.api.v1.SetDeviceEnabledResponse.applied_at:type_name -> google.protobuf.Timestamp
+	17, // 4: iot.gateway.api.v1.RemoveDeviceResponse.applied_at:type_name -> google.protobuf.Timestamp
 	8,  // 5: iot.gateway.api.v1.ListDevicesResponse.devices:type_name -> iot.gateway.api.v1.Device
 	9,  // 6: iot.gateway.api.v1.Device.topics:type_name -> iot.gateway.api.v1.DeviceTopics
 	12, // 7: iot.gateway.api.v1.ListDeviceCommandsResponse.commands:type_name -> iot.gateway.api.v1.CommandDescriptor

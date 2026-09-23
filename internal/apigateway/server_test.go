@@ -360,8 +360,8 @@ func TestDeviceAdminService_ProvisionDevice_Success(t *testing.T) {
 	if resp.Msg.Device.GetProfile() != "led.v1" {
 		t.Errorf("device = %#v", resp.Msg.Device)
 	}
-	if resp.Msg.RestartedAt == nil {
-		t.Error("RestartedAt is nil")
+	if resp.Msg.AppliedAt == nil {
+		t.Error("AppliedAt is nil")
 	}
 }
 
@@ -445,8 +445,8 @@ func TestDeviceAdminService_RemoveDevice_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RemoveDevice() error = %v", err)
 	}
-	if resp.Msg.RestartedAt == nil {
-		t.Error("RestartedAt is nil")
+	if resp.Msg.AppliedAt == nil {
+		t.Error("AppliedAt is nil")
 	}
 	if fake.removedCalls != 1 || fake.removedID != "led-1" {
 		t.Errorf("removedCalls = %d, removedID = %q", fake.removedCalls, fake.removedID)

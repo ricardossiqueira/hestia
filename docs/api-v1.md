@@ -127,8 +127,8 @@ Regras:
 | `PublishCommand` | `DeviceService` | Publica um comando, validado por schema quando o dispositivo tem profile. |
 | `GetStatus` | `GatewayService` | Espelha `internal/mqtt.Snapshot`: sessão MQTT, contadores, sem payloads. |
 | `ProvisionDevice` | `DeviceAdminService` | Cadastra um device novo a partir de um template. Devolve a senha MQTT uma única vez. |
-| `SetDeviceEnabled` | `DeviceAdminService` | Habilita/desabilita um device e reinicia o gateway. |
-| `RemoveDevice` | `DeviceAdminService` | Revoga a credencial Mosquitto e remove o device do `gateway.yaml`. |
+| `SetDeviceEnabled` | `DeviceAdminService` | Habilita/desabilita um device e aplica a politica sem reiniciar o gateway. |
+| `RemoveDevice` | `DeviceAdminService` | Revoga a credencial Mosquitto e remove o device do registry SQLite. |
 
 `DeviceAdminService` é atendido **diretamente** pelo processo `iot-gateway
 admin` — não passa pelo reverse proxy que `DeviceService`/`GatewayService`

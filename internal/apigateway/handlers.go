@@ -74,7 +74,7 @@ func (s *Server) ProvisionDevice(ctx context.Context, req *connect.Request[apiv1
 		Device:       deviceToProto(device),
 		MqttUsername: device.ID,
 		MqttPassword: password,
-		RestartedAt:  timestamppb.Now(),
+		AppliedAt:    timestamppb.Now(),
 	}), nil
 }
 
@@ -95,7 +95,7 @@ func (s *Server) SetDeviceEnabled(ctx context.Context, req *connect.Request[apiv
 
 	return connect.NewResponse(&apiv1.SetDeviceEnabledResponse{
 		Device:      deviceToProto(device),
-		RestartedAt: timestamppb.Now(),
+		AppliedAt:   timestamppb.Now(),
 	}), nil
 }
 
@@ -115,6 +115,6 @@ func (s *Server) RemoveDevice(ctx context.Context, req *connect.Request[apiv1.Re
 	}
 
 	return connect.NewResponse(&apiv1.RemoveDeviceResponse{
-		RestartedAt: timestamppb.Now(),
+		AppliedAt: timestamppb.Now(),
 	}), nil
 }
