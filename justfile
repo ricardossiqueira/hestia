@@ -60,8 +60,8 @@ publish-test-command device config=config:
 
 # Build and install the gateway binary and its systemd unit on an Orange Pi.
 # Safe to run on every update: never touches gateway.yaml, which is managed
-# live (by hand, or by the admin UI) after the first install - see
-# install-config below and deploy/README.md.
+# live (by hand, or via gateway-web's DeviceAdminService) after the first
+# install - see install-config below and deploy/README.md.
 install-binary:
     go build -o bin/iot-gateway ./cmd/gateway
     id iot-gateway >/dev/null 2>&1 || sudo useradd --system --user-group --no-create-home --shell /usr/sbin/nologin iot-gateway
@@ -73,7 +73,7 @@ install-binary:
 
 # Install the INITIAL gateway.yaml on a fresh Orange Pi. Never run this
 # again after the first install: gateway.yaml is managed live from then on
-# (by hand, or by the admin UI's device registration) and this recipe would
+# (by hand, or via gateway-web's device registration) and this recipe would
 # silently overwrite it with the local, gitignored config/gateway.yaml file
 # - exactly the incident documented in HANDOFF.md.
 install-config config=config:
@@ -111,9 +111,11 @@ provision-device device +topics:
 remove-device device:
     sudo deploy/mosquitto-provision-device.sh --remove {{device}}
 
-# Install or update the admin UI systemd unit. Create
-# /etc/iot-gateway/admin-environment with IOT_GATEWAY_ADMIN_USERNAME and
-# IOT_GATEWAY_ADMIN_PASSWORD before enabling it - see deploy/README.md.
+# Install or update the admin systemd unit (device administration API,
+# served on api.address alongside DeviceService/GatewayService - see
+# docs/api-v1.md). Create /etc/iot-gateway/admin-environment with
+# IOT_GATEWAY_API_USERNAME and IOT_GATEWAY_API_PASSWORD before enabling it
+# - see deploy/README.md.
 install-admin-service:
     go build -o bin/iot-gateway ./cmd/gateway
     sudo install -m 0755 bin/iot-gateway /usr/local/bin/iot-gateway
@@ -121,15 +123,15 @@ install-admin-service:
     sudo install -m 0644 deploy/iot-gateway-admin.service /etc/systemd/system/iot-gateway-admin.service
     sudo systemctl daemon-reload
 
-# Enable the admin UI now and on subsequent boots.
+# Enable the admin service now and on subsequent boots.
 enable-admin-service:
     sudo systemctl enable --now iot-gateway-admin.service
 
-# Display admin UI service status.
+# Display admin service status.
 admin-status:
     systemctl status iot-gateway-admin.service
 
-# Follow admin UI logs.
+# Follow admin service logs.
 admin-logs:
     journalctl -u iot-gateway-admin.service -f
 

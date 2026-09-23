@@ -28,7 +28,6 @@ import (
 const (
 	testCommandTimeout         = 10 * time.Second
 	diagnosticsShutdownTimeout = 5 * time.Second
-	adminShutdownTimeout       = 5 * time.Second
 	adminRequestTimeout        = 30 * time.Second
 	apiShutdownTimeout         = 5 * time.Second
 	apiRequestTimeout          = 10 * time.Second
@@ -256,15 +255,17 @@ func runGateway(args []string, stderr io.Writer) int {
 	return 0
 }
 
-// runAdmin serves the LAN-facing device registration UI. It is meant to run
-// under its own systemd unit (deploy/iot-gateway-admin.service), as root -
-// see internal/admin's package doc and docs/decisions.md ADR-008 for why
-// this cannot live inside the sandboxed `run` command above.
+// runAdmin is the root-privileged process that serves DeviceAdminService
+// and reverse-proxies DeviceService/GatewayService to the sandboxed `run`
+// process - see internal/admin's package doc and docs/decisions.md
+// ADR-008/ADR-013 for why this cannot live inside the sandboxed process.
+// It has no HTTP surface of its own any more: a JSON/HTML UI on port 8081
+// used to live here, retired once gateway-web reached parity with it
+// (ADR-015) - internal/apigateway is now the only listener this runs.
 func runAdmin(args []string, stderr io.Writer) int {
 	flags := flag.NewFlagSet("admin", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	configPath := flags.String("config", "config/gateway.yaml", "path to the YAML configuration file")
-	listen := flags.String("listen", "0.0.0.0:8081", "address the admin UI listens on")
 	provisionScript := flags.String("provision-script", "deploy/mosquitto-provision-device.sh", "path to the Mosquitto provisioning script")
 	if err := flags.Parse(args); err != nil {
 		return 2
@@ -274,91 +275,64 @@ func runAdmin(args []string, stderr io.Writer) int {
 		return 2
 	}
 
-	// Credentials are env-only, never a flag: a flag value would leak into
-	// `ps` output and shell history the way the MQTT credentials
-	// (username_env/password_env) already avoid for the exact same reason.
-	username := os.Getenv("IOT_GATEWAY_ADMIN_USERNAME")
-	password := os.Getenv("IOT_GATEWAY_ADMIN_PASSWORD")
-	if username == "" || password == "" {
-		fmt.Fprintln(stderr, "IOT_GATEWAY_ADMIN_USERNAME and IOT_GATEWAY_ADMIN_PASSWORD must both be set")
-		return 1
-	}
-
 	cfg, err := config.Load(*configPath)
 	if err != nil {
 		fmt.Fprintf(stderr, "configuration is invalid: %v\n", err)
 		return 1
 	}
+	// Without an HTML UI, this process has nothing to do at all unless
+	// "api:" is configured - unlike before, when the UI itself was always
+	// a reason to keep it running.
+	if cfg.API == nil {
+		fmt.Fprintln(stderr, "api: is not configured in gateway.yaml - this process no longer serves an HTML UI, so there is nothing for it to do (see docs/api-v1.md)")
+		return 1
+	}
 
 	logger := slog.New(slog.NewTextHandler(stderr, nil))
-	server, err := admin.New(admin.Config{
-		Address:         *listen,
+	adminEngine, err := admin.New(admin.Config{
 		ConfigPath:      *configPath,
 		ProvisionScript: *provisionScript,
-		Credentials:     admin.Credentials{Username: username, Password: password},
 		RequestTimeout:  adminRequestTimeout,
-	}, logger)
+	})
 	if err != nil {
 		fmt.Fprintf(stderr, "admin setup failed: %v\n", err)
 		return 1
 	}
-	if err := server.Start(); err != nil {
-		fmt.Fprintf(stderr, "admin failed to start: %v\n", err)
+
+	// Credentials are env-only, never a flag: a flag value would leak into
+	// `ps` output and shell history the way the MQTT credentials
+	// (username_env/password_env) already avoid for the exact same reason.
+	apiUsername := os.Getenv("IOT_GATEWAY_API_USERNAME")
+	apiPassword := os.Getenv("IOT_GATEWAY_API_PASSWORD")
+	if apiUsername == "" || apiPassword == "" {
+		fmt.Fprintln(stderr, "IOT_GATEWAY_API_USERNAME and IOT_GATEWAY_API_PASSWORD must both be set")
 		return 1
 	}
-
-	// Opt-in (nil unless "api:" is in the YAML - config.API's doc
-	// comment). This process, already root and already the LAN-facing
-	// listener for the admin UI above, is also the public edge of the
-	// Connect-RPC API (docs/decisions.md ADR-013): it authenticates,
-	// applies CORS, and reverse-proxies to internal/api running inside
-	// the sandboxed `iot-gateway run` process at api.internal_address.
-	// DeviceAdminService (a later phase) will be answered directly here
-	// instead of proxied, once it exists.
-	var apigatewayServer *apigateway.Server
-	if cfg.API != nil {
-		apiUsername := os.Getenv("IOT_GATEWAY_API_USERNAME")
-		apiPassword := os.Getenv("IOT_GATEWAY_API_PASSWORD")
-		if apiUsername == "" || apiPassword == "" {
-			fmt.Fprintln(stderr, "IOT_GATEWAY_API_USERNAME and IOT_GATEWAY_API_PASSWORD must both be set")
-			return 1
-		}
-		apigatewayServer, err = apigateway.New(apigateway.Config{
-			Address:        cfg.API.Address,
-			InternalAPIURL: "http://" + cfg.API.InternalAddress,
-			Credentials:    apigateway.Credentials{Username: apiUsername, Password: apiPassword},
-			AllowedOrigins: cfg.API.AllowedOrigins,
-			// The SAME *admin.Server already constructed for the HTML UI
-			// above satisfies apigateway.DeviceAdmin structurally (see its
-			// doc comment) - no second config, no new process.
-			Admin: server,
-		}, logger)
-		if err != nil {
-			fmt.Fprintf(stderr, "api gateway setup failed: %v\n", err)
-			return 1
-		}
-		if err := apigatewayServer.Start(); err != nil {
-			fmt.Fprintf(stderr, "api gateway failed to start: %v\n", err)
-			return 1
-		}
+	apigatewayServer, err := apigateway.New(apigateway.Config{
+		Address:        cfg.API.Address,
+		InternalAPIURL: "http://" + cfg.API.InternalAddress,
+		Credentials:    apigateway.Credentials{Username: apiUsername, Password: apiPassword},
+		AllowedOrigins: cfg.API.AllowedOrigins,
+		Admin:          adminEngine,
+	}, logger)
+	if err != nil {
+		fmt.Fprintf(stderr, "api gateway setup failed: %v\n", err)
+		return 1
+	}
+	if err := apigatewayServer.Start(); err != nil {
+		fmt.Fprintf(stderr, "api gateway failed to start: %v\n", err)
+		return 1
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	logger.Info("admin UI running", "listen", *listen)
+	logger.Info("admin process running", "api_address", cfg.API.Address)
 	<-ctx.Done()
-	logger.Info("admin UI stopping")
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), adminShutdownTimeout)
+	logger.Info("admin process stopping")
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), apigatewayShutdownTimeout)
 	defer cancel()
-	if err := server.Shutdown(shutdownCtx); err != nil {
-		logger.Error("admin shutdown failed", "error", err)
-	}
-	if apigatewayServer != nil {
-		apigatewayShutdownCtx, apigatewayCancel := context.WithTimeout(context.Background(), apigatewayShutdownTimeout)
-		if err := apigatewayServer.Shutdown(apigatewayShutdownCtx); err != nil {
-			logger.Error("api gateway shutdown failed", "error", err)
-		}
-		apigatewayCancel()
+	if err := apigatewayServer.Shutdown(shutdownCtx); err != nil {
+		logger.Error("api gateway shutdown failed", "error", err)
 	}
 	return 0
 }

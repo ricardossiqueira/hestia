@@ -1,7 +1,12 @@
-// Package admin implements the LAN-facing device registration UI/API. It
-// runs as a separate, privileged process from the sandboxed gateway (see
-// docs/decisions.md ADR-008) and is the only part of this codebase that
-// writes gateway.yaml or touches the Mosquitto broker's own files.
+// Package admin implements device administration: provisioning a device
+// from a template, enabling/disabling it, and removing it - each of these
+// requires writing gateway.yaml and Mosquitto's credential/ACL files and
+// calling systemctl (docs/decisions.md ADR-008), so this is the only part
+// of this codebase that touches any of that. Exposed to the LAN by
+// internal/apigateway's DeviceAdminService, which is the only caller
+// (*Server structurally satisfies its DeviceAdmin interface). A JSON/HTML
+// UI on port 8081 used to live here too; it was retired once gateway-web
+// reached parity with it - see ADR-015.
 package admin
 
 import (

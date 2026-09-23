@@ -22,10 +22,11 @@ service GatewayService {
 }
 
 // DeviceAdminService registers, enables/disables and removes devices - the
-// privileged operations internal/admin's HTML UI (port 8081) already
-// performs, now also reachable here. See docs/decisions.md ADR-013 for why
-// this is answered directly by the admin (root) process instead of being
-// proxied like DeviceService/GatewayService are.
+// privileged operations internal/admin implements (a JSON/HTML UI on port
+// 8081 used to expose these too; retired once gateway-web reached parity
+// with it, see docs/decisions.md ADR-015). See ADR-013 for why this is
+// answered directly by the admin (root) process instead of being proxied
+// like DeviceService/GatewayService are.
 service DeviceAdminService {
   rpc ProvisionDevice(ProvisionDeviceRequest) returns (ProvisionDeviceResponse);
   rpc SetDeviceEnabled(SetDeviceEnabledRequest) returns (SetDeviceEnabledResponse);

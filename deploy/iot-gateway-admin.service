@@ -1,5 +1,5 @@
 [Unit]
-Description=IoT Gateway admin UI (device registration)
+Description=IoT Gateway admin process (device administration API)
 After=network-online.target mosquitto.service iot-gateway.service
 Wants=network-online.target
 
@@ -8,7 +8,7 @@ Type=simple
 User=root
 Group=root
 EnvironmentFile=/etc/iot-gateway/admin-environment
-ExecStart=/usr/local/bin/iot-gateway admin --config /etc/iot-gateway/gateway.yaml --listen 0.0.0.0:8081 --provision-script /usr/local/bin/mosquitto-provision-device
+ExecStart=/usr/local/bin/iot-gateway admin --config /etc/iot-gateway/gateway.yaml --provision-script /usr/local/bin/mosquitto-provision-device
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=true

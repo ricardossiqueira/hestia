@@ -2,322 +2,57 @@ package admin
 
 import (
 	"context"
-	"crypto/subtle"
-	"embed"
 	"errors"
 	"fmt"
-	"html/template"
-	"log/slog"
-	"net"
-	"net/http"
-	"sort"
 	"strings"
 	"time"
 
 	"github.com/ricardossiqueira/iot-gateway/internal/config"
 )
 
-//go:embed templates/*.html
-var templateFS embed.FS
-
-var pageTemplate = template.Must(template.ParseFS(templateFS, "templates/*.html"))
-
-// Credentials gate every request behind HTTP Basic Auth. Populated from
-// environment variables by cmd/gateway (never a flag - a flag value leaks
-// into `ps` output and shell history) and never logged.
-type Credentials struct {
-	Username string
-	Password string
-}
-
-// Config is everything the admin server needs to run.
+// Config is everything the device-administration engine needs. No address
+// or credentials here any more (see docs/decisions.md ADR-015) -
+// internal/apigateway is the only thing that ever talks to a network
+// client, using its own (IOT_GATEWAY_API_USERNAME/PASSWORD).
 type Config struct {
-	Address         string
 	ConfigPath      string
 	ProvisionScript string
-	Credentials     Credentials
 	// RequestTimeout bounds how long a single provisioning request (which
 	// shells out to a script and restarts a systemd unit) may run.
 	RequestTimeout time.Duration
 }
 
-// Server is the LAN-facing device registration HTTP server. Unlike
-// internal/diagnostics, it is intentionally NOT loopback-restricted - see
-// docs/decisions.md ADR-008 - and every route mutates system state, so
-// every route also requires Basic Auth.
+// Server is the device-administration engine: provisioning a device from a
+// template, enabling/disabling it, and removing it. It has no HTTP server
+// of its own - a JSON/HTML UI on port 8081 used to live here, retired once
+// gateway-web reached parity with it (ADR-015). *Server exists purely to
+// satisfy internal/apigateway.DeviceAdmin structurally, the same pattern
+// *mqtt.Gateway already uses for internal/api's capabilities.
 type Server struct {
-	cfg      Config
-	logger   *slog.Logger
-	http     *http.Server
-	messages *messageStore
+	cfg Config
 }
 
-func New(cfg Config, logger *slog.Logger) (*Server, error) {
-	if strings.TrimSpace(cfg.Address) == "" {
-		return nil, errors.New("admin address is required")
-	}
+func New(cfg Config) (*Server, error) {
 	if strings.TrimSpace(cfg.ConfigPath) == "" {
 		return nil, errors.New("admin config path is required")
 	}
 	if strings.TrimSpace(cfg.ProvisionScript) == "" {
 		return nil, errors.New("admin provision script path is required")
 	}
-	if cfg.Credentials.Username == "" || cfg.Credentials.Password == "" {
-		return nil, errors.New("admin username and password are required")
-	}
 	if cfg.RequestTimeout <= 0 {
 		cfg.RequestTimeout = 30 * time.Second
 	}
-	if logger == nil {
-		logger = slog.Default()
-	}
-
-	s := &Server{cfg: cfg, logger: logger, messages: newMessageStore()}
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /{$}", s.handleIndex)
-	mux.HandleFunc("POST /devices", s.handleAddDevice)
-	mux.HandleFunc("POST /devices/{id}/remove", s.handleRemoveDevice)
-
-	s.http = &http.Server{
-		Addr:              cfg.Address,
-		Handler:           basicAuth(cfg.Credentials, mux),
-		ReadHeaderTimeout: 5 * time.Second,
-	}
-	return s, nil
-}
-
-// Start begins serving in the background after binding the configured
-// address. Binding failures are reported synchronously to the caller.
-func (s *Server) Start() error {
-	listener, err := net.Listen("tcp", s.cfg.Address)
-	if err != nil {
-		return fmt.Errorf("listen admin on %q: %w", s.cfg.Address, err)
-	}
-	go func() {
-		if err := s.http.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			s.logger.Error("admin server stopped unexpectedly", "error", err)
-		}
-	}()
-	return nil
-}
-
-// Shutdown stops accepting admin requests and waits for active requests.
-func (s *Server) Shutdown(ctx context.Context) error {
-	if s == nil || s.http == nil {
-		return nil
-	}
-	if err := s.http.Shutdown(ctx); err != nil {
-		return fmt.Errorf("shutdown admin server: %w", err)
-	}
-	return nil
-}
-
-func basicAuth(creds Credentials, next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		username, password, ok := r.BasicAuth()
-		validUser := subtle.ConstantTimeCompare([]byte(username), []byte(creds.Username)) == 1
-		validPass := subtle.ConstantTimeCompare([]byte(password), []byte(creds.Password)) == 1
-		if !ok || !validUser || !validPass {
-			w.Header().Set("WWW-Authenticate", `Basic realm="iot-gateway admin"`)
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
-// pageData is the view model for templates/index.html.
-type pageData struct {
-	Devices []deviceView
-	Flash   *flashView
-	Notice  string
-	Error   string
-}
-
-type deviceView struct {
-	ID            string
-	Enabled       bool
-	TopicsSummary string
-}
-
-type flashView struct {
-	DeviceID string
-	Password string
-}
-
-func (s *Server) render(w http.ResponseWriter, status int, data pageData) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.WriteHeader(status)
-	if err := pageTemplate.ExecuteTemplate(w, "index.html", data); err != nil {
-		s.logger.Error("render admin page failed", "error", err)
-	}
-}
-
-func (s *Server) loadPageData() (pageData, error) {
-	devices, err := ListDevices(s.cfg.ConfigPath)
-	if err != nil {
-		return pageData{}, err
-	}
-	views := make([]deviceView, 0, len(devices))
-	for _, d := range devices {
-		views = append(views, deviceView{
-			ID:            d.ID,
-			Enabled:       d.Enabled != nil && *d.Enabled,
-			TopicsSummary: topicsSummary(d.Topics),
-		})
-	}
-	sort.Slice(views, func(i, j int) bool { return views[i].ID < views[j].ID })
-	return pageData{Devices: views}, nil
-}
-
-func topicsSummary(t config.Topics) string {
-	var names []string
-	if t.Telemetry != "" {
-		names = append(names, "telemetry")
-	}
-	if t.State != "" {
-		names = append(names, "state")
-	}
-	if t.Event != "" {
-		names = append(names, "event")
-	}
-	if t.Command != "" {
-		names = append(names, "command")
-	}
-	if t.CommandResult != "" {
-		names = append(names, "command_result")
-	}
-	return strings.Join(names, ", ")
-}
-
-// handleIndex is the ONLY handler that ever renders the page directly - a
-// bare GET is always safe to repeat (reload, back/forward, bookmark). Every
-// mutating handler below redirects here instead of rendering its own
-// response; see messages.go's doc comment for why.
-func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
-	data, err := s.loadPageData()
-	if err != nil {
-		s.render(w, http.StatusInternalServerError, pageData{Error: err.Error()})
-		return
-	}
-	if token := r.URL.Query().Get("msg"); token != "" {
-		if msg, ok := s.messages.take(token); ok {
-			data.Flash = msg.Flash
-			data.Notice = msg.Notice
-			data.Error = msg.Error
-		}
-	}
-	s.render(w, http.StatusOK, data)
-}
-
-func (s *Server) handleAddDevice(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), s.cfg.RequestTimeout)
-	defer cancel()
-
-	if err := r.ParseForm(); err != nil {
-		s.redirectWithError(w, r, "invalid form submission")
-		return
-	}
-	deviceID := strings.TrimSpace(r.FormValue("device_id"))
-	topics := r.Form["topics"]
-	if deviceID == "" {
-		s.redirectWithError(w, r, "device_id is required")
-		return
-	}
-	if len(topics) == 0 {
-		s.redirectWithError(w, r, "select at least one topic")
-		return
-	}
-
-	// Checked BEFORE provisioning on purpose: Provision() ROTATES an
-	// existing device's Mosquitto password as a side effect (that's what
-	// makes the CLI script's re-run-to-rotate behavior work). Finding out
-	// about a YAML conflict only after that already happened silently
-	// invalidates a working device's credential with no way to recover the
-	// new password from the error response - this bit a real device once,
-	// which is why this check exists.
-	exists, err := DeviceExists(s.cfg.ConfigPath, deviceID)
-	if err != nil {
-		s.redirectWithError(w, r, err.Error())
-		return
-	}
-	if exists {
-		s.redirectWithError(w, r, fmt.Sprintf("device %q already exists - nothing was changed", deviceID))
-		return
-	}
-
-	// Mosquitto first, gateway.yaml second - same order as the manual
-	// checklist in docs/device-onboarding.md. If provisioning fails, the
-	// YAML is never touched at all.
-	password, err := Provision(ctx, s.cfg.ProvisionScript, deviceID, topics)
-	if err != nil {
-		s.redirectWithError(w, r, fmt.Sprintf("provisioning failed: %v", err))
-		return
-	}
-	if err := AddDevice(s.cfg.ConfigPath, deviceID, topics); err != nil {
-		s.redirectWithError(w, r, fmt.Sprintf(
-			"device %q was provisioned in Mosquitto but NOT added to gateway.yaml: %v. "+
-				"Fix gateway.yaml by hand, or remove the orphaned credential with the CLI script's --remove.",
-			deviceID, err))
-		return
-	}
-	if err := RestartGateway(ctx); err != nil {
-		s.redirectWithError(w, r, fmt.Sprintf(
-			"device %q was registered but the gateway service failed to restart: %v. "+
-				"Restart it by hand to apply the change.", deviceID, err))
-		return
-	}
-
-	s.redirectWithMessage(w, r, message{Flash: &flashView{DeviceID: deviceID, Password: password}})
-}
-
-func (s *Server) handleRemoveDevice(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), s.cfg.RequestTimeout)
-	defer cancel()
-
-	deviceID := strings.TrimSpace(r.PathValue("id"))
-	if deviceID == "" {
-		s.redirectWithError(w, r, "device id is required")
-		return
-	}
-
-	// DeregisterDevice (registration.go) is the exact same
-	// RemoveDevice -> Deprovision -> RestartGateway sequence, with
-	// identical error text, that used to live inline here - extracted so
-	// internal/apigateway's DeviceAdminService.RemoveDevice can reuse it
-	// too. See its doc comment for why there is no rollback here (unlike
-	// RegisterDevice).
-	if err := DeregisterDevice(ctx, s.cfg.ConfigPath, s.cfg.ProvisionScript, deviceID); err != nil {
-		s.redirectWithError(w, r, err.Error())
-		return
-	}
-
-	s.redirectWithMessage(w, r, message{Notice: fmt.Sprintf("Device %q removed.", deviceID)})
-}
-
-// redirectWithMessage implements Post/Redirect/Get: msg is stashed under a
-// one-time token (never in the URL itself - see messages.go) and the
-// browser is sent to fetch it via an ordinary, safely-repeatable GET.
-func (s *Server) redirectWithMessage(w http.ResponseWriter, r *http.Request, msg message) {
-	token := s.messages.put(msg)
-	http.Redirect(w, r, "/?msg="+token, http.StatusSeeOther)
-}
-
-func (s *Server) redirectWithError(w http.ResponseWriter, r *http.Request, errMessage string) {
-	s.redirectWithMessage(w, r, message{Error: errMessage})
+	return &Server{cfg: cfg}, nil
 }
 
 // ProvisionDevice, SetDeviceEnabled and RemoveDevice below are thin
-// wrappers around registration.go's free functions, adding the same
-// request timeout the HTML handlers above already apply
-// (s.cfg.RequestTimeout) and supplying s.cfg.ConfigPath/ProvisionScript so
-// a caller doesn't need to know either path. This is how *Server
-// structurally satisfies internal/apigateway's DeviceAdmin interface - the
-// exact same pattern *mqtt.Gateway already uses to satisfy
+// wrappers around registration.go's free functions, adding a request
+// timeout (s.cfg.RequestTimeout) and supplying s.cfg.ConfigPath/
+// ProvisionScript so a caller doesn't need to know either path. This is
+// how *Server structurally satisfies internal/apigateway's DeviceAdmin
+// interface - the exact same pattern *mqtt.Gateway already uses to satisfy
 // internal/api's CommandPublisher/StatusProvider - so cmd/gateway/main.go
-// can pass the SAME *admin.Server instance already constructed for the
-// HTML UI into apigateway.New, with no second config and no new process.
+// can construct one and pass it straight into apigateway.New.
 
 // ProvisionDevice registers a new device from template and returns its
 // generated Mosquitto password for one-time display - see RegisterDevice's

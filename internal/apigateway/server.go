@@ -17,9 +17,9 @@
 // needs root to write gateway.yaml, touch Mosquitto's files and restart
 // services (ADR-008) - two capabilities that must never live in the same
 // process. Two processes cannot bind the same port, so one of them has to
-// be a proxy for the other; ADR-013 records why this one (root, already
-// LAN-facing on :8081 for the admin UI) is the one holding the public port,
-// not the sandboxed one.
+// be a proxy for the other; ADR-013 records why this one (root) is the one
+// holding the public port, not the sandboxed one. It was already the LAN
+// listener at the time (a JSON/HTML UI on :8081, retired since - ADR-015).
 package apigateway
 
 import (
@@ -55,12 +55,9 @@ type DeviceAdmin interface {
 }
 
 // Credentials gate every request behind HTTP Basic Auth, read from
-// environment variables by cmd/gateway - never a flag (which would leak
-// into `ps` output and shell history) and never logged. Deliberately its
-// own credential pair (IOT_GATEWAY_API_USERNAME/PASSWORD), distinct from
-// the admin UI's (IOT_GATEWAY_ADMIN_USERNAME/PASSWORD) even though both
-// now live in this same process - different surface, different clients
-// (gateway-web vs. an interactive operator), no reason to couple rotation.
+// environment variables by cmd/gateway (IOT_GATEWAY_API_USERNAME/
+// PASSWORD) - never a flag (which would leak into `ps` output and shell
+// history) and never logged.
 type Credentials struct {
 	Username string
 	Password string

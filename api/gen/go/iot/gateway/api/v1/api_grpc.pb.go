@@ -315,10 +315,11 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
 // DeviceAdminService registers, enables/disables and removes devices - the
-// privileged operations internal/admin's HTML UI (port 8081) already
-// performs, now also reachable here. See docs/decisions.md ADR-013 for why
-// this is answered directly by the admin (root) process instead of being
-// proxied like DeviceService/GatewayService are.
+// privileged operations internal/admin implements (a JSON/HTML UI on port
+// 8081 used to expose these too; retired once gateway-web reached parity
+// with it, see docs/decisions.md ADR-015). See ADR-013 for why this is
+// answered directly by the admin (root) process instead of being proxied
+// like DeviceService/GatewayService are.
 type DeviceAdminServiceClient interface {
 	ProvisionDevice(ctx context.Context, in *ProvisionDeviceRequest, opts ...grpc.CallOption) (*ProvisionDeviceResponse, error)
 	SetDeviceEnabled(ctx context.Context, in *SetDeviceEnabledRequest, opts ...grpc.CallOption) (*SetDeviceEnabledResponse, error)
@@ -368,10 +369,11 @@ func (c *deviceAdminServiceClient) RemoveDevice(ctx context.Context, in *RemoveD
 // for forward compatibility.
 //
 // DeviceAdminService registers, enables/disables and removes devices - the
-// privileged operations internal/admin's HTML UI (port 8081) already
-// performs, now also reachable here. See docs/decisions.md ADR-013 for why
-// this is answered directly by the admin (root) process instead of being
-// proxied like DeviceService/GatewayService are.
+// privileged operations internal/admin implements (a JSON/HTML UI on port
+// 8081 used to expose these too; retired once gateway-web reached parity
+// with it, see docs/decisions.md ADR-015). See ADR-013 for why this is
+// answered directly by the admin (root) process instead of being proxied
+// like DeviceService/GatewayService are.
 type DeviceAdminServiceServer interface {
 	ProvisionDevice(context.Context, *ProvisionDeviceRequest) (*ProvisionDeviceResponse, error)
 	SetDeviceEnabled(context.Context, *SetDeviceEnabledRequest) (*SetDeviceEnabledResponse, error)
