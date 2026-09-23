@@ -55,11 +55,6 @@ func TestParseRejectsInvalidConfiguration(t *testing.T) {
 			want: "gateway.id",
 		},
 		{
-			name: "no devices",
-			yaml: strings.Replace(validYAML, devicesYAML, "devices: []", 1),
-			want: "at least one device",
-		},
-		{
 			name: "missing device ID",
 			yaml: strings.Replace(validYAML, "id: esp32-sala", "id: ", 1),
 			want: "devices[0].id is required",
@@ -216,6 +211,13 @@ diagnostics:
 	}
 	if cfg.Diagnostics.Address != "[::1]:9090" || cfg.Diagnostics.RequestTimeout.TimeDuration().String() != "5s" {
 		t.Errorf("diagnostics = %#v", cfg.Diagnostics)
+	}
+}
+
+func TestParseAllowsNoDevicesWhenRegistryOwnsRuntimePolicy(t *testing.T) {
+	contents := strings.Replace(validYAML, devicesYAML, "devices: []", 1)
+	if _, err := Parse([]byte(contents)); err != nil {
+		t.Fatalf("Parse() error = %v", err)
 	}
 }
 

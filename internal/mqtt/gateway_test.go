@@ -396,6 +396,46 @@ func TestGatewayRequiresOutboxWhenVPSForwardingIsEnabled(t *testing.T) {
 	}
 }
 
+func TestGatewayApplyChangesPolicyWithoutRestart(t *testing.T) {
+	client := &fakeClient{}
+	logger := &recordingLogger{}
+	gateway, err := New(testConfig(), client, logger, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := gateway.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	enabled := true
+	updated := config.Config{Devices: []config.Device{{
+		ID: "led-2", Type: "esp32", Enabled: &enabled,
+		Topics: config.Topics{State: "devices/led-2/state", Command: "devices/led-2/command"},
+	}}}
+	if err := gateway.Apply(context.Background(), updated); err != nil {
+		t.Fatal(err)
+	}
+	if gateway.Snapshot().Subscriptions != 1 {
+		t.Fatalf("subscriptions = %d", gateway.Snapshot().Subscriptions)
+	}
+	if _, ok := client.subscriptions["devices/led-2/state"]; !ok {
+		t.Fatal("new topic was not subscribed")
+	}
+	if err := gateway.PublishCommand(context.Background(), "esp32-sala", validCommand()); err == nil {
+		t.Fatal("removed device accepted command")
+	}
+	if err := gateway.PublishCommand(context.Background(), "led-2", validCommand()); err != nil {
+		t.Fatalf("new device command: %v", err)
+	}
+
+	// A stale transport subscription is harmless even for a minimal Client
+	// without Unsubscribe: the swapped policy rejects it before validation.
+	client.deliver("devices/esp32-sala/state", []byte(`{"message_id":"a9f2290d-d1ee-4cbc-841d-03e29a7f028c","timestamp":"2026-09-18T15:00:00Z"}`))
+	if len(logger.accepted) != 0 {
+		t.Fatalf("stale topic was accepted: %#v", logger.accepted)
+	}
+}
+
 func validCommand() []byte {
 	return []byte(`{"command_id":"a9f2290d-d1ee-4cbc-841d-03e29a7f028c","type":"set_output","parameters":{"pin":2,"value":true}}`)
 }

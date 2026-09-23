@@ -286,10 +286,6 @@ func (c Config) Validate() error {
 			return err
 		}
 	}
-	if len(c.Devices) == 0 {
-		return errors.New("configuration must define at least one device")
-	}
-
 	deviceIDs := make(map[string]struct{}, len(c.Devices))
 	topicOwners := make(map[string]string)
 	inboundTopics := make(map[string]bool)

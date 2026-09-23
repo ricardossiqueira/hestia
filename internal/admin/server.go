@@ -7,7 +7,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/ricardossiqueira/iot-gateway/internal/config"
+	"github.com/ricardossiqueira/iot-gateway/internal/registry"
 )
 
 // Config is everything the device-administration engine needs. No address
@@ -17,6 +19,9 @@ import (
 type Config struct {
 	ConfigPath      string
 	ProvisionScript string
+	// Registry is the runtime source of truth. ConfigPath is retained only
+	// for the temporary YAML migration fallback when Registry is nil.
+	Registry *registry.Store
 	// RequestTimeout bounds how long a single provisioning request (which
 	// shells out to a script and restarts a systemd unit) may run.
 	RequestTimeout time.Duration
@@ -33,7 +38,7 @@ type Server struct {
 }
 
 func New(cfg Config) (*Server, error) {
-	if strings.TrimSpace(cfg.ConfigPath) == "" {
+	if cfg.Registry == nil && strings.TrimSpace(cfg.ConfigPath) == "" {
 		return nil, errors.New("admin config path is required")
 	}
 	if strings.TrimSpace(cfg.ProvisionScript) == "" {
@@ -60,6 +65,9 @@ func New(cfg Config) (*Server, error) {
 func (s *Server) ProvisionDevice(ctx context.Context, id, template string) (config.Device, string, error) {
 	ctx, cancel := context.WithTimeout(ctx, s.cfg.RequestTimeout)
 	defer cancel()
+	if s.cfg.Registry != nil {
+		return s.provisionRegistry(ctx, id, template)
+	}
 	return RegisterDevice(ctx, s.cfg.ConfigPath, s.cfg.ProvisionScript, id, template)
 }
 
@@ -68,6 +76,13 @@ func (s *Server) ProvisionDevice(ctx context.Context, id, template string) (conf
 func (s *Server) SetDeviceEnabled(ctx context.Context, id string, enabled bool) (config.Device, error) {
 	ctx, cancel := context.WithTimeout(ctx, s.cfg.RequestTimeout)
 	defer cancel()
+	if s.cfg.Registry != nil {
+		device, err := s.cfg.Registry.SetDeviceEnabled(ctx, id, enabled, uuid.NewString())
+		if errors.Is(err, registry.ErrDeviceNotFound) {
+			return config.Device{}, fmt.Errorf("%w: %q", ErrDeviceNotFound, id)
+		}
+		return device, err
+	}
 	device, err := SetDeviceEnabled(s.cfg.ConfigPath, id, enabled)
 	if err != nil {
 		return config.Device{}, err
@@ -86,5 +101,42 @@ func (s *Server) SetDeviceEnabled(ctx context.Context, id string, enabled bool) 
 func (s *Server) RemoveDevice(ctx context.Context, id string) error {
 	ctx, cancel := context.WithTimeout(ctx, s.cfg.RequestTimeout)
 	defer cancel()
+	if s.cfg.Registry != nil {
+		if err := s.cfg.Registry.RemoveDevice(ctx, id, uuid.NewString()); err != nil {
+			if errors.Is(err, registry.ErrDeviceNotFound) {
+				return fmt.Errorf("%w: %q", ErrDeviceNotFound, id)
+			}
+			return err
+		}
+		if err := Deprovision(ctx, s.cfg.ProvisionScript, id); err != nil {
+			return fmt.Errorf("device %q was removed from the registry but its Mosquitto credential could not be revoked: %w", id, err)
+		}
+		return nil
+	}
 	return DeregisterDevice(ctx, s.cfg.ConfigPath, s.cfg.ProvisionScript, id)
+}
+
+func (s *Server) provisionRegistry(ctx context.Context, id, template string) (config.Device, string, error) {
+	tmpl, ok := deviceTemplates[template]
+	if !ok {
+		return config.Device{}, "", fmt.Errorf("%w: %q", ErrUnknownTemplate, template)
+	}
+	if err := config.ValidateDeviceID("device_id", id); err != nil {
+		return config.Device{}, "", fmt.Errorf("%w: %v", ErrInvalidDeviceID, err)
+	}
+	device := buildDevice(id, tmpl.Type, tmpl.Profile, tmpl.Topics)
+	password, err := Provision(ctx, s.cfg.ProvisionScript, id, tmpl.Topics)
+	if err != nil {
+		return config.Device{}, "", fmt.Errorf("provisioning failed: %w", err)
+	}
+	if _, err := s.cfg.Registry.AddDevice(ctx, device, uuid.NewString()); err != nil {
+		if rollbackErr := Deprovision(ctx, s.cfg.ProvisionScript, id); rollbackErr != nil {
+			return config.Device{}, "", fmt.Errorf("registry rejected device after Mosquitto provision (%v); rollback also failed (%v)", err, rollbackErr)
+		}
+		if errors.Is(err, registry.ErrDeviceAlreadyExists) {
+			return config.Device{}, "", fmt.Errorf("%w: %q", ErrDeviceAlreadyExists, id)
+		}
+		return config.Device{}, "", fmt.Errorf("add device to registry: %w", err)
+	}
+	return device, password, nil
 }

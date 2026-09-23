@@ -52,6 +52,16 @@ func (c *pahoClient) Subscribe(ctx context.Context, topic string, handler Messag
 	return nil
 }
 
+// Unsubscribe is used by Gateway.Apply after a policy removes an inbound
+// topic. It is intentionally not part of Client: narrow test transports and
+// one-shot command publishers do not need to implement dynamic policy.
+func (c *pahoClient) Unsubscribe(ctx context.Context, topic string) error {
+	if err := waitToken(ctx, c.client.Unsubscribe(topic)); err != nil {
+		return fmt.Errorf("unsubscribe: %w", err)
+	}
+	return nil
+}
+
 func (c *pahoClient) Publish(ctx context.Context, topic string, payload []byte, qos byte, retain bool) error {
 	if err := waitToken(ctx, c.client.Publish(topic, qos, retain, payload)); err != nil {
 		return fmt.Errorf("publish: %w", err)

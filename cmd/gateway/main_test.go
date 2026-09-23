@@ -182,7 +182,7 @@ func TestRunPublishTestCommand(t *testing.T) {
 	t.Setenv("MQTT_PASSWORD", "secret")
 	tempDir := t.TempDir()
 	path := filepath.Join(tempDir, "gateway.yaml")
-	contents := strings.Replace(commandConfig, "/tmp/gateway.db", filepath.Join(tempDir, "outbox-is-not-opened", "gateway.db"), 1)
+	contents := strings.Replace(commandConfig, "/tmp/gateway.db", filepath.Join(tempDir, "gateway.db"), 1)
 	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
 		t.Fatal(err)
 	}

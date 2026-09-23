@@ -23,6 +23,7 @@ import (
 	"github.com/ricardossiqueira/iot-gateway/internal/diagnostics"
 	gatewaymqtt "github.com/ricardossiqueira/iot-gateway/internal/mqtt"
 	"github.com/ricardossiqueira/iot-gateway/internal/outbox"
+	"github.com/ricardossiqueira/iot-gateway/internal/registry"
 )
 
 const (
@@ -166,6 +167,22 @@ func runGateway(args []string, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "configuration is invalid: %v\n", err)
 		return 1
 	}
+	deviceRegistry, err := registry.Open(context.Background(), cfg.Storage.SQLitePath)
+	if err != nil {
+		fmt.Fprintf(stderr, "registry setup failed: %v\n", err)
+		return 1
+	}
+	defer func() { _ = deviceRegistry.Close() }()
+	if _, err := deviceRegistry.Seed(context.Background(), cfg.Devices, cfg.Routes); err != nil {
+		fmt.Fprintf(stderr, "registry import failed: %v\n", err)
+		return 1
+	}
+	snapshot, err := deviceRegistry.Snapshot(context.Background())
+	if err != nil {
+		fmt.Fprintf(stderr, "registry read failed: %v\n", err)
+		return 1
+	}
+	cfg.Devices, cfg.Routes = snapshot.Devices, snapshot.Routes
 	credentials, err := gatewaymqtt.ResolveCredentials(cfg.MQTT, os.Getenv)
 	if err != nil {
 		fmt.Fprintf(stderr, "MQTT credentials are invalid: %v\n", err)
@@ -182,8 +199,10 @@ func runGateway(args []string, stderr io.Writer) int {
 		return 1
 	}
 	defer func() { _ = store.Close() }()
+	runtimeSnapshot := snapshot
+	runtimeConfig := cfg
 	logger := slog.New(slog.NewTextHandler(stderr, nil))
-	gateway, err := gatewaymqtt.New(cfg, client, gatewaymqtt.NewSlogLogger(logger), store)
+	gateway, err := gatewaymqtt.New(runtimeConfig, client, gatewaymqtt.NewSlogLogger(logger), store)
 	if err != nil {
 		fmt.Fprintf(stderr, "MQTT gateway setup failed: %v\n", err)
 		return 1
@@ -195,6 +214,7 @@ func runGateway(args []string, stderr io.Writer) int {
 		gateway.Close()
 		return 1
 	}
+	go watchRegistry(ctx, deviceRegistry, cfg, runtimeSnapshot.Revision, gateway, logger)
 	diagnosticsServer, err := diagnostics.New(cfg.Diagnostics, gateway, store)
 	if err != nil {
 		fmt.Fprintf(stderr, "diagnostics setup failed: %v\n", err)
@@ -222,7 +242,8 @@ func runGateway(args []string, stderr io.Writer) int {
 		apiServer, err = api.New(api.Config{
 			Address:        cfg.API.InternalAddress,
 			RequestTimeout: apiRequestTimeout,
-			Registry:       cfg,
+			Registry:       runtimeConfig,
+			DeviceProvider: gateway,
 		}, gateway, gateway, logger)
 		if err != nil {
 			fmt.Fprintf(stderr, "api setup failed: %v\n", err)
@@ -253,6 +274,37 @@ func runGateway(args []string, stderr io.Writer) int {
 	}
 	gateway.Close()
 	return 0
+}
+
+// watchRegistry turns a durable registry revision into a live MQTT policy.
+// Polling keeps the two process topology simple: the admin process and the
+// sandboxed gateway only share SQLite, not a privileged in-process channel.
+func watchRegistry(ctx context.Context, store *registry.Store, base config.Config, revision uint64, gateway *gatewaymqtt.Gateway, logger *slog.Logger) {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			snapshot, err := store.Snapshot(ctx)
+			if err != nil {
+				logger.Error("read device registry", "error", err)
+				continue
+			}
+			if snapshot.Revision == revision {
+				continue
+			}
+			updated := base
+			updated.Devices, updated.Routes = snapshot.Devices, snapshot.Routes
+			if err := gateway.Apply(ctx, updated); err != nil {
+				logger.Error("apply device registry revision", "revision", snapshot.Revision, "error", err)
+				continue
+			}
+			revision = snapshot.Revision
+			logger.Info("applied device registry revision", "revision", revision)
+		}
+	}
 }
 
 // runAdmin is the root-privileged process that serves DeviceAdminService
@@ -289,9 +341,20 @@ func runAdmin(args []string, stderr io.Writer) int {
 	}
 
 	logger := slog.New(slog.NewTextHandler(stderr, nil))
+	deviceRegistry, err := registry.Open(context.Background(), cfg.Storage.SQLitePath)
+	if err != nil {
+		fmt.Fprintf(stderr, "admin registry setup failed: %v\n", err)
+		return 1
+	}
+	defer func() { _ = deviceRegistry.Close() }()
+	if _, err := deviceRegistry.Seed(context.Background(), cfg.Devices, cfg.Routes); err != nil {
+		fmt.Fprintf(stderr, "admin registry import failed: %v\n", err)
+		return 1
+	}
 	adminEngine, err := admin.New(admin.Config{
 		ConfigPath:      *configPath,
 		ProvisionScript: *provisionScript,
+		Registry:        deviceRegistry,
 		RequestTimeout:  adminRequestTimeout,
 	})
 	if err != nil {
@@ -354,6 +417,22 @@ func runPublishTestCommand(args []string, stderr io.Writer, newClient mqttClient
 		fmt.Fprintf(stderr, "configuration is invalid: %v\n", err)
 		return 1
 	}
+	deviceRegistry, err := registry.Open(context.Background(), cfg.Storage.SQLitePath)
+	if err != nil {
+		fmt.Fprintf(stderr, "registry setup failed: %v\n", err)
+		return 1
+	}
+	defer func() { _ = deviceRegistry.Close() }()
+	if _, err := deviceRegistry.Seed(context.Background(), cfg.Devices, cfg.Routes); err != nil {
+		fmt.Fprintf(stderr, "registry import failed: %v\n", err)
+		return 1
+	}
+	snapshot, err := deviceRegistry.Snapshot(context.Background())
+	if err != nil {
+		fmt.Fprintf(stderr, "registry read failed: %v\n", err)
+		return 1
+	}
+	cfg.Devices, cfg.Routes = snapshot.Devices, snapshot.Routes
 	credentials, err := gatewaymqtt.ResolveCredentials(cfg.MQTT, os.Getenv)
 	if err != nil {
 		fmt.Fprintf(stderr, "MQTT credentials are invalid: %v\n", err)

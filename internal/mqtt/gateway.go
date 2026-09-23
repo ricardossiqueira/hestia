@@ -126,6 +126,7 @@ type Gateway struct {
 	devices  map[string]config.Device
 
 	mu        sync.Mutex
+	configMu  sync.RWMutex
 	started   bool
 	closed    bool
 	startedAt *time.Time
@@ -181,16 +182,28 @@ func newGateway(cfg config.Config, client Client, logger Logger, queue Outbox, r
 	}
 
 	gateway := &Gateway{
-		client:   client,
-		logger:   logger,
-		routes:   make(map[string]route),
-		forwards: make(map[string][]config.Route),
-		outbox:   queue,
-		toOutbox: make(map[string]outbox.Kind),
-		devices:  make(map[string]config.Device),
+		client: client,
+		logger: logger,
+		outbox: queue,
 	}
+	routes, forwards, toOutbox, topics, devices, err := buildRouting(cfg, queue, requireOutbox)
+	if err != nil {
+		return nil, err
+	}
+	gateway.routes, gateway.forwards, gateway.toOutbox, gateway.topics, gateway.devices = routes, forwards, toOutbox, topics, devices
+	return gateway, nil
+}
+
+// buildRouting creates a complete policy snapshot before it becomes visible
+// to message callbacks. Apply uses the same validation path as construction.
+func buildRouting(cfg config.Config, queue Outbox, requireOutbox bool) (map[string]route, map[string][]config.Route, map[string]outbox.Kind, []string, map[string]config.Device, error) {
+	routes := make(map[string]route)
+	forwards := make(map[string][]config.Route)
+	toOutbox := make(map[string]outbox.Kind)
+	devices := make(map[string]config.Device)
+	var topics []string
 	for _, device := range cfg.Devices {
-		gateway.devices[device.ID] = device
+		devices[device.ID] = device
 		if device.Enabled == nil || !*device.Enabled {
 			continue
 		}
@@ -206,26 +219,26 @@ func newGateway(cfg config.Config, client Client, logger Logger, queue Outbox, r
 			if candidate.topic == "" {
 				continue
 			}
-			if existing, exists := gateway.routes[candidate.topic]; exists {
-				return nil, fmt.Errorf("MQTT topic %q is assigned to both %s and %s", candidate.topic, existing.deviceID, device.ID)
+			if existing, exists := routes[candidate.topic]; exists {
+				return nil, nil, nil, nil, nil, fmt.Errorf("MQTT topic %q is assigned to both %s and %s", candidate.topic, existing.deviceID, device.ID)
 			}
-			gateway.routes[candidate.topic] = route{deviceID: device.ID, kind: candidate.kind}
-			gateway.topics = append(gateway.topics, candidate.topic)
+			routes[candidate.topic] = route{deviceID: device.ID, kind: candidate.kind}
+			topics = append(topics, candidate.topic)
 			if forwardsToVPS(device, candidate.kind) {
 				if queue == nil && requireOutbox {
-					return nil, errors.New("outbox is required when forwarding to VPS is enabled")
+					return nil, nil, nil, nil, nil, errors.New("outbox is required when forwarding to VPS is enabled")
 				}
 				if queue != nil {
-					gateway.toOutbox[candidate.topic] = outbox.Kind(candidate.kind)
+					toOutbox[candidate.topic] = outbox.Kind(candidate.kind)
 				}
 			}
 		}
 	}
 	for _, forward := range cfg.Routes {
-		gateway.forwards[forward.SourceTopic] = append(gateway.forwards[forward.SourceTopic], forward)
+		forwards[forward.SourceTopic] = append(forwards[forward.SourceTopic], forward)
 	}
-	sort.Strings(gateway.topics)
-	return gateway, nil
+	sort.Strings(topics)
+	return routes, forwards, toOutbox, topics, devices, nil
 }
 
 // Snapshot returns transport state and counters without device payloads,
@@ -233,12 +246,14 @@ func newGateway(cfg config.Config, client Client, logger Logger, queue Outbox, r
 func (g *Gateway) Snapshot() Snapshot {
 	g.mu.Lock()
 	started := g.started
+	startedAt := g.startedAt
+	g.mu.Unlock()
+	g.configMu.RLock()
 	subscriptions := 0
 	if started {
 		subscriptions = len(g.topics)
 	}
-	startedAt := g.startedAt
-	g.mu.Unlock()
+	g.configMu.RUnlock()
 	return Snapshot{
 		StartedAt:            startedAt,
 		Started:              started,
@@ -252,6 +267,19 @@ func (g *Gateway) Snapshot() Snapshot {
 		OutboxDiscarded:      g.outboxDiscarded.Load(),
 		OutboxFailed:         g.outboxFailed.Load(),
 	}
+}
+
+// Devices returns a stable copy of the currently applied device policy. It
+// lets the local API describe the same revision that command publishing uses.
+func (g *Gateway) Devices() []config.Device {
+	g.configMu.RLock()
+	devices := make([]config.Device, 0, len(g.devices))
+	for _, device := range g.devices {
+		devices = append(devices, device)
+	}
+	g.configMu.RUnlock()
+	sort.Slice(devices, func(i, j int) bool { return devices[i].ID < devices[j].ID })
+	return devices
 }
 
 // Start connects to the broker and subscribes to every inbound topic for
@@ -272,7 +300,10 @@ func (g *Gateway) Start(ctx context.Context) error {
 		g.client.Close()
 		return fmt.Errorf("connect MQTT client: %w", err)
 	}
-	for _, topic := range g.topics {
+	g.configMu.RLock()
+	topics := append([]string(nil), g.topics...)
+	g.configMu.RUnlock()
+	for _, topic := range topics {
 		if err := g.client.Subscribe(ctx, topic, g.handleMessage); err != nil {
 			g.client.Close()
 			return fmt.Errorf("subscribe to %q: %w", topic, err)
@@ -281,6 +312,67 @@ func (g *Gateway) Start(ctx context.Context) error {
 	startedAt := time.Now().UTC()
 	g.startedAt = &startedAt
 	g.started = true
+	return nil
+}
+
+// Apply replaces the routing policy without restarting the MQTT client.
+// New subscriptions are installed before the new policy becomes visible;
+// removed topics are ignored immediately and are unsubscribed afterwards
+// when the transport supports it.
+func (g *Gateway) Apply(ctx context.Context, cfg config.Config) error {
+	routes, forwards, toOutbox, topics, devices, err := buildRouting(cfg, g.outbox, true)
+	if err != nil {
+		return err
+	}
+	g.mu.Lock()
+	started, closed := g.started, g.closed
+	g.mu.Unlock()
+	if closed {
+		return errors.New("MQTT gateway is closed")
+	}
+	g.configMu.Lock()
+	oldTopics := append([]string(nil), g.topics...)
+	oldSet := make(map[string]struct{}, len(oldTopics))
+	for _, topic := range oldTopics {
+		oldSet[topic] = struct{}{}
+	}
+	newSet := make(map[string]struct{}, len(topics))
+	for _, topic := range topics {
+		newSet[topic] = struct{}{}
+	}
+	if started {
+		added := make([]string, 0)
+		for _, topic := range topics {
+			if _, exists := oldSet[topic]; exists {
+				continue
+			}
+			if err := g.client.Subscribe(ctx, topic, g.handleMessage); err != nil {
+				if client, ok := g.client.(interface {
+					Unsubscribe(context.Context, string) error
+				}); ok {
+					for _, rollback := range added {
+						_ = client.Unsubscribe(context.Background(), rollback)
+					}
+				}
+				g.configMu.Unlock()
+				return fmt.Errorf("subscribe to %q while applying registry revision: %w", topic, err)
+			}
+			added = append(added, topic)
+		}
+	}
+	g.routes, g.forwards, g.toOutbox, g.topics, g.devices = routes, forwards, toOutbox, topics, devices
+	g.configMu.Unlock()
+	if started {
+		if client, ok := g.client.(interface {
+			Unsubscribe(context.Context, string) error
+		}); ok {
+			for _, topic := range oldTopics {
+				if _, exists := newSet[topic]; !exists {
+					_ = client.Unsubscribe(ctx, topic)
+				}
+			}
+		}
+	}
 	return nil
 }
 
@@ -301,7 +393,9 @@ func (g *Gateway) PublishCommand(ctx context.Context, deviceID string, payload [
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	g.configMu.RLock()
 	device, ok := g.devices[deviceID]
+	g.configMu.RUnlock()
 	if !ok {
 		return fmt.Errorf("unknown device %q", deviceID)
 	}
@@ -321,10 +415,15 @@ func (g *Gateway) PublishCommand(ctx context.Context, deviceID string, payload [
 }
 
 func (g *Gateway) handleMessage(ctx context.Context, topic string, payload []byte) {
+	g.configMu.RLock()
 	route, exists := g.routes[topic]
 	if !exists {
+		g.configMu.RUnlock()
 		return
 	}
+	toOutbox, forward := g.toOutbox[topic]
+	forwards := append([]config.Route(nil), g.forwards[topic]...)
+	g.configMu.RUnlock()
 	message, err := validateInbound(route, topic, payload)
 	if err != nil {
 		g.rejectedMessages.Add(1)
@@ -333,7 +432,7 @@ func (g *Gateway) handleMessage(ctx context.Context, topic string, payload []byt
 	}
 	g.acceptedMessages.Add(1)
 	g.logger.Accepted(ctx, message)
-	if kind, forward := g.toOutbox[topic]; forward {
+	if kind, forward := toOutbox, forward; forward {
 		result, err := g.outbox.Enqueue(ctx, outbox.Message{
 			MessageID: message.MessageID,
 			DeviceID:  message.DeviceID,
@@ -360,7 +459,7 @@ func (g *Gateway) handleMessage(ctx context.Context, topic string, payload []byt
 			}
 		}
 	}
-	for _, forward := range g.forwards[topic] {
+	for _, forward := range forwards {
 		payload, err := transformJSONCommand(forward.Transform.CommandType, message.Payload)
 		if err == nil {
 			err = g.client.Publish(ctx, forward.DestinationTopic, payload, forward.QoS, forward.Retain)

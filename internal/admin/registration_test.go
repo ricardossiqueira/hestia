@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ricardossiqueira/iot-gateway/internal/registry"
 )
 
 // writeFakeProvisionScript writes a .bat standing in for
@@ -70,6 +72,42 @@ func TestRegisterDevice_Success(t *testing.T) {
 	}
 	if strings.Contains(readCallLog(t, callLog), "REMOVE") {
 		t.Error("deprovision must not run on a successful registration")
+	}
+}
+
+func TestServerRegistryPathDoesNotRestartGateway(t *testing.T) {
+	store, err := registry.Open(context.Background(), filepath.Join(t.TempDir(), "gateway.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	callLog := filepath.Join(t.TempDir(), "calls.log")
+	server, err := New(Config{Registry: store, ProvisionScript: writeFakeProvisionScript(t, callLog, false)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	device, password, err := server.ProvisionDevice(context.Background(), "led-1", "esp32_led.v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if password != "fake-password-123" || device.ID != "led-1" {
+		t.Fatalf("provision = %#v, %q", device, password)
+	}
+	if _, err := server.SetDeviceEnabled(context.Background(), "led-1", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := server.RemoveDevice(context.Background(), "led-1"); err != nil {
+		t.Fatal(err)
+	}
+	if got := readCallLog(t, callLog); !strings.Contains(got, "PROVISION led-1") || !strings.Contains(got, "REMOVE led-1") {
+		t.Fatalf("calls = %q", got)
+	}
+	snapshot, err := store.Snapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Devices) != 0 {
+		t.Fatalf("registry devices = %#v", snapshot.Devices)
 	}
 }
 

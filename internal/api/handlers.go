@@ -21,8 +21,9 @@ import (
 // filters by enabled state - a disabled device is still visible so a
 // client understands why publishing to it fails.
 func (s *Server) ListDevices(ctx context.Context, req *connect.Request[apiv1.ListDevicesRequest]) (*connect.Response[apiv1.ListDevicesResponse], error) {
-	devices := make([]*apiv1.Device, 0, len(s.deviceList))
-	for _, d := range s.deviceList {
+	current := s.currentDevices()
+	devices := make([]*apiv1.Device, 0, len(current))
+	for _, d := range current {
 		devices = append(devices, &apiv1.Device{
 			Id:      d.ID,
 			Type:    d.Type,

@@ -51,6 +51,10 @@ type StatusProvider interface {
 	Snapshot() mqtt.Snapshot
 }
 
+type DeviceProvider interface {
+	Devices() []config.Device
+}
+
 // Config is everything the API server needs to run.
 type Config struct {
 	// Address is api.internal_address - a loopback address only
@@ -61,6 +65,9 @@ type Config struct {
 	// It is read by value here (never re-read from disk), preserving the
 	// sandboxed gateway process's read-only posture.
 	Registry config.Config
+	// DeviceProvider supersedes Registry.Devices for live reads after a
+	// registry revision is applied.
+	DeviceProvider DeviceProvider
 }
 
 // Server is the loopback-only Connect-RPC server (gRPC, gRPC-Web and
@@ -72,8 +79,9 @@ type Server struct {
 	logger    *slog.Logger
 	http      *http.Server
 
-	devices    map[string]config.Device
-	deviceList []config.Device
+	devices        map[string]config.Device
+	deviceList     []config.Device
+	deviceProvider DeviceProvider
 }
 
 func New(cfg Config, publisher CommandPublisher, status StatusProvider, logger *slog.Logger) (*Server, error) {
@@ -102,12 +110,13 @@ func New(cfg Config, publisher CommandPublisher, status StatusProvider, logger *
 	}
 
 	s := &Server{
-		cfg:        cfg,
-		publisher:  publisher,
-		status:     status,
-		logger:     logger,
-		devices:    devices,
-		deviceList: deviceList,
+		cfg:            cfg,
+		publisher:      publisher,
+		status:         status,
+		logger:         logger,
+		devices:        devices,
+		deviceList:     deviceList,
+		deviceProvider: cfg.DeviceProvider,
 	}
 
 	mux := http.NewServeMux()
@@ -151,6 +160,23 @@ func (s *Server) Shutdown(ctx context.Context) error {
 }
 
 func (s *Server) deviceByID(id string) (config.Device, bool) {
+	if s.deviceProvider != nil {
+		for _, device := range s.deviceProvider.Devices() {
+			if device.ID == id {
+				return device, true
+			}
+		}
+		return config.Device{}, false
+	}
 	d, ok := s.devices[id]
 	return d, ok
+}
+
+func (s *Server) currentDevices() []config.Device {
+	if s.deviceProvider != nil {
+		return s.deviceProvider.Devices()
+	}
+	devices := make([]config.Device, len(s.deviceList))
+	copy(devices, s.deviceList)
+	return devices
 }
