@@ -28,7 +28,11 @@ service GatewayService {
 // answered directly by the admin (root) process instead of being proxied
 // like DeviceService/GatewayService are.
 service DeviceAdminService {
-  // Routes belong to the same versioned SQLite policy as devices. They are
+  // RegisterExistingDevice adopts a known broker identity without generating
+  // or rotating a password. It is for local services installed separately
+  // from the gateway, such as orangepi-monitor.
+  rpc RegisterExistingDevice(RegisterExistingDeviceRequest) returns (RegisterExistingDeviceResponse);
+	// Routes belong to the same versioned SQLite policy as devices. They are
   // applied by the live gateway without restarting either systemd service.
   rpc ListRoutes(ListRoutesRequest) returns (ListRoutesResponse);
   rpc CreateRoute(CreateRouteRequest) returns (CreateRouteResponse);
@@ -40,6 +44,16 @@ service DeviceAdminService {
   rpc ProvisionCYD(ProvisionCYDRequest) returns (ProvisionCYDResponse);
   rpc SetDeviceEnabled(SetDeviceEnabledRequest) returns (SetDeviceEnabledResponse);
   rpc RemoveDevice(RemoveDeviceRequest) returns (RemoveDeviceResponse);
+}
+
+message RegisterExistingDeviceRequest {
+  string device_id = 1;
+  string template = 2;
+}
+
+message RegisterExistingDeviceResponse {
+  Device device = 1;
+  google.protobuf.Timestamp applied_at = 2;
 }
 
 message Route {

@@ -49,6 +49,7 @@ import (
 // happen to run in the same OS process today (both constructed by
 // cmd/gateway's runAdmin), but nothing here assumes that.
 type DeviceAdmin interface {
+	RegisterExistingDevice(ctx context.Context, id, template string) (config.Device, error)
 	ListRoutes(ctx context.Context) ([]config.Route, error)
 	CreateRoute(ctx context.Context, route config.Route) error
 	RemoveRoute(ctx context.Context, id string) error

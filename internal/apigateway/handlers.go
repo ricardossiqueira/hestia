@@ -65,6 +65,24 @@ func routeFromProto(route *apiv1.Route) (config.Route, error) {
 	}, nil
 }
 
+// RegisterExistingDevice adopts a pre-existing broker identity without ever
+// returning or rotating its password. This keeps local collectors online while
+// making their inbound topics visible to the runtime registry.
+func (s *Server) RegisterExistingDevice(ctx context.Context, req *connect.Request[apiv1.RegisterExistingDeviceRequest]) (*connect.Response[apiv1.RegisterExistingDeviceResponse], error) {
+	device, err := s.cfg.Admin.RegisterExistingDevice(ctx, req.Msg.GetDeviceId(), req.Msg.GetTemplate())
+	if err != nil {
+		switch {
+		case errors.Is(err, admin.ErrDeviceAlreadyExists):
+			return nil, connect.NewError(connect.CodeAlreadyExists, err)
+		case errors.Is(err, admin.ErrUnknownTemplate), errors.Is(err, admin.ErrInvalidDeviceID), errors.Is(err, admin.ErrTemplateRequiresAdopt):
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		default:
+			return nil, connect.NewError(connect.CodeInternal, err)
+		}
+	}
+	return connect.NewResponse(&apiv1.RegisterExistingDeviceResponse{Device: deviceToProto(device), AppliedAt: timestamppb.Now()}), nil
+}
+
 func (s *Server) ListRoutes(ctx context.Context, _ *connect.Request[apiv1.ListRoutesRequest]) (*connect.Response[apiv1.ListRoutesResponse], error) {
 	routes, err := s.cfg.Admin.ListRoutes(ctx)
 	if err != nil {

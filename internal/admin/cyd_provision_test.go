@@ -116,3 +116,26 @@ func TestProvisionCYDRejectsUnreadyDeviceBeforeCreatingRegistryEntry(t *testing.
 		t.Fatalf("snapshot = %#v", snapshot)
 	}
 }
+
+func TestRegisterExistingDeviceAddsMonitorWithoutTouchingCredential(t *testing.T) {
+	store, err := registry.Open(context.Background(), filepath.Join(t.TempDir(), "gateway.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	credentials := &fakeCredentialStore{password: "must-not-be-read"}
+	server, err := New(Config{Registry: store, Credentials: credentials})
+	if err != nil {
+		t.Fatal(err)
+	}
+	device, err := server.RegisterExistingDevice(context.Background(), "orangepi-monitor", "orangepi_monitor.v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if device.Topics.Telemetry != "devices/orangepi-monitor/telemetry" || device.Enabled == nil || !*device.Enabled {
+		t.Fatalf("device = %#v", device)
+	}
+	if len(credentials.calls) != 0 {
+		t.Fatalf("credential store calls = %#v, want none", credentials.calls)
+	}
+}

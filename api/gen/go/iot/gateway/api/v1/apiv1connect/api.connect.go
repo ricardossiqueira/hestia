@@ -49,6 +49,9 @@ const (
 	// GatewayServiceGetStatusProcedure is the fully-qualified name of the GatewayService's GetStatus
 	// RPC.
 	GatewayServiceGetStatusProcedure = "/iot.gateway.api.v1.GatewayService/GetStatus"
+	// DeviceAdminServiceRegisterExistingDeviceProcedure is the fully-qualified name of the
+	// DeviceAdminService's RegisterExistingDevice RPC.
+	DeviceAdminServiceRegisterExistingDeviceProcedure = "/iot.gateway.api.v1.DeviceAdminService/RegisterExistingDevice"
 	// DeviceAdminServiceListRoutesProcedure is the fully-qualified name of the DeviceAdminService's
 	// ListRoutes RPC.
 	DeviceAdminServiceListRoutesProcedure = "/iot.gateway.api.v1.DeviceAdminService/ListRoutes"
@@ -266,6 +269,10 @@ func (UnimplementedGatewayServiceHandler) GetStatus(context.Context, *connect.Re
 
 // DeviceAdminServiceClient is a client for the iot.gateway.api.v1.DeviceAdminService service.
 type DeviceAdminServiceClient interface {
+	// RegisterExistingDevice adopts a known broker identity without generating
+	// or rotating a password. It is for local services installed separately
+	// from the gateway, such as orangepi-monitor.
+	RegisterExistingDevice(context.Context, *connect.Request[v1.RegisterExistingDeviceRequest]) (*connect.Response[v1.RegisterExistingDeviceResponse], error)
 	// Routes belong to the same versioned SQLite policy as devices. They are
 	// applied by the live gateway without restarting either systemd service.
 	ListRoutes(context.Context, *connect.Request[v1.ListRoutesRequest]) (*connect.Response[v1.ListRoutesResponse], error)
@@ -291,6 +298,12 @@ func NewDeviceAdminServiceClient(httpClient connect.HTTPClient, baseURL string, 
 	baseURL = strings.TrimRight(baseURL, "/")
 	deviceAdminServiceMethods := v1.File_iot_gateway_api_v1_api_proto.Services().ByName("DeviceAdminService").Methods()
 	return &deviceAdminServiceClient{
+		registerExistingDevice: connect.NewClient[v1.RegisterExistingDeviceRequest, v1.RegisterExistingDeviceResponse](
+			httpClient,
+			baseURL+DeviceAdminServiceRegisterExistingDeviceProcedure,
+			connect.WithSchema(deviceAdminServiceMethods.ByName("RegisterExistingDevice")),
+			connect.WithClientOptions(opts...),
+		),
 		listRoutes: connect.NewClient[v1.ListRoutesRequest, v1.ListRoutesResponse](
 			httpClient,
 			baseURL+DeviceAdminServiceListRoutesProcedure,
@@ -338,13 +351,19 @@ func NewDeviceAdminServiceClient(httpClient connect.HTTPClient, baseURL string, 
 
 // deviceAdminServiceClient implements DeviceAdminServiceClient.
 type deviceAdminServiceClient struct {
-	listRoutes       *connect.Client[v1.ListRoutesRequest, v1.ListRoutesResponse]
-	createRoute      *connect.Client[v1.CreateRouteRequest, v1.CreateRouteResponse]
-	removeRoute      *connect.Client[v1.RemoveRouteRequest, v1.RemoveRouteResponse]
-	provisionDevice  *connect.Client[v1.ProvisionDeviceRequest, v1.ProvisionDeviceResponse]
-	provisionCYD     *connect.Client[v1.ProvisionCYDRequest, v1.ProvisionCYDResponse]
-	setDeviceEnabled *connect.Client[v1.SetDeviceEnabledRequest, v1.SetDeviceEnabledResponse]
-	removeDevice     *connect.Client[v1.RemoveDeviceRequest, v1.RemoveDeviceResponse]
+	registerExistingDevice *connect.Client[v1.RegisterExistingDeviceRequest, v1.RegisterExistingDeviceResponse]
+	listRoutes             *connect.Client[v1.ListRoutesRequest, v1.ListRoutesResponse]
+	createRoute            *connect.Client[v1.CreateRouteRequest, v1.CreateRouteResponse]
+	removeRoute            *connect.Client[v1.RemoveRouteRequest, v1.RemoveRouteResponse]
+	provisionDevice        *connect.Client[v1.ProvisionDeviceRequest, v1.ProvisionDeviceResponse]
+	provisionCYD           *connect.Client[v1.ProvisionCYDRequest, v1.ProvisionCYDResponse]
+	setDeviceEnabled       *connect.Client[v1.SetDeviceEnabledRequest, v1.SetDeviceEnabledResponse]
+	removeDevice           *connect.Client[v1.RemoveDeviceRequest, v1.RemoveDeviceResponse]
+}
+
+// RegisterExistingDevice calls iot.gateway.api.v1.DeviceAdminService.RegisterExistingDevice.
+func (c *deviceAdminServiceClient) RegisterExistingDevice(ctx context.Context, req *connect.Request[v1.RegisterExistingDeviceRequest]) (*connect.Response[v1.RegisterExistingDeviceResponse], error) {
+	return c.registerExistingDevice.CallUnary(ctx, req)
 }
 
 // ListRoutes calls iot.gateway.api.v1.DeviceAdminService.ListRoutes.
@@ -385,6 +404,10 @@ func (c *deviceAdminServiceClient) RemoveDevice(ctx context.Context, req *connec
 // DeviceAdminServiceHandler is an implementation of the iot.gateway.api.v1.DeviceAdminService
 // service.
 type DeviceAdminServiceHandler interface {
+	// RegisterExistingDevice adopts a known broker identity without generating
+	// or rotating a password. It is for local services installed separately
+	// from the gateway, such as orangepi-monitor.
+	RegisterExistingDevice(context.Context, *connect.Request[v1.RegisterExistingDeviceRequest]) (*connect.Response[v1.RegisterExistingDeviceResponse], error)
 	// Routes belong to the same versioned SQLite policy as devices. They are
 	// applied by the live gateway without restarting either systemd service.
 	ListRoutes(context.Context, *connect.Request[v1.ListRoutesRequest]) (*connect.Response[v1.ListRoutesResponse], error)
@@ -406,6 +429,12 @@ type DeviceAdminServiceHandler interface {
 // and JSON codecs. They also support gzip compression.
 func NewDeviceAdminServiceHandler(svc DeviceAdminServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
 	deviceAdminServiceMethods := v1.File_iot_gateway_api_v1_api_proto.Services().ByName("DeviceAdminService").Methods()
+	deviceAdminServiceRegisterExistingDeviceHandler := connect.NewUnaryHandler(
+		DeviceAdminServiceRegisterExistingDeviceProcedure,
+		svc.RegisterExistingDevice,
+		connect.WithSchema(deviceAdminServiceMethods.ByName("RegisterExistingDevice")),
+		connect.WithHandlerOptions(opts...),
+	)
 	deviceAdminServiceListRoutesHandler := connect.NewUnaryHandler(
 		DeviceAdminServiceListRoutesProcedure,
 		svc.ListRoutes,
@@ -450,6 +479,8 @@ func NewDeviceAdminServiceHandler(svc DeviceAdminServiceHandler, opts ...connect
 	)
 	return "/iot.gateway.api.v1.DeviceAdminService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case DeviceAdminServiceRegisterExistingDeviceProcedure:
+			deviceAdminServiceRegisterExistingDeviceHandler.ServeHTTP(w, r)
 		case DeviceAdminServiceListRoutesProcedure:
 			deviceAdminServiceListRoutesHandler.ServeHTTP(w, r)
 		case DeviceAdminServiceCreateRouteProcedure:
@@ -472,6 +503,10 @@ func NewDeviceAdminServiceHandler(svc DeviceAdminServiceHandler, opts ...connect
 
 // UnimplementedDeviceAdminServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedDeviceAdminServiceHandler struct{}
+
+func (UnimplementedDeviceAdminServiceHandler) RegisterExistingDevice(context.Context, *connect.Request[v1.RegisterExistingDeviceRequest]) (*connect.Response[v1.RegisterExistingDeviceResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("iot.gateway.api.v1.DeviceAdminService.RegisterExistingDevice is not implemented"))
+}
 
 func (UnimplementedDeviceAdminServiceHandler) ListRoutes(context.Context, *connect.Request[v1.ListRoutesRequest]) (*connect.Response[v1.ListRoutesResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("iot.gateway.api.v1.DeviceAdminService.ListRoutes is not implemented"))

@@ -305,13 +305,14 @@ var GatewayService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	DeviceAdminService_ListRoutes_FullMethodName       = "/iot.gateway.api.v1.DeviceAdminService/ListRoutes"
-	DeviceAdminService_CreateRoute_FullMethodName      = "/iot.gateway.api.v1.DeviceAdminService/CreateRoute"
-	DeviceAdminService_RemoveRoute_FullMethodName      = "/iot.gateway.api.v1.DeviceAdminService/RemoveRoute"
-	DeviceAdminService_ProvisionDevice_FullMethodName  = "/iot.gateway.api.v1.DeviceAdminService/ProvisionDevice"
-	DeviceAdminService_ProvisionCYD_FullMethodName     = "/iot.gateway.api.v1.DeviceAdminService/ProvisionCYD"
-	DeviceAdminService_SetDeviceEnabled_FullMethodName = "/iot.gateway.api.v1.DeviceAdminService/SetDeviceEnabled"
-	DeviceAdminService_RemoveDevice_FullMethodName     = "/iot.gateway.api.v1.DeviceAdminService/RemoveDevice"
+	DeviceAdminService_RegisterExistingDevice_FullMethodName = "/iot.gateway.api.v1.DeviceAdminService/RegisterExistingDevice"
+	DeviceAdminService_ListRoutes_FullMethodName             = "/iot.gateway.api.v1.DeviceAdminService/ListRoutes"
+	DeviceAdminService_CreateRoute_FullMethodName            = "/iot.gateway.api.v1.DeviceAdminService/CreateRoute"
+	DeviceAdminService_RemoveRoute_FullMethodName            = "/iot.gateway.api.v1.DeviceAdminService/RemoveRoute"
+	DeviceAdminService_ProvisionDevice_FullMethodName        = "/iot.gateway.api.v1.DeviceAdminService/ProvisionDevice"
+	DeviceAdminService_ProvisionCYD_FullMethodName           = "/iot.gateway.api.v1.DeviceAdminService/ProvisionCYD"
+	DeviceAdminService_SetDeviceEnabled_FullMethodName       = "/iot.gateway.api.v1.DeviceAdminService/SetDeviceEnabled"
+	DeviceAdminService_RemoveDevice_FullMethodName           = "/iot.gateway.api.v1.DeviceAdminService/RemoveDevice"
 )
 
 // DeviceAdminServiceClient is the client API for DeviceAdminService service.
@@ -325,6 +326,10 @@ const (
 // answered directly by the admin (root) process instead of being proxied
 // like DeviceService/GatewayService are.
 type DeviceAdminServiceClient interface {
+	// RegisterExistingDevice adopts a known broker identity without generating
+	// or rotating a password. It is for local services installed separately
+	// from the gateway, such as orangepi-monitor.
+	RegisterExistingDevice(ctx context.Context, in *RegisterExistingDeviceRequest, opts ...grpc.CallOption) (*RegisterExistingDeviceResponse, error)
 	// Routes belong to the same versioned SQLite policy as devices. They are
 	// applied by the live gateway without restarting either systemd service.
 	ListRoutes(ctx context.Context, in *ListRoutesRequest, opts ...grpc.CallOption) (*ListRoutesResponse, error)
@@ -345,6 +350,16 @@ type deviceAdminServiceClient struct {
 
 func NewDeviceAdminServiceClient(cc grpc.ClientConnInterface) DeviceAdminServiceClient {
 	return &deviceAdminServiceClient{cc}
+}
+
+func (c *deviceAdminServiceClient) RegisterExistingDevice(ctx context.Context, in *RegisterExistingDeviceRequest, opts ...grpc.CallOption) (*RegisterExistingDeviceResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RegisterExistingDeviceResponse)
+	err := c.cc.Invoke(ctx, DeviceAdminService_RegisterExistingDevice_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *deviceAdminServiceClient) ListRoutes(ctx context.Context, in *ListRoutesRequest, opts ...grpc.CallOption) (*ListRoutesResponse, error) {
@@ -428,6 +443,10 @@ func (c *deviceAdminServiceClient) RemoveDevice(ctx context.Context, in *RemoveD
 // answered directly by the admin (root) process instead of being proxied
 // like DeviceService/GatewayService are.
 type DeviceAdminServiceServer interface {
+	// RegisterExistingDevice adopts a known broker identity without generating
+	// or rotating a password. It is for local services installed separately
+	// from the gateway, such as orangepi-monitor.
+	RegisterExistingDevice(context.Context, *RegisterExistingDeviceRequest) (*RegisterExistingDeviceResponse, error)
 	// Routes belong to the same versioned SQLite policy as devices. They are
 	// applied by the live gateway without restarting either systemd service.
 	ListRoutes(context.Context, *ListRoutesRequest) (*ListRoutesResponse, error)
@@ -449,6 +468,9 @@ type DeviceAdminServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedDeviceAdminServiceServer struct{}
 
+func (UnimplementedDeviceAdminServiceServer) RegisterExistingDevice(context.Context, *RegisterExistingDeviceRequest) (*RegisterExistingDeviceResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RegisterExistingDevice not implemented")
+}
 func (UnimplementedDeviceAdminServiceServer) ListRoutes(context.Context, *ListRoutesRequest) (*ListRoutesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListRoutes not implemented")
 }
@@ -488,6 +510,24 @@ func RegisterDeviceAdminServiceServer(s grpc.ServiceRegistrar, srv DeviceAdminSe
 		t.testEmbeddedByValue()
 	}
 	s.RegisterService(&DeviceAdminService_ServiceDesc, srv)
+}
+
+func _DeviceAdminService_RegisterExistingDevice_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RegisterExistingDeviceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DeviceAdminServiceServer).RegisterExistingDevice(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DeviceAdminService_RegisterExistingDevice_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DeviceAdminServiceServer).RegisterExistingDevice(ctx, req.(*RegisterExistingDeviceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _DeviceAdminService_ListRoutes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -623,6 +663,10 @@ var DeviceAdminService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "iot.gateway.api.v1.DeviceAdminService",
 	HandlerType: (*DeviceAdminServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "RegisterExistingDevice",
+			Handler:    _DeviceAdminService_RegisterExistingDevice_Handler,
+		},
 		{
 			MethodName: "ListRoutes",
 			Handler:    _DeviceAdminService_ListRoutes_Handler,

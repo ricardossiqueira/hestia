@@ -126,6 +126,7 @@ Regras:
 | `ListDeviceCommands` | `DeviceService` | Descreve os comandos que um dispositivo aceita (schema Protobuf). |
 | `PublishCommand` | `DeviceService` | Publica um comando, validado por schema quando o dispositivo tem profile. |
 | `GetStatus` | `GatewayService` | Espelha `internal/mqtt.Snapshot`: sessão MQTT, contadores, sem payloads. |
+| `RegisterExistingDevice` | `DeviceAdminService` | Adota um serviço local com identidade MQTT já existente, sem alterar senha. |
 | `ListRoutes` | `DeviceAdminService` | Lista as rotas locais persistidas no SQLite. |
 | `CreateRoute` | `DeviceAdminService` | Cria uma rota entre um tópico inbound e um `command` habilitados. |
 | `RemoveRoute` | `DeviceAdminService` | Remove uma rota local pelo ID. |
@@ -227,6 +228,12 @@ do `internal/deviceprofile`). Só existe um por enquanto:
 Um device criado por esse template já sai com `profile: led.v1`, então
 `PublishCommand`/`ListDeviceCommands` já validam `set_led` nele sem
 nenhum passo extra.
+
+`orangepi_monitor.v1` é diferente: representa o coletor local já instalado
+no Orange Pi. Use `RegisterExistingDevice` com o ID `orangepi-monitor` para
+registrar `devices/orangepi-monitor/telemetry` no SQLite. A operação não
+provisiona, consulta, expõe ou rotaciona senha MQTT; ela pressupõe a identidade
+DynSec que o serviço já usa.
 
 ### Operação atômica sem reinício
 

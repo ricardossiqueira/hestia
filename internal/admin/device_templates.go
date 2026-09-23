@@ -17,6 +17,10 @@ type DeviceTemplate struct {
 	// Topics are the topic suffixes to create, same vocabulary as
 	// AddDevice's topicSuffixes (validTopicSuffixes in devices.go).
 	Topics []string
+	// AdoptExisting means this template belongs to a local service whose
+	// DynSec identity is provisioned independently. It must use
+	// RegisterExistingDevice, never ProvisionDevice (which rotates a secret).
+	AdoptExisting bool
 }
 
 // deviceTemplates is the compiled registry. Adding a template is a
@@ -33,6 +37,11 @@ var deviceTemplates = map[string]DeviceTemplate{
 	"cyd_monitor.v1": {
 		Type:   "esp32-cyd",
 		Topics: []string{"command"},
+	},
+	"orangepi_monitor.v1": {
+		Type:          "linux-system-monitor",
+		Topics:        []string{"telemetry"},
+		AdoptExisting: true,
 	},
 }
 

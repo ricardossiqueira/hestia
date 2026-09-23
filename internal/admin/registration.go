@@ -22,6 +22,7 @@ var (
 	ErrDeviceNotProvisionable = errors.New("device is not ready for provisioning")
 	ErrRouteAlreadyExists     = errors.New("route already exists")
 	ErrRouteNotFound          = errors.New("route not found")
+	ErrTemplateRequiresAdopt  = errors.New("template requires an existing broker identity")
 )
 
 // RegisterDevice provisions a Mosquitto credential/ACL for a new device
@@ -47,6 +48,9 @@ func RegisterDevice(ctx context.Context, configPath, scriptPath, id, template st
 	tmpl, ok := deviceTemplates[template]
 	if !ok {
 		return config.Device{}, "", fmt.Errorf("%w: %q", ErrUnknownTemplate, template)
+	}
+	if tmpl.AdoptExisting {
+		return config.Device{}, "", fmt.Errorf("%w: %q", ErrTemplateRequiresAdopt, template)
 	}
 	if err := config.ValidateDeviceID("device_id", id); err != nil {
 		return config.Device{}, "", fmt.Errorf("%w: %v", ErrInvalidDeviceID, err)

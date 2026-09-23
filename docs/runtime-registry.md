@@ -40,6 +40,9 @@ control plane ----> registry SQLite <---- runtime manager do gateway
 - Uma rota so pode ligar um topico inbound de device habilitado a um topico
   `command` de device habilitado. A remocao de um device remove no mesmo
   commit as rotas que o referenciam, sem deixar encaminhamentos pendentes.
+- Servicos locais com identidade DynSec ja existente, como
+  `orangepi-monitor`, sao adotados por um template proprio: a operacao grava
+  somente o device/topico no SQLite e nunca le ou rotaciona a senha MQTT.
 - Quando `IOT_GATEWAY_DYNSEC_URL` esta configurada, a administracao usa a API
   DynSec do broker e nao edita arquivos nem recarrega servicos. O script legado
   fica somente como compatibilidade durante a migracao.

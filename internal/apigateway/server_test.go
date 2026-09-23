@@ -55,12 +55,14 @@ func newFakeInternalAPI(t *testing.T) (*httptest.Server, *recordedRequest) {
 type fakeDeviceAdmin struct {
 	mu sync.Mutex
 
-	provisionErr    error
-	provisioned     config.Device
-	password        string
-	cydProvisionErr error
-	cydProvisioned  config.Device
-	cydAddress      string
+	provisionErr        error
+	provisioned         config.Device
+	password            string
+	registerExistingErr error
+	registeredExisting  config.Device
+	cydProvisionErr     error
+	cydProvisioned      config.Device
+	cydAddress          string
 
 	setEnabledErr error
 	setEnabled    config.Device
@@ -75,6 +77,12 @@ type fakeDeviceAdmin struct {
 	createdRoute   config.Route
 	removeRouteErr error
 	removedRouteID string
+}
+
+func (f *fakeDeviceAdmin) RegisterExistingDevice(ctx context.Context, id, template string) (config.Device, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.registeredExisting, f.registerExistingErr
 }
 
 func (f *fakeDeviceAdmin) ListRoutes(ctx context.Context) ([]config.Route, error) {
@@ -500,6 +508,25 @@ func TestDeviceAdminService_CreateAndListRoutes(t *testing.T) {
 	}
 	if created.Msg.GetAppliedAt() == nil || fake.createdRoute != route {
 		t.Fatalf("response = %#v, route = %#v", created.Msg, fake.createdRoute)
+	}
+}
+
+func TestDeviceAdminService_RegisterExistingDevice(t *testing.T) {
+	backend, _ := newFakeInternalAPI(t)
+	enabled := true
+	fake := &fakeDeviceAdmin{registeredExisting: config.Device{
+		ID: "orangepi-monitor", Type: "linux-system-monitor", Enabled: &enabled,
+		Topics: config.Topics{Telemetry: "devices/orangepi-monitor/telemetry"},
+	}}
+	ts := newTestGatewayWithAdmin(t, backend.URL, nil, fake)
+	response, err := connectClient(ts).RegisterExistingDevice(context.Background(), authedRequest(&apiv1.RegisterExistingDeviceRequest{
+		DeviceId: "orangepi-monitor", Template: "orangepi_monitor.v1",
+	}))
+	if err != nil {
+		t.Fatalf("RegisterExistingDevice() error = %v", err)
+	}
+	if response.Msg.GetAppliedAt() == nil || response.Msg.GetDevice().GetTopics().GetTelemetry() != "devices/orangepi-monitor/telemetry" {
+		t.Fatalf("response = %#v", response.Msg)
 	}
 }
 

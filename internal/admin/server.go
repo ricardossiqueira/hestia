@@ -84,6 +84,35 @@ func (s *Server) ProvisionDevice(ctx context.Context, id, template string) (conf
 	return RegisterDevice(ctx, s.cfg.ConfigPath, s.cfg.ProvisionScript, id, template)
 }
 
+// RegisterExistingDevice adds policy for a local service whose DynSec client
+// already exists. It intentionally never reads, returns, changes or rotates a
+// broker password, so adopting orangepi-monitor cannot interrupt collection.
+func (s *Server) RegisterExistingDevice(ctx context.Context, id, template string) (config.Device, error) {
+	ctx, cancel := context.WithTimeout(ctx, s.cfg.RequestTimeout)
+	defer cancel()
+	if s.cfg.Registry == nil {
+		return config.Device{}, errors.New("registering an existing device requires the SQLite registry")
+	}
+	tmpl, ok := deviceTemplates[template]
+	if !ok {
+		return config.Device{}, fmt.Errorf("%w: %q", ErrUnknownTemplate, template)
+	}
+	if !tmpl.AdoptExisting {
+		return config.Device{}, fmt.Errorf("%w: %q", ErrTemplateRequiresAdopt, template)
+	}
+	if err := config.ValidateDeviceID("device_id", id); err != nil {
+		return config.Device{}, fmt.Errorf("%w: %v", ErrInvalidDeviceID, err)
+	}
+	device := buildDevice(id, tmpl.Type, tmpl.Profile, tmpl.Topics)
+	if _, err := s.cfg.Registry.AddDevice(ctx, device, uuid.NewString()); err != nil {
+		if errors.Is(err, registry.ErrDeviceAlreadyExists) {
+			return config.Device{}, fmt.Errorf("%w: %q", ErrDeviceAlreadyExists, id)
+		}
+		return config.Device{}, fmt.Errorf("add existing device to registry: %w", err)
+	}
+	return device, nil
+}
+
 // ListRoutes returns the current durable local routing policy. The registry
 // is the authority in normal deployments; YAML remains read-only migration
 // fallback only.
@@ -290,6 +319,9 @@ func (s *Server) provisionRegistry(ctx context.Context, id, template string) (co
 	tmpl, ok := deviceTemplates[template]
 	if !ok {
 		return config.Device{}, "", fmt.Errorf("%w: %q", ErrUnknownTemplate, template)
+	}
+	if tmpl.AdoptExisting {
+		return config.Device{}, "", fmt.Errorf("%w: %q", ErrTemplateRequiresAdopt, template)
 	}
 	if err := config.ValidateDeviceID("device_id", id); err != nil {
 		return config.Device{}, "", fmt.Errorf("%w: %v", ErrInvalidDeviceID, err)
