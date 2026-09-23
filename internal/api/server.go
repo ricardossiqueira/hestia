@@ -64,6 +64,13 @@ type TelemetryProvider interface {
 // CommandPublisher/StatusProvider/TelemetryProvider above, this one is not
 // backed by *mqtt.Gateway: the outbox is its own component, and this
 // interface names only the read this package actually needs from it.
+// EventProvider is the one capability this package needs to serve
+// GetRecentEvents - satisfied structurally by *mqtt.Gateway already, same
+// pattern as CommandPublisher/StatusProvider/TelemetryProvider.
+type EventProvider interface {
+	RecentEvents() []mqtt.ActivityEvent
+}
+
 type QueueProvider interface {
 	Snapshot(ctx context.Context) (outbox.Snapshot, error)
 }
@@ -95,6 +102,7 @@ type Server struct {
 	status    StatusProvider
 	telemetry TelemetryProvider
 	queue     QueueProvider
+	events    EventProvider
 	logger    *slog.Logger
 	http      *http.Server
 
@@ -103,7 +111,7 @@ type Server struct {
 	deviceProvider DeviceProvider
 }
 
-func New(cfg Config, publisher CommandPublisher, status StatusProvider, telemetry TelemetryProvider, queue QueueProvider, logger *slog.Logger) (*Server, error) {
+func New(cfg Config, publisher CommandPublisher, status StatusProvider, telemetry TelemetryProvider, queue QueueProvider, events EventProvider, logger *slog.Logger) (*Server, error) {
 	if strings.TrimSpace(cfg.Address) == "" {
 		return nil, errors.New("api address is required")
 	}
@@ -118,6 +126,9 @@ func New(cfg Config, publisher CommandPublisher, status StatusProvider, telemetr
 	}
 	if queue == nil {
 		return nil, errors.New("api queue provider is required")
+	}
+	if events == nil {
+		return nil, errors.New("api event provider is required")
 	}
 	if cfg.RequestTimeout <= 0 {
 		cfg.RequestTimeout = 10 * time.Second
@@ -140,6 +151,7 @@ func New(cfg Config, publisher CommandPublisher, status StatusProvider, telemetr
 		status:         status,
 		telemetry:      telemetry,
 		queue:          queue,
+		events:         events,
 		logger:         logger,
 		devices:        devices,
 		deviceList:     deviceList,

@@ -128,6 +128,7 @@ Regras:
 | `GetDeviceTelemetry` | `DeviceService` | Devolve a última mensagem `telemetry` aceita de um device, em cache (sem histórico). |
 | `GetStatus` | `GatewayService` | Espelha `internal/mqtt.Snapshot`: sessão MQTT, contadores, sem payloads. |
 | `GetQueueSummary` | `GatewayService` | Espelha `internal/outbox.Snapshot`: pendentes agora, bytes, idade do item mais antigo. |
+| `GetRecentEvents` | `GatewayService` | Log de atividade em memória: mensagens aceitas/rejeitadas e rotas locais, sem payload. |
 | `RegisterExistingDevice` | `DeviceAdminService` | Adota um serviço local com identidade MQTT já existente, sem alterar senha. |
 | `ListRoutes` | `DeviceAdminService` | Lista as rotas locais persistidas no SQLite. |
 | `CreateRoute` | `DeviceAdminService` | Cria uma rota entre um tópico inbound e um `command` habilitados. |
@@ -195,6 +196,27 @@ item, payload ou device por item: paginação/filtro por device e histórico de
 7 dias continuam fora de escopo (`gateway-web/docs/spec.md` §8.3) até
 existir um modelo de persistência novo - a outbox é uma fila de trabalho
 pendente, não um log.
+
+Nenhum fluxo de provisionamento atual (`ProvisionDevice`/`ProvisionCYD`/
+`ProvisionLED`/`RegisterExistingDevice`) liga `forwarding.*_to_vps` - só o
+`configs/gateway.example.yaml` fictício tem isso. Na prática, hoje, o
+resumo da fila sempre volta zerado; não há ainda um jeito de habilitar
+encaminhamento por device.
+
+### Atividade recente
+
+`GetRecentEvents` não é a fila acima - é outra coisa que também não existia
+antes: um log de atividade em memória (`internal/mqtt.Gateway`, últimos 200
+eventos, mais recente primeiro), gravado no mesmo ponto único
+(`handleMessage`) que já processa toda mensagem MQTT aceita. Cobre quatro
+`outcome`: `accepted`, `rejected` (com `detail` = motivo), e
+`route_published`/`route_failed` para os encaminhamentos locais definidos
+em `CreateRoute` (`detail` = ID da rota, mais a causa quando falha; `kind`
+fica vazio porque uma rota liga dois devices, não um só). Nunca inclui
+payload - mesma disciplina do `SlogLogger` que já loga essas mesmas
+mensagens hoje (só que sem deixar consultar pela API). Sem persistência:
+um restart do processo esquece tudo, como qualquer contador de
+`GetStatus`.
 
 ## Profile, validação e fallback opaco
 
@@ -370,6 +392,15 @@ curl -u <usuario>:<senha> \
   -H 'Content-Type: application/json' \
   -d '{}' \
   http://<orange-pi>:<porta>/iot.gateway.api.v1.GatewayService/GetQueueSummary
+```
+
+Ler a atividade recente (últimos 200 eventos, sem payload):
+
+```bash
+curl -u <usuario>:<senha> \
+  -H 'Content-Type: application/json' \
+  -d '{}' \
+  http://<orange-pi>:<porta>/iot.gateway.api.v1.GatewayService/GetRecentEvents
 ```
 
 Cadastrar um LED novo (devolve a senha MQTT uma única vez — anote-a, ela

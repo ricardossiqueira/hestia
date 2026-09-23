@@ -249,7 +249,7 @@ func runGateway(args []string, stderr io.Writer) int {
 			RequestTimeout: apiRequestTimeout,
 			Registry:       runtimeConfig,
 			DeviceProvider: gateway,
-		}, gateway, gateway, gateway, store, logger)
+		}, gateway, gateway, gateway, store, gateway, logger)
 		if err != nil {
 			fmt.Fprintf(stderr, "api setup failed: %v\n", err)
 			gateway.Close()

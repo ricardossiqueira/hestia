@@ -206,6 +206,25 @@ func (s *Server) GetQueueSummary(ctx context.Context, req *connect.Request[apiv1
 	}), nil
 }
 
+// GetRecentEvents mirrors mqtt.Gateway.RecentEvents 1:1 - already most
+// recent first, already payload-free, already capped - nothing to filter
+// or reorder here.
+func (s *Server) GetRecentEvents(ctx context.Context, req *connect.Request[apiv1.GetRecentEventsRequest]) (*connect.Response[apiv1.GetRecentEventsResponse], error) {
+	source := s.events.RecentEvents()
+	events := make([]*apiv1.ActivityEvent, 0, len(source))
+	for _, event := range source {
+		events = append(events, &apiv1.ActivityEvent{
+			Timestamp: timestamppb.New(event.Timestamp),
+			DeviceId:  event.DeviceID,
+			Kind:      string(event.Kind),
+			Topic:     event.Topic,
+			Outcome:   event.Outcome,
+			Detail:    event.Detail,
+		})
+	}
+	return connect.NewResponse(&apiv1.GetRecentEventsResponse{Events: events}), nil
+}
+
 // GetStatus mirrors mqtt.Snapshot 1:1 - see api.proto's GetStatusResponse
 // doc comment.
 func (s *Server) GetStatus(ctx context.Context, req *connect.Request[apiv1.GetStatusRequest]) (*connect.Response[apiv1.GetStatusResponse], error) {

@@ -81,6 +81,10 @@ type fakeQueue struct {
 
 func (f fakeQueue) Snapshot(context.Context) (outbox.Snapshot, error) { return f.snap, f.err }
 
+type fakeEvents []mqtt.ActivityEvent
+
+func (f fakeEvents) RecentEvents() []mqtt.ActivityEvent { return f }
+
 func testDevices() []config.Device {
 	enabled := true
 	return []config.Device{
@@ -106,14 +110,16 @@ func testDevices() []config.Device {
 // lives in package api and can reach the unexported s.http field. No auth
 // is exercised here any more (ADR-013): this package is loopback-only and
 // trusts its caller (internal/apigateway's reverse proxy) unconditionally.
-func newTestServer(t *testing.T, publisher *fakePublisher, status fakeStatus, telemetry fakeTelemetry, queue fakeQueue) *httptest.Server {
+// events is variadic so every existing call site (there are many) stays
+// unchanged - most tests here don't care about the activity log at all.
+func newTestServer(t *testing.T, publisher *fakePublisher, status fakeStatus, telemetry fakeTelemetry, queue fakeQueue, events ...mqtt.ActivityEvent) *httptest.Server {
 	t.Helper()
 	cfg := Config{
 		Address:        "127.0.0.1:0",
 		RequestTimeout: time.Second,
 		Registry:       config.Config{Devices: testDevices()},
 	}
-	srv, err := New(cfg, publisher, status, telemetry, queue, nil)
+	srv, err := New(cfg, publisher, status, telemetry, queue, fakeEvents(events), nil)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -420,5 +426,45 @@ func TestGetQueueSummaryPropagatesStoreError(t *testing.T) {
 	}
 	if connect.CodeOf(err) != connect.CodeInternal {
 		t.Errorf("code = %v, want Internal", connect.CodeOf(err))
+	}
+}
+
+func TestGetRecentEventsEmpty(t *testing.T) {
+	ts := newTestServer(t, &fakePublisher{}, fakeStatus{}, fakeTelemetry{}, fakeQueue{})
+	client := apiv1connect.NewGatewayServiceClient(ts.Client(), ts.URL)
+
+	resp, err := client.GetRecentEvents(context.Background(), connect.NewRequest(&apiv1.GetRecentEventsRequest{}))
+	if err != nil {
+		t.Fatalf("GetRecentEvents() error = %v", err)
+	}
+	if len(resp.Msg.GetEvents()) != 0 {
+		t.Errorf("events = %#v, want empty", resp.Msg.GetEvents())
+	}
+}
+
+func TestGetRecentEventsReturnsGatewayActivity(t *testing.T) {
+	when := time.Date(2026, 9, 24, 10, 0, 0, 0, time.UTC)
+	ts := newTestServer(t, &fakePublisher{}, fakeStatus{}, fakeTelemetry{}, fakeQueue{},
+		mqtt.ActivityEvent{Timestamp: when, DeviceID: "led-1", Kind: "state", Topic: "devices/led-1/state", Outcome: "accepted"},
+		mqtt.ActivityEvent{Timestamp: when, DeviceID: "led-1", Topic: "devices/display/command", Outcome: "route_published", Detail: "status-to-display"},
+	)
+	client := apiv1connect.NewGatewayServiceClient(ts.Client(), ts.URL)
+
+	resp, err := client.GetRecentEvents(context.Background(), connect.NewRequest(&apiv1.GetRecentEventsRequest{}))
+	if err != nil {
+		t.Fatalf("GetRecentEvents() error = %v", err)
+	}
+	events := resp.Msg.GetEvents()
+	if len(events) != 2 {
+		t.Fatalf("events = %#v, want 2", events)
+	}
+	if events[0].GetDeviceId() != "led-1" || events[0].GetOutcome() != "accepted" || events[0].GetKind() != "state" {
+		t.Errorf("events[0] = %#v", events[0])
+	}
+	if events[0].GetTimestamp() == nil || !events[0].GetTimestamp().AsTime().Equal(when) {
+		t.Errorf("events[0].Timestamp = %v, want %v", events[0].GetTimestamp(), when)
+	}
+	if events[1].GetOutcome() != "route_published" || events[1].GetDetail() != "status-to-display" || events[1].GetKind() != "" {
+		t.Errorf("events[1] = %#v", events[1])
 	}
 }

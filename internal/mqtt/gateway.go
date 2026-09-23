@@ -137,6 +137,11 @@ type Gateway struct {
 	telemetryMu   sync.RWMutex
 	lastTelemetry map[string]telemetryEntry
 
+	// eventsMu guards recentEvents - same reasoning as telemetryMu: a
+	// data-plane ring buffer, separate from configMu.
+	eventsMu     sync.RWMutex
+	recentEvents []ActivityEvent
+
 	acceptedMessages     atomic.Uint64
 	rejectedMessages     atomic.Uint64
 	localRoutesPublished atomic.Uint64
@@ -173,6 +178,31 @@ type route struct {
 type telemetryEntry struct {
 	payload    []byte
 	observedAt time.Time
+}
+
+// maxRecentEvents bounds the in-memory activity ring buffer (RecentEvents)
+// the same way outbox/registry tables are bounded on disk - an edge device
+// principle this codebase already applies everywhere state accumulates.
+const maxRecentEvents = 200
+
+// ActivityEvent is one payload-free entry in the in-memory activity log -
+// same privacy discipline as Message/RejectedMessage above (never a
+// payload), kept only for RecentEvents/GetRecentEvents (docs/api-v1.md).
+// No history beyond maxRecentEvents, no persistence - a restart forgets it,
+// like every other counter on Gateway.
+type ActivityEvent struct {
+	Timestamp time.Time
+	DeviceID  string
+	// Kind is empty for a route_published/route_failed outcome - a route
+	// spans two devices, not one.
+	Kind  Kind
+	Topic string
+	// Outcome is one of "accepted", "rejected", "route_published",
+	// "route_failed".
+	Outcome string
+	// Detail is the rejection reason, or the route ID (plus failure cause
+	// for route_failed) - never a payload.
+	Detail string
 }
 
 // New constructs the MQTT gateway from an already validated configuration.
@@ -299,6 +329,32 @@ func (g *Gateway) LastTelemetry(deviceID string) ([]byte, time.Time, bool) {
 		return nil, time.Time{}, false
 	}
 	return append([]byte(nil), entry.payload...), entry.observedAt, true
+}
+
+// RecentEvents returns a copy of the in-memory activity ring buffer, most
+// recent first - see ActivityEvent's doc comment for what it captures and
+// why (no payload, no persistence, capped at maxRecentEvents).
+func (g *Gateway) RecentEvents() []ActivityEvent {
+	g.eventsMu.RLock()
+	defer g.eventsMu.RUnlock()
+	events := make([]ActivityEvent, len(g.recentEvents))
+	for i, event := range g.recentEvents {
+		events[len(events)-1-i] = event
+	}
+	return events
+}
+
+// recordEvent appends to the ring buffer, dropping the oldest entry once
+// maxRecentEvents is reached. recentEvents is stored oldest-first
+// internally so trimming the front is the only bookkeeping needed;
+// RecentEvents reverses it for callers.
+func (g *Gateway) recordEvent(event ActivityEvent) {
+	g.eventsMu.Lock()
+	defer g.eventsMu.Unlock()
+	g.recentEvents = append(g.recentEvents, event)
+	if excess := len(g.recentEvents) - maxRecentEvents; excess > 0 {
+		g.recentEvents = g.recentEvents[excess:]
+	}
 }
 
 // Devices returns a stable copy of the currently applied device policy. It
@@ -469,10 +525,12 @@ func (g *Gateway) handleMessage(ctx context.Context, topic string, payload []byt
 	if err != nil {
 		g.rejectedMessages.Add(1)
 		g.logger.Rejected(ctx, RejectedMessage{DeviceID: route.deviceID, Kind: route.kind, Topic: topic, Reason: err.Error()})
+		g.recordEvent(ActivityEvent{Timestamp: time.Now().UTC(), DeviceID: route.deviceID, Kind: route.kind, Topic: topic, Outcome: "rejected", Detail: err.Error()})
 		return
 	}
 	g.acceptedMessages.Add(1)
 	g.logger.Accepted(ctx, message)
+	g.recordEvent(ActivityEvent{Timestamp: message.Timestamp, DeviceID: message.DeviceID, Kind: message.Kind, Topic: message.Topic, Outcome: "accepted"})
 	if route.kind == Telemetry {
 		g.telemetryMu.Lock()
 		g.lastTelemetry[route.deviceID] = telemetryEntry{payload: message.Payload, observedAt: message.Timestamp}
@@ -514,8 +572,10 @@ func (g *Gateway) handleMessage(ctx context.Context, topic string, payload []byt
 			g.localRoutesFailed.Add(1)
 			g.rejectedMessages.Add(1)
 			g.logger.Rejected(ctx, RejectedMessage{DeviceID: route.deviceID, Kind: route.kind, Topic: topic, Reason: fmt.Sprintf("route %s failed: %v", forward.ID, err)})
+			g.recordEvent(ActivityEvent{Timestamp: time.Now().UTC(), DeviceID: route.deviceID, Topic: forward.DestinationTopic, Outcome: "route_failed", Detail: forward.ID + ": " + err.Error()})
 		} else {
 			g.localRoutesPublished.Add(1)
+			g.recordEvent(ActivityEvent{Timestamp: time.Now().UTC(), DeviceID: route.deviceID, Topic: forward.DestinationTopic, Outcome: "route_published", Detail: forward.ID})
 		}
 	}
 }

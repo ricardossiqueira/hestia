@@ -55,6 +55,9 @@ const (
 	// GatewayServiceGetQueueSummaryProcedure is the fully-qualified name of the GatewayService's
 	// GetQueueSummary RPC.
 	GatewayServiceGetQueueSummaryProcedure = "/iot.gateway.api.v1.GatewayService/GetQueueSummary"
+	// GatewayServiceGetRecentEventsProcedure is the fully-qualified name of the GatewayService's
+	// GetRecentEvents RPC.
+	GatewayServiceGetRecentEventsProcedure = "/iot.gateway.api.v1.GatewayService/GetRecentEvents"
 	// DeviceAdminServiceRegisterExistingDeviceProcedure is the fully-qualified name of the
 	// DeviceAdminService's RegisterExistingDevice RPC.
 	DeviceAdminServiceRegisterExistingDeviceProcedure = "/iot.gateway.api.v1.DeviceAdminService/RegisterExistingDevice"
@@ -252,6 +255,10 @@ type GatewayServiceClient interface {
 	// GetQueueSummary reads the outbox's current pending state (not the
 	// lifetime counters GetStatus already reports) - see docs/api-v1.md.
 	GetQueueSummary(context.Context, *connect.Request[v1.GetQueueSummaryRequest]) (*connect.Response[v1.GetQueueSummaryResponse], error)
+	// GetRecentEvents returns the in-memory activity log - accepted/rejected
+	// messages and local route outcomes, no payload, capped and forgotten on
+	// restart. See docs/api-v1.md's "Atividade recente".
+	GetRecentEvents(context.Context, *connect.Request[v1.GetRecentEventsRequest]) (*connect.Response[v1.GetRecentEventsResponse], error)
 }
 
 // NewGatewayServiceClient constructs a client for the iot.gateway.api.v1.GatewayService service. By
@@ -277,6 +284,12 @@ func NewGatewayServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(gatewayServiceMethods.ByName("GetQueueSummary")),
 			connect.WithClientOptions(opts...),
 		),
+		getRecentEvents: connect.NewClient[v1.GetRecentEventsRequest, v1.GetRecentEventsResponse](
+			httpClient,
+			baseURL+GatewayServiceGetRecentEventsProcedure,
+			connect.WithSchema(gatewayServiceMethods.ByName("GetRecentEvents")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -284,6 +297,7 @@ func NewGatewayServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 type gatewayServiceClient struct {
 	getStatus       *connect.Client[v1.GetStatusRequest, v1.GetStatusResponse]
 	getQueueSummary *connect.Client[v1.GetQueueSummaryRequest, v1.GetQueueSummaryResponse]
+	getRecentEvents *connect.Client[v1.GetRecentEventsRequest, v1.GetRecentEventsResponse]
 }
 
 // GetStatus calls iot.gateway.api.v1.GatewayService.GetStatus.
@@ -296,12 +310,21 @@ func (c *gatewayServiceClient) GetQueueSummary(ctx context.Context, req *connect
 	return c.getQueueSummary.CallUnary(ctx, req)
 }
 
+// GetRecentEvents calls iot.gateway.api.v1.GatewayService.GetRecentEvents.
+func (c *gatewayServiceClient) GetRecentEvents(ctx context.Context, req *connect.Request[v1.GetRecentEventsRequest]) (*connect.Response[v1.GetRecentEventsResponse], error) {
+	return c.getRecentEvents.CallUnary(ctx, req)
+}
+
 // GatewayServiceHandler is an implementation of the iot.gateway.api.v1.GatewayService service.
 type GatewayServiceHandler interface {
 	GetStatus(context.Context, *connect.Request[v1.GetStatusRequest]) (*connect.Response[v1.GetStatusResponse], error)
 	// GetQueueSummary reads the outbox's current pending state (not the
 	// lifetime counters GetStatus already reports) - see docs/api-v1.md.
 	GetQueueSummary(context.Context, *connect.Request[v1.GetQueueSummaryRequest]) (*connect.Response[v1.GetQueueSummaryResponse], error)
+	// GetRecentEvents returns the in-memory activity log - accepted/rejected
+	// messages and local route outcomes, no payload, capped and forgotten on
+	// restart. See docs/api-v1.md's "Atividade recente".
+	GetRecentEvents(context.Context, *connect.Request[v1.GetRecentEventsRequest]) (*connect.Response[v1.GetRecentEventsResponse], error)
 }
 
 // NewGatewayServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -323,12 +346,20 @@ func NewGatewayServiceHandler(svc GatewayServiceHandler, opts ...connect.Handler
 		connect.WithSchema(gatewayServiceMethods.ByName("GetQueueSummary")),
 		connect.WithHandlerOptions(opts...),
 	)
+	gatewayServiceGetRecentEventsHandler := connect.NewUnaryHandler(
+		GatewayServiceGetRecentEventsProcedure,
+		svc.GetRecentEvents,
+		connect.WithSchema(gatewayServiceMethods.ByName("GetRecentEvents")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/iot.gateway.api.v1.GatewayService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case GatewayServiceGetStatusProcedure:
 			gatewayServiceGetStatusHandler.ServeHTTP(w, r)
 		case GatewayServiceGetQueueSummaryProcedure:
 			gatewayServiceGetQueueSummaryHandler.ServeHTTP(w, r)
+		case GatewayServiceGetRecentEventsProcedure:
+			gatewayServiceGetRecentEventsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -344,6 +375,10 @@ func (UnimplementedGatewayServiceHandler) GetStatus(context.Context, *connect.Re
 
 func (UnimplementedGatewayServiceHandler) GetQueueSummary(context.Context, *connect.Request[v1.GetQueueSummaryRequest]) (*connect.Response[v1.GetQueueSummaryResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("iot.gateway.api.v1.GatewayService.GetQueueSummary is not implemented"))
+}
+
+func (UnimplementedGatewayServiceHandler) GetRecentEvents(context.Context, *connect.Request[v1.GetRecentEventsRequest]) (*connect.Response[v1.GetRecentEventsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("iot.gateway.api.v1.GatewayService.GetRecentEvents is not implemented"))
 }
 
 // DeviceAdminServiceClient is a client for the iot.gateway.api.v1.DeviceAdminService service.

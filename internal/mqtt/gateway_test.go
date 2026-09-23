@@ -477,6 +477,71 @@ func TestGatewayLastTelemetryReturnsMostRecentAcceptedMessage(t *testing.T) {
 	}
 }
 
+func TestGatewayRecentEventsCapturesAcceptedRejectedAndRouteOutcomes(t *testing.T) {
+	cfg := testConfig()
+	cfg.Devices = append(cfg.Devices, config.Device{ID: "display", Enabled: boolPtr(true), Topics: config.Topics{Command: "devices/display/command"}})
+	cfg.Routes = []config.Route{{
+		ID: "status-to-display", SourceTopic: "devices/esp32-sala/telemetry", DestinationTopic: "devices/display/command", QoS: 1,
+		Transform: config.RouteTransform{Type: "json_command", CommandType: "render_status"},
+	}}
+	client := &fakeClient{}
+	gateway, err := New(cfg, client, &recordingLogger{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := gateway.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := gateway.RecentEvents(); len(got) != 0 {
+		t.Fatalf("RecentEvents() before any message = %#v, want empty", got)
+	}
+
+	// accepted + route_published (the route above forwards this telemetry
+	// to devices/display/command).
+	client.deliver("devices/esp32-sala/telemetry", []byte(`{"message_id":"b4a5bb31-1710-4f7b-a043-1b6a292d04ad","timestamp":"2026-09-18T15:00:00Z","cpu_pct":24.6}`))
+	// rejected (malformed JSON).
+	client.deliver("devices/esp32-sala/state", []byte(`not json`))
+
+	events := gateway.RecentEvents()
+	if len(events) != 3 {
+		t.Fatalf("RecentEvents() = %#v, want 3", events)
+	}
+	// Most recent first.
+	if events[0].Outcome != "rejected" || events[0].DeviceID != "esp32-sala" {
+		t.Errorf("events[0] = %#v", events[0])
+	}
+	if events[1].Outcome != "route_published" || events[1].Detail != "status-to-display" {
+		t.Errorf("events[1] = %#v", events[1])
+	}
+	if events[2].Outcome != "accepted" || events[2].Kind != Telemetry || events[2].DeviceID != "esp32-sala" {
+		t.Errorf("events[2] = %#v", events[2])
+	}
+	for _, event := range events {
+		if event.Timestamp.IsZero() {
+			t.Errorf("event %#v has a zero Timestamp", event)
+		}
+	}
+}
+
+func TestGatewayRecentEventsIsBoundedByMax(t *testing.T) {
+	client := &fakeClient{}
+	gateway, err := New(testConfig(), client, &recordingLogger{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := gateway.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < maxRecentEvents+20; i++ {
+		client.deliver("devices/esp32-sala/state", []byte(`not json`))
+	}
+	events := gateway.RecentEvents()
+	if len(events) != maxRecentEvents {
+		t.Fatalf("len(RecentEvents()) = %d, want %d", len(events), maxRecentEvents)
+	}
+}
+
 func TestGatewayApplyPrunesLastTelemetryForRemovedDevice(t *testing.T) {
 	client := &fakeClient{}
 	gateway, err := New(testConfig(), client, &recordingLogger{}, nil)

@@ -27,6 +27,10 @@ service GatewayService {
   // GetQueueSummary reads the outbox's current pending state (not the
   // lifetime counters GetStatus already reports) - see docs/api-v1.md.
   rpc GetQueueSummary(GetQueueSummaryRequest) returns (GetQueueSummaryResponse);
+  // GetRecentEvents returns the in-memory activity log - accepted/rejected
+  // messages and local route outcomes, no payload, capped and forgotten on
+  // restart. See docs/api-v1.md's "Atividade recente".
+  rpc GetRecentEvents(GetRecentEventsRequest) returns (GetRecentEventsResponse);
 }
 
 // DeviceAdminService registers, enables/disables and removes devices - the
@@ -314,4 +318,27 @@ message GetQueueSummaryResponse {
   int64 pending_bytes = 2;
   // Unset when pending_messages is 0.
   google.protobuf.Timestamp oldest_enqueued_at = 3;
+}
+
+// ActivityEvent mirrors internal/mqtt.ActivityEvent 1:1. Never a payload -
+// see docs/api-v1.md's "Atividade recente".
+message ActivityEvent {
+  google.protobuf.Timestamp timestamp = 1;
+  string device_id = 2;
+  // kind is empty for a route_published/route_failed outcome.
+  string kind = 3;
+  string topic = 4;
+  // outcome is one of "accepted", "rejected", "route_published",
+  // "route_failed".
+  string outcome = 5;
+  // detail is the rejection reason, or the route ID (plus failure cause
+  // for route_failed) - never a payload.
+  string detail = 6;
+}
+
+message GetRecentEventsRequest {}
+
+message GetRecentEventsResponse {
+  // Most recent first, capped at internal/mqtt.maxRecentEvents (200).
+  repeated ActivityEvent events = 1;
 }
