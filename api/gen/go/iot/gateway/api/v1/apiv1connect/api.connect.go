@@ -79,6 +79,9 @@ const (
 	// DeviceAdminServiceListDeviceManifestBindingsProcedure is the fully-qualified name of the
 	// DeviceAdminService's ListDeviceManifestBindings RPC.
 	DeviceAdminServiceListDeviceManifestBindingsProcedure = "/iot.gateway.api.v1.DeviceAdminService/ListDeviceManifestBindings"
+	// DeviceAdminServiceMigrateDeviceToManifestProcedure is the fully-qualified name of the
+	// DeviceAdminService's MigrateDeviceToManifest RPC.
+	DeviceAdminServiceMigrateDeviceToManifestProcedure = "/iot.gateway.api.v1.DeviceAdminService/MigrateDeviceToManifest"
 	// DeviceAdminServiceCreateDeviceManifestDraftProcedure is the fully-qualified name of the
 	// DeviceAdminService's CreateDeviceManifestDraft RPC.
 	DeviceAdminServiceCreateDeviceManifestDraftProcedure = "/iot.gateway.api.v1.DeviceAdminService/CreateDeviceManifestDraft"
@@ -418,6 +421,7 @@ type DeviceAdminServiceClient interface {
 	ListDeviceManifests(context.Context, *connect.Request[v1.ListDeviceManifestsRequest]) (*connect.Response[v1.ListDeviceManifestsResponse], error)
 	GetDeviceManifest(context.Context, *connect.Request[v1.GetDeviceManifestRequest]) (*connect.Response[v1.GetDeviceManifestResponse], error)
 	ListDeviceManifestBindings(context.Context, *connect.Request[v1.ListDeviceManifestBindingsRequest]) (*connect.Response[v1.ListDeviceManifestBindingsResponse], error)
+	MigrateDeviceToManifest(context.Context, *connect.Request[v1.MigrateDeviceToManifestRequest]) (*connect.Response[v1.MigrateDeviceToManifestResponse], error)
 	CreateDeviceManifestDraft(context.Context, *connect.Request[v1.CreateDeviceManifestDraftRequest]) (*connect.Response[v1.CreateDeviceManifestDraftResponse], error)
 	CreateDeviceManifestRevisionDraft(context.Context, *connect.Request[v1.CreateDeviceManifestRevisionDraftRequest]) (*connect.Response[v1.CreateDeviceManifestRevisionDraftResponse], error)
 	PublishDeviceManifest(context.Context, *connect.Request[v1.PublishDeviceManifestRequest]) (*connect.Response[v1.PublishDeviceManifestResponse], error)
@@ -494,6 +498,12 @@ func NewDeviceAdminServiceClient(httpClient connect.HTTPClient, baseURL string, 
 			httpClient,
 			baseURL+DeviceAdminServiceListDeviceManifestBindingsProcedure,
 			connect.WithSchema(deviceAdminServiceMethods.ByName("ListDeviceManifestBindings")),
+			connect.WithClientOptions(opts...),
+		),
+		migrateDeviceToManifest: connect.NewClient[v1.MigrateDeviceToManifestRequest, v1.MigrateDeviceToManifestResponse](
+			httpClient,
+			baseURL+DeviceAdminServiceMigrateDeviceToManifestProcedure,
+			connect.WithSchema(deviceAdminServiceMethods.ByName("MigrateDeviceToManifest")),
 			connect.WithClientOptions(opts...),
 		),
 		createDeviceManifestDraft: connect.NewClient[v1.CreateDeviceManifestDraftRequest, v1.CreateDeviceManifestDraftResponse](
@@ -574,6 +584,7 @@ type deviceAdminServiceClient struct {
 	listDeviceManifests               *connect.Client[v1.ListDeviceManifestsRequest, v1.ListDeviceManifestsResponse]
 	getDeviceManifest                 *connect.Client[v1.GetDeviceManifestRequest, v1.GetDeviceManifestResponse]
 	listDeviceManifestBindings        *connect.Client[v1.ListDeviceManifestBindingsRequest, v1.ListDeviceManifestBindingsResponse]
+	migrateDeviceToManifest           *connect.Client[v1.MigrateDeviceToManifestRequest, v1.MigrateDeviceToManifestResponse]
 	createDeviceManifestDraft         *connect.Client[v1.CreateDeviceManifestDraftRequest, v1.CreateDeviceManifestDraftResponse]
 	createDeviceManifestRevisionDraft *connect.Client[v1.CreateDeviceManifestRevisionDraftRequest, v1.CreateDeviceManifestRevisionDraftResponse]
 	publishDeviceManifest             *connect.Client[v1.PublishDeviceManifestRequest, v1.PublishDeviceManifestResponse]
@@ -621,6 +632,11 @@ func (c *deviceAdminServiceClient) GetDeviceManifest(ctx context.Context, req *c
 // iot.gateway.api.v1.DeviceAdminService.ListDeviceManifestBindings.
 func (c *deviceAdminServiceClient) ListDeviceManifestBindings(ctx context.Context, req *connect.Request[v1.ListDeviceManifestBindingsRequest]) (*connect.Response[v1.ListDeviceManifestBindingsResponse], error) {
 	return c.listDeviceManifestBindings.CallUnary(ctx, req)
+}
+
+// MigrateDeviceToManifest calls iot.gateway.api.v1.DeviceAdminService.MigrateDeviceToManifest.
+func (c *deviceAdminServiceClient) MigrateDeviceToManifest(ctx context.Context, req *connect.Request[v1.MigrateDeviceToManifestRequest]) (*connect.Response[v1.MigrateDeviceToManifestResponse], error) {
+	return c.migrateDeviceToManifest.CallUnary(ctx, req)
 }
 
 // CreateDeviceManifestDraft calls iot.gateway.api.v1.DeviceAdminService.CreateDeviceManifestDraft.
@@ -696,6 +712,7 @@ type DeviceAdminServiceHandler interface {
 	ListDeviceManifests(context.Context, *connect.Request[v1.ListDeviceManifestsRequest]) (*connect.Response[v1.ListDeviceManifestsResponse], error)
 	GetDeviceManifest(context.Context, *connect.Request[v1.GetDeviceManifestRequest]) (*connect.Response[v1.GetDeviceManifestResponse], error)
 	ListDeviceManifestBindings(context.Context, *connect.Request[v1.ListDeviceManifestBindingsRequest]) (*connect.Response[v1.ListDeviceManifestBindingsResponse], error)
+	MigrateDeviceToManifest(context.Context, *connect.Request[v1.MigrateDeviceToManifestRequest]) (*connect.Response[v1.MigrateDeviceToManifestResponse], error)
 	CreateDeviceManifestDraft(context.Context, *connect.Request[v1.CreateDeviceManifestDraftRequest]) (*connect.Response[v1.CreateDeviceManifestDraftResponse], error)
 	CreateDeviceManifestRevisionDraft(context.Context, *connect.Request[v1.CreateDeviceManifestRevisionDraftRequest]) (*connect.Response[v1.CreateDeviceManifestRevisionDraftResponse], error)
 	PublishDeviceManifest(context.Context, *connect.Request[v1.PublishDeviceManifestRequest]) (*connect.Response[v1.PublishDeviceManifestResponse], error)
@@ -768,6 +785,12 @@ func NewDeviceAdminServiceHandler(svc DeviceAdminServiceHandler, opts ...connect
 		DeviceAdminServiceListDeviceManifestBindingsProcedure,
 		svc.ListDeviceManifestBindings,
 		connect.WithSchema(deviceAdminServiceMethods.ByName("ListDeviceManifestBindings")),
+		connect.WithHandlerOptions(opts...),
+	)
+	deviceAdminServiceMigrateDeviceToManifestHandler := connect.NewUnaryHandler(
+		DeviceAdminServiceMigrateDeviceToManifestProcedure,
+		svc.MigrateDeviceToManifest,
+		connect.WithSchema(deviceAdminServiceMethods.ByName("MigrateDeviceToManifest")),
 		connect.WithHandlerOptions(opts...),
 	)
 	deviceAdminServiceCreateDeviceManifestDraftHandler := connect.NewUnaryHandler(
@@ -852,6 +875,8 @@ func NewDeviceAdminServiceHandler(svc DeviceAdminServiceHandler, opts ...connect
 			deviceAdminServiceGetDeviceManifestHandler.ServeHTTP(w, r)
 		case DeviceAdminServiceListDeviceManifestBindingsProcedure:
 			deviceAdminServiceListDeviceManifestBindingsHandler.ServeHTTP(w, r)
+		case DeviceAdminServiceMigrateDeviceToManifestProcedure:
+			deviceAdminServiceMigrateDeviceToManifestHandler.ServeHTTP(w, r)
 		case DeviceAdminServiceCreateDeviceManifestDraftProcedure:
 			deviceAdminServiceCreateDeviceManifestDraftHandler.ServeHTTP(w, r)
 		case DeviceAdminServiceCreateDeviceManifestRevisionDraftProcedure:
@@ -909,6 +934,10 @@ func (UnimplementedDeviceAdminServiceHandler) GetDeviceManifest(context.Context,
 
 func (UnimplementedDeviceAdminServiceHandler) ListDeviceManifestBindings(context.Context, *connect.Request[v1.ListDeviceManifestBindingsRequest]) (*connect.Response[v1.ListDeviceManifestBindingsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("iot.gateway.api.v1.DeviceAdminService.ListDeviceManifestBindings is not implemented"))
+}
+
+func (UnimplementedDeviceAdminServiceHandler) MigrateDeviceToManifest(context.Context, *connect.Request[v1.MigrateDeviceToManifestRequest]) (*connect.Response[v1.MigrateDeviceToManifestResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("iot.gateway.api.v1.DeviceAdminService.MigrateDeviceToManifest is not implemented"))
 }
 
 func (UnimplementedDeviceAdminServiceHandler) CreateDeviceManifestDraft(context.Context, *connect.Request[v1.CreateDeviceManifestDraftRequest]) (*connect.Response[v1.CreateDeviceManifestDraftResponse], error) {

@@ -54,6 +54,7 @@ service DeviceAdminService {
   rpc ListDeviceManifests(ListDeviceManifestsRequest) returns (ListDeviceManifestsResponse);
   rpc GetDeviceManifest(GetDeviceManifestRequest) returns (GetDeviceManifestResponse);
   rpc ListDeviceManifestBindings(ListDeviceManifestBindingsRequest) returns (ListDeviceManifestBindingsResponse);
+  rpc MigrateDeviceToManifest(MigrateDeviceToManifestRequest) returns (MigrateDeviceToManifestResponse);
   rpc CreateDeviceManifestDraft(CreateDeviceManifestDraftRequest) returns (CreateDeviceManifestDraftResponse);
   rpc CreateDeviceManifestRevisionDraft(CreateDeviceManifestRevisionDraftRequest) returns (CreateDeviceManifestRevisionDraftResponse);
   rpc PublishDeviceManifest(PublishDeviceManifestRequest) returns (PublishDeviceManifestResponse);
@@ -160,6 +161,8 @@ message ListDeviceManifestBindingsRequest {}
 message ListDeviceManifestBindingsResponse {
   repeated DeviceManifestBinding bindings = 1;
 }
+message MigrateDeviceToManifestRequest { string device_id = 1; string manifest_id = 2; }
+message MigrateDeviceToManifestResponse { Device device = 1; google.protobuf.Timestamp applied_at = 2; }
 
 message CreateDeviceManifestDraftRequest {
   string document_json = 1;

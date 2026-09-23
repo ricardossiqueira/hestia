@@ -72,6 +72,8 @@ type fakeDeviceAdmin struct {
 	ipProvisionErr      error
 	ipProvisioned       config.Device
 	ipAddress           string
+	migrateErr          error
+	migrated            config.Device
 
 	setEnabledErr error
 	setEnabled    config.Device
@@ -184,6 +186,10 @@ func (f *fakeDeviceAdmin) ProvisionDeviceByIP(ctx context.Context, id, manifestI
 		return config.Device{}, "", f.ipProvisionErr
 	}
 	return f.ipProvisioned, f.ipAddress, nil
+}
+
+func (f *fakeDeviceAdmin) MigrateDeviceToManifest(ctx context.Context, deviceID, manifestID, actor string) (config.Device, error) {
+	return f.migrated, f.migrateErr
 }
 
 func (f *fakeDeviceAdmin) ProvisionCYD(ctx context.Context, id, address string) (config.Device, string, error) {

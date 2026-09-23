@@ -176,6 +176,17 @@ func (s *Server) ListDeviceManifestBindings(ctx context.Context, _ *connect.Requ
 	return connect.NewResponse(response), nil
 }
 
+func (s *Server) MigrateDeviceToManifest(ctx context.Context, req *connect.Request[apiv1.MigrateDeviceToManifestRequest]) (*connect.Response[apiv1.MigrateDeviceToManifestResponse], error) {
+	device, err := s.cfg.Admin.MigrateDeviceToManifest(ctx, req.Msg.GetDeviceId(), req.Msg.GetManifestId(), authenticatedActor(ctx))
+	if errors.Is(err, registry.ErrDeviceNotFound) || errors.Is(err, registry.ErrManifestNotFound) {
+		return nil, connect.NewError(connect.CodeNotFound, err)
+	}
+	if err != nil {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, err)
+	}
+	return connect.NewResponse(&apiv1.MigrateDeviceToManifestResponse{Device: deviceToProto(device), AppliedAt: timestamppb.Now()}), nil
+}
+
 func (s *Server) CreateDeviceManifestDraft(ctx context.Context, req *connect.Request[apiv1.CreateDeviceManifestDraftRequest]) (*connect.Response[apiv1.CreateDeviceManifestDraftResponse], error) {
 	manifest, err := s.cfg.Admin.CreateDeviceManifestDraft(ctx, req.Msg.GetDocumentJson(), authenticatedActor(ctx))
 	if err != nil {

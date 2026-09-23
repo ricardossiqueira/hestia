@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ricardossiqueira/iot-gateway/internal/config"
 	"github.com/ricardossiqueira/iot-gateway/internal/devicemanifest"
 )
 
@@ -291,6 +292,85 @@ func (s *Store) ResolveDeviceManifest(ctx context.Context, deviceID string) (dev
 		return devicemanifest.Document{}, false, fmt.Errorf("stored device manifest is invalid: %w", err)
 	}
 	return parsed, true, nil
+}
+
+// MigrateDeviceToManifest replaces a legacy compiled profile with a pinned,
+// published manifest. It never changes a broker credential or device NVS.
+func (s *Store) MigrateDeviceToManifest(ctx context.Context, deviceID, manifestID, actor string) (config.Device, error) {
+	actor, err := validateManifestActor(actor)
+	if err != nil {
+		return config.Device{}, err
+	}
+	manifest, err := s.GetPublishedManifest(ctx, manifestID)
+	if err != nil {
+		return config.Device{}, err
+	}
+	document, _, err := devicemanifest.Parse(manifest.Document)
+	if err != nil {
+		return config.Device{}, err
+	}
+	snapshot, err := s.Snapshot(ctx)
+	if err != nil {
+		return config.Device{}, err
+	}
+	var device config.Device
+	found := false
+	for _, candidate := range snapshot.Devices {
+		if candidate.ID == deviceID {
+			device, found = candidate, true
+			break
+		}
+	}
+	if !found {
+		return config.Device{}, fmt.Errorf("%w: %q", ErrDeviceNotFound, deviceID)
+	}
+	if device.Profile == "" {
+		return config.Device{}, errors.New("device is already manifest-managed")
+	}
+	for _, topic := range document.MQTT.Topics {
+		if !deviceHasTopic(device, topic) {
+			return config.Device{}, fmt.Errorf("device topic %q is incompatible with manifest", topic)
+		}
+	}
+	tx, err := s.begin(ctx)
+	if err != nil {
+		return config.Device{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	revision, err := nextRevision(ctx, tx)
+	if err != nil {
+		return config.Device{}, err
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE registry_devices SET profile='', revision=?, updated_at_ns=? WHERE id=?`, revision, s.now().UnixNano(), deviceID); err != nil {
+		return config.Device{}, err
+	}
+	if _, err = tx.ExecContext(ctx, `INSERT INTO registry_device_manifest_bindings(device_id,manifest_id,manifest_revision) VALUES (?,?,?)`, deviceID, manifest.ID, manifest.Revision); err != nil {
+		return config.Device{}, err
+	}
+	if _, err = tx.ExecContext(ctx, `INSERT INTO registry_device_manifest_binding_audit(id,device_id,manifest_id,manifest_revision,previous_profile,actor,created_at_ns) VALUES(lower(hex(randomblob(16))),?,?,?,?,?,?)`, deviceID, manifest.ID, manifest.Revision, device.Profile, actor, s.now().UnixNano()); err != nil {
+		return config.Device{}, err
+	}
+	if err = tx.Commit(); err != nil {
+		return config.Device{}, err
+	}
+	device.Profile = ""
+	return device, nil
+}
+
+func deviceHasTopic(device config.Device, kind string) bool {
+	switch kind {
+	case "telemetry":
+		return device.Topics.Telemetry != ""
+	case "state":
+		return device.Topics.State != ""
+	case "event":
+		return device.Topics.Event != ""
+	case "command":
+		return device.Topics.Command != ""
+	case "command-result":
+		return device.Topics.CommandResult != ""
+	}
+	return false
 }
 
 func (s *Store) seedDefaultManifests(ctx context.Context) error {

@@ -173,6 +173,13 @@ func (s *Server) ListDeviceManifestBindings(ctx context.Context) ([]registry.Dev
 	return s.cfg.Registry.ListDeviceManifestBindings(ctx)
 }
 
+func (s *Server) MigrateDeviceToManifest(ctx context.Context, deviceID, manifestID, actor string) (config.Device, error) {
+	if s.cfg.Registry == nil {
+		return config.Device{}, errors.New("migrating a device requires the SQLite registry")
+	}
+	return s.cfg.Registry.MigrateDeviceToManifest(ctx, deviceID, manifestID, actor)
+}
+
 func (s *Server) CreateDeviceManifestDraft(ctx context.Context, document, actor string) (registry.DeviceManifest, error) {
 	if s.cfg.Registry == nil {
 		return registry.DeviceManifest{}, errors.New("editing device manifests requires the SQLite registry")
