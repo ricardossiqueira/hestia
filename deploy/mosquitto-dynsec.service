@@ -1,0 +1,22 @@
+[Unit]
+Description=Mosquitto Dynamic Security broker (IoT Gateway migration)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+User=mosquitto
+Group=mosquitto
+RuntimeDirectory=mosquitto-dynsec
+RuntimeDirectoryMode=0750
+ExecStart=/usr/sbin/mosquitto -c /etc/mosquitto-dynsec/mosquitto.conf
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/mosquitto-dynsec /run/mosquitto-dynsec
+
+[Install]
+WantedBy=multi-user.target

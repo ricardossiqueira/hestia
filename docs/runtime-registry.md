@@ -1,9 +1,9 @@
 # Registry operacional em SQLite
 
-> **Status: migracao em andamento.** O registry SQLite, importacao unica do
-> YAML e aplicacao dinamica da politica MQTT ja existem. A troca do
-> provisionamento por arquivos para o Dynamic Security do Mosquitto e o NVS
-> dos ESP32 continuam etapas futuras.
+> **Status: migracao em andamento.** O registry SQLite e a aplicacao dinamica
+> da politica MQTT ja existem. O adaptador DynSec esta no gateway; a ativacao
+> no Orange Pi e o cutover dos devices seguem `dynsec-migration.md`. NVS nos
+> ESP32 continua etapa futura.
 
 ## Objetivo
 
@@ -35,9 +35,9 @@ control plane ----> registry SQLite <---- runtime manager do gateway
 - A API de administracao usa o registry para cadastrar, habilitar, desabilitar
   e remover devices; a listagem e a publicacao de comandos leem a politica MQTT
   atualmente aplicada, nao o YAML de bootstrap.
-- A credencial/ACL ainda passa temporariamente pelo script legado do Mosquitto.
-  Portanto, o servico de administracao ainda requer privilegio ate a migracao
-  para Dynamic Security estar implantada no Orange Pi.
+- Quando `IOT_GATEWAY_DYNSEC_URL` esta configurada, a administracao usa a API
+  DynSec do broker e nao edita arquivos nem recarrega servicos. O script legado
+  fica somente como compatibilidade durante a migracao.
 
 ## Decisoes de escopo
 

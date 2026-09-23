@@ -175,17 +175,17 @@ and protect `main` with the CI workflow in GitHub before enabling this agent.
 
 Registering, enabling/disabling and removing a device (without SSH-ing in)
 goes through `DeviceAdminService` on the local API below - `gateway-web` is
-the day-to-day client. It creates the Mosquitto credential/ACL (by calling
-`deploy/mosquitto-provision-device.sh` under the hood), writes the entry to
-`gateway.yaml`, and restarts `iot-gateway.service` to apply it - the same
-thing a small LAN-facing HTML page (`iot-gateway-admin.service`, port 8081)
-used to do before `gateway-web` reached parity with it (`docs/decisions.md`
-ADR-015). `iot-gateway-admin.service` still exists and still must run as
-its **own** root process - see ADR-008 for why (writing
-`/etc/mosquitto/*`/`gateway.yaml` and calling `systemctl` can never happen
-in the sandboxed gateway process) - it just has no HTML of its own left to
-open in a browser. `docs/mosquitto-device-provisioning.md` documents what
-the underlying script automates, for when you need to debug it directly.
+the day-to-day client. With the Dynamic Security deployment, it creates or
+revokes the MQTT client and its narrow role/ACL through Mosquitto's runtime
+control API, then writes only the device policy to the SQLite registry. It
+does not edit `gateway.yaml`, `passwd`, or `acl`, and it does not restart
+either service. `iot-gateway-admin.service` runs as `iot-gateway`, not root;
+the sole DynSec administrator password is provided by systemd as a credential
+file. The complete staged migration is in `docs/dynsec-migration.md`.
+
+`deploy/mosquitto-provision-device.sh` remains only for installations still
+on the legacy `password_file`/`acl_file` broker. Do not use it after the
+DynSec cutover.
 
 ## Local API (Connect-RPC)
 
@@ -198,7 +198,7 @@ contract, the RPCs, and `curl` examples.
 **Two processes compose it (`docs/decisions.md` ADR-013)** - this matters
 for where credentials and env vars go:
 
-- `iot-gateway-admin.service` (root) binds `api.address` and is the
+- `iot-gateway-admin.service` (user `iot-gateway`, after DynSec cutover) binds `api.address` and is the
   **only public listener**. It authenticates (HTTP Basic) and applies
   CORS, and answers `DeviceAdminService` directly.
 - `iot-gateway.service` (sandboxed) binds `api.internal_address`

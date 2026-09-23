@@ -1,6 +1,6 @@
 [Unit]
 Description=IoT Gateway MQTT router
-After=network-online.target mosquitto.service
+After=network-online.target mosquitto-dynsec.service
 Wants=network-online.target
 
 [Service]

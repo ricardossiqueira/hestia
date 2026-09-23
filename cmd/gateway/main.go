@@ -11,8 +11,10 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -21,6 +23,7 @@ import (
 	"github.com/ricardossiqueira/iot-gateway/internal/apigateway"
 	"github.com/ricardossiqueira/iot-gateway/internal/config"
 	"github.com/ricardossiqueira/iot-gateway/internal/diagnostics"
+	"github.com/ricardossiqueira/iot-gateway/internal/dynsec"
 	gatewaymqtt "github.com/ricardossiqueira/iot-gateway/internal/mqtt"
 	"github.com/ricardossiqueira/iot-gateway/internal/outbox"
 	"github.com/ricardossiqueira/iot-gateway/internal/registry"
@@ -351,9 +354,19 @@ func runAdmin(args []string, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "admin registry import failed: %v\n", err)
 		return 1
 	}
+	credentials, dynsecURL, err := dynsecCredentialsFromEnvironment()
+	if err != nil {
+		fmt.Fprintf(stderr, "admin DynSec setup failed: %v\n", err)
+		return 1
+	}
+	if dynsecURL != "" && !sameMQTTEndpoint(cfg.MQTT.URL, dynsecURL) {
+		fmt.Fprintln(stderr, "admin DynSec setup failed: IOT_GATEWAY_DYNSEC_URL must target the same broker endpoint as mqtt.url")
+		return 1
+	}
 	adminEngine, err := admin.New(admin.Config{
 		ConfigPath:      *configPath,
 		ProvisionScript: *provisionScript,
+		Credentials:     credentials,
 		Registry:        deviceRegistry,
 		RequestTimeout:  adminRequestTimeout,
 	})
@@ -398,6 +411,52 @@ func runAdmin(args []string, stderr io.Writer) int {
 		logger.Error("api gateway shutdown failed", "error", err)
 	}
 	return 0
+}
+
+// dynsecCredentialsFromEnvironment is intentionally opt-in during migration.
+// An unset URL preserves the legacy script path until the Orange Pi has a
+// validated DynSec broker. The password is read from a root-owned credential
+// file, never from YAML, SQLite, a command-line flag, or process arguments.
+func dynsecCredentialsFromEnvironment() (admin.CredentialStore, string, error) {
+	brokerURL := os.Getenv("IOT_GATEWAY_DYNSEC_URL")
+	if brokerURL == "" {
+		return nil, "", nil
+	}
+	username := os.Getenv("IOT_GATEWAY_DYNSEC_ADMIN_USERNAME")
+	passwordPath := os.Getenv("IOT_GATEWAY_DYNSEC_ADMIN_PASSWORD_FILE")
+	if username == "" || passwordPath == "" {
+		return nil, "", errors.New("IOT_GATEWAY_DYNSEC_ADMIN_USERNAME and IOT_GATEWAY_DYNSEC_ADMIN_PASSWORD_FILE are required when IOT_GATEWAY_DYNSEC_URL is set")
+	}
+	passwordBytes, err := os.ReadFile(passwordPath)
+	if err != nil {
+		return nil, "", fmt.Errorf("read DynSec admin password file: %w", err)
+	}
+	password := strings.TrimSpace(string(passwordBytes))
+	if password == "" {
+		return nil, "", errors.New("DynSec admin password file is empty")
+	}
+	controller, err := dynsec.NewPahoController(brokerURL, username, password)
+	if err != nil {
+		return nil, "", err
+	}
+	manager, err := dynsec.NewManager(controller)
+	return manager, brokerURL, err
+}
+
+func sameMQTTEndpoint(left, right string) bool {
+	leftURL, leftErr := url.Parse(left)
+	rightURL, rightErr := url.Parse(right)
+	if leftErr != nil || rightErr != nil || leftURL.Hostname() == "" || rightURL.Hostname() == "" {
+		return false
+	}
+	leftPort, rightPort := leftURL.Port(), rightURL.Port()
+	if leftPort == "" {
+		leftPort = "1883"
+	}
+	if rightPort == "" {
+		rightPort = "1883"
+	}
+	return strings.EqualFold(leftURL.Hostname(), rightURL.Hostname()) && leftPort == rightPort
 }
 
 func runPublishTestCommand(args []string, stderr io.Writer, newClient mqttClientFactory) int {

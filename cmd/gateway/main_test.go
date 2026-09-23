@@ -33,6 +33,29 @@ func TestRunValidate(t *testing.T) {
 	}
 }
 
+func TestDynsecCredentialsFromEnvironment(t *testing.T) {
+	passwordPath := filepath.Join(t.TempDir(), "dynsec-password")
+	if err := os.WriteFile(passwordPath, []byte("secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("IOT_GATEWAY_DYNSEC_URL", "tcp://127.0.0.1:1884")
+	t.Setenv("IOT_GATEWAY_DYNSEC_ADMIN_USERNAME", "gateway-control")
+	t.Setenv("IOT_GATEWAY_DYNSEC_ADMIN_PASSWORD_FILE", passwordPath)
+	store, endpoint, err := dynsecCredentialsFromEnvironment()
+	if err != nil || store == nil || endpoint != "tcp://127.0.0.1:1884" {
+		t.Fatalf("dynsecCredentialsFromEnvironment() = %T, %q, %v", store, endpoint, err)
+	}
+}
+
+func TestSameMQTTEndpoint(t *testing.T) {
+	if !sameMQTTEndpoint("mqtt://127.0.0.1:1884", "tcp://127.0.0.1:1884") {
+		t.Fatal("equivalent endpoints did not match")
+	}
+	if sameMQTTEndpoint("mqtt://127.0.0.1:1883", "tcp://127.0.0.1:1884") {
+		t.Fatal("different ports matched")
+	}
+}
+
 func TestRunRejectsUnknownCommand(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := run([]string{"unknown"}, &stdout, &stderr)

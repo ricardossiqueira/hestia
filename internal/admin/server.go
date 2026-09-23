@@ -19,6 +19,9 @@ import (
 type Config struct {
 	ConfigPath      string
 	ProvisionScript string
+	// Credentials is the broker identity store. When nil, ProvisionScript is
+	// retained solely for the legacy Mosquitto password_file migration path.
+	Credentials CredentialStore
 	// Registry is the runtime source of truth. ConfigPath is retained only
 	// for the temporary YAML migration fallback when Registry is nil.
 	Registry *registry.Store
@@ -41,8 +44,11 @@ func New(cfg Config) (*Server, error) {
 	if cfg.Registry == nil && strings.TrimSpace(cfg.ConfigPath) == "" {
 		return nil, errors.New("admin config path is required")
 	}
-	if strings.TrimSpace(cfg.ProvisionScript) == "" {
-		return nil, errors.New("admin provision script path is required")
+	if cfg.Credentials == nil {
+		if strings.TrimSpace(cfg.ProvisionScript) == "" {
+			return nil, errors.New("admin credential store or provision script is required")
+		}
+		cfg.Credentials = scriptCredentialStore{path: cfg.ProvisionScript}
 	}
 	if cfg.RequestTimeout <= 0 {
 		cfg.RequestTimeout = 30 * time.Second
@@ -77,7 +83,29 @@ func (s *Server) SetDeviceEnabled(ctx context.Context, id string, enabled bool) 
 	ctx, cancel := context.WithTimeout(ctx, s.cfg.RequestTimeout)
 	defer cancel()
 	if s.cfg.Registry != nil {
+		snapshot, err := s.cfg.Registry.Snapshot(ctx)
+		if err != nil {
+			return config.Device{}, err
+		}
+		var previous *bool
+		for _, candidate := range snapshot.Devices {
+			if candidate.ID == id {
+				previous = candidate.Enabled
+				break
+			}
+		}
+		if previous == nil {
+			return config.Device{}, fmt.Errorf("%w: %q", ErrDeviceNotFound, id)
+		}
+		if err := s.cfg.Credentials.SetEnabled(ctx, id, enabled); err != nil {
+			return config.Device{}, fmt.Errorf("set Mosquitto credential enabled state: %w", err)
+		}
 		device, err := s.cfg.Registry.SetDeviceEnabled(ctx, id, enabled, uuid.NewString())
+		if err != nil && *previous != enabled {
+			if rollbackErr := s.cfg.Credentials.SetEnabled(ctx, id, *previous); rollbackErr != nil {
+				return config.Device{}, fmt.Errorf("update registry after changing Mosquitto credential (%v); rollback credential state also failed (%v)", err, rollbackErr)
+			}
+		}
 		if errors.Is(err, registry.ErrDeviceNotFound) {
 			return config.Device{}, fmt.Errorf("%w: %q", ErrDeviceNotFound, id)
 		}
@@ -102,14 +130,14 @@ func (s *Server) RemoveDevice(ctx context.Context, id string) error {
 	ctx, cancel := context.WithTimeout(ctx, s.cfg.RequestTimeout)
 	defer cancel()
 	if s.cfg.Registry != nil {
+		if err := s.cfg.Credentials.Revoke(ctx, id); err != nil {
+			return fmt.Errorf("revoke Mosquitto credential for %q: %w", id, err)
+		}
 		if err := s.cfg.Registry.RemoveDevice(ctx, id, uuid.NewString()); err != nil {
 			if errors.Is(err, registry.ErrDeviceNotFound) {
 				return fmt.Errorf("%w: %q", ErrDeviceNotFound, id)
 			}
 			return err
-		}
-		if err := Deprovision(ctx, s.cfg.ProvisionScript, id); err != nil {
-			return fmt.Errorf("device %q was removed from the registry but its Mosquitto credential could not be revoked: %w", id, err)
 		}
 		return nil
 	}
@@ -125,12 +153,12 @@ func (s *Server) provisionRegistry(ctx context.Context, id, template string) (co
 		return config.Device{}, "", fmt.Errorf("%w: %v", ErrInvalidDeviceID, err)
 	}
 	device := buildDevice(id, tmpl.Type, tmpl.Profile, tmpl.Topics)
-	password, err := Provision(ctx, s.cfg.ProvisionScript, id, tmpl.Topics)
+	password, err := s.cfg.Credentials.Provision(ctx, id, tmpl.Topics)
 	if err != nil {
 		return config.Device{}, "", fmt.Errorf("provisioning failed: %w", err)
 	}
 	if _, err := s.cfg.Registry.AddDevice(ctx, device, uuid.NewString()); err != nil {
-		if rollbackErr := Deprovision(ctx, s.cfg.ProvisionScript, id); rollbackErr != nil {
+		if rollbackErr := s.cfg.Credentials.Revoke(ctx, id); rollbackErr != nil {
 			return config.Device{}, "", fmt.Errorf("registry rejected device after Mosquitto provision (%v); rollback also failed (%v)", err, rollbackErr)
 		}
 		if errors.Is(err, registry.ErrDeviceAlreadyExists) {
