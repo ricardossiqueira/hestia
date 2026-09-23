@@ -2432,8 +2432,11 @@ type CommandDescriptor struct {
 	// "iot.device.led.v1.SetLed").
 	ParametersMessage string                        `protobuf:"bytes,2,opt,name=parameters_message,json=parametersMessage,proto3" json:"parameters_message,omitempty"`
 	ParametersSchema  *descriptorpb.DescriptorProto `protobuf:"bytes,3,opt,name=parameters_schema,json=parametersSchema,proto3" json:"parameters_schema,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// Canonical manifest parameter schema for declarative devices. Empty for
+	// legacy compiled profiles, which continue to use parameters_schema.
+	ParametersJson string `protobuf:"bytes,4,opt,name=parameters_json,json=parametersJson,proto3" json:"parameters_json,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *CommandDescriptor) Reset() {
@@ -2485,6 +2488,13 @@ func (x *CommandDescriptor) GetParametersSchema() *descriptorpb.DescriptorProto 
 		return x.ParametersSchema
 	}
 	return nil
+}
+
+func (x *CommandDescriptor) GetParametersJson() string {
+	if x != nil {
+		return x.ParametersJson
+	}
+	return ""
 }
 
 type PublishCommandRequest struct {
@@ -3393,11 +3403,12 @@ const file_iot_gateway_api_v1_api_proto_rawDesc = "" +
 	"\x1aListDeviceCommandsResponse\x12\x1b\n" +
 	"\tdevice_id\x18\x01 \x01(\tR\bdeviceId\x12)\n" +
 	"\x10schema_validated\x18\x02 \x01(\bR\x0fschemaValidated\x12A\n" +
-	"\bcommands\x18\x03 \x03(\v2%.iot.gateway.api.v1.CommandDescriptorR\bcommands\"\xa5\x01\n" +
+	"\bcommands\x18\x03 \x03(\v2%.iot.gateway.api.v1.CommandDescriptorR\bcommands\"\xce\x01\n" +
 	"\x11CommandDescriptor\x12\x12\n" +
 	"\x04type\x18\x01 \x01(\tR\x04type\x12-\n" +
 	"\x12parameters_message\x18\x02 \x01(\tR\x11parametersMessage\x12M\n" +
-	"\x11parameters_schema\x18\x03 \x01(\v2 .google.protobuf.DescriptorProtoR\x10parametersSchema\"\x81\x01\n" +
+	"\x11parameters_schema\x18\x03 \x01(\v2 .google.protobuf.DescriptorProtoR\x10parametersSchema\x12'\n" +
+	"\x0fparameters_json\x18\x04 \x01(\tR\x0eparametersJson\"\x81\x01\n" +
 	"\x15PublishCommandRequest\x12\x1b\n" +
 	"\tdevice_id\x18\x01 \x01(\tR\bdeviceId\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\tR\x04type\x127\n" +

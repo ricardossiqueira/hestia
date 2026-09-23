@@ -60,7 +60,7 @@ func (s *Server) ListDeviceCommands(ctx context.Context, req *connect.Request[ap
 		if found {
 			commands := make([]*apiv1.CommandDescriptor, 0, len(document.Capabilities.Commands))
 			for _, command := range document.Capabilities.Commands {
-				commands = append(commands, &apiv1.CommandDescriptor{Type: command.Type})
+				commands = append(commands, &apiv1.CommandDescriptor{Type: command.Type, ParametersJson: string(command.Parameters)})
 			}
 			return connect.NewResponse(&apiv1.ListDeviceCommandsResponse{DeviceId: deviceID, SchemaValidated: true, Commands: commands}), nil
 		}

@@ -197,7 +197,7 @@ nunca receberão credenciais ou endereços uns dos outros.
 
 - [x] Ler comandos e schemas do manifest no runtime em vez de profiles Go
   compilados.
-- [ ] Renderizar formulário de comando genérico no Gateway Web.
+- [x] Renderizar formulário de comando genérico no Gateway Web.
 - [x] Validar parâmetros no gateway antes de publicar MQTT.
 - [ ] Migrar `led.v1` e remover templates/profiles específicos quando não
   houver devices dependentes da compatibilidade legada.

@@ -339,6 +339,9 @@ message CommandDescriptor {
   // "iot.device.led.v1.SetLed").
   string parameters_message = 2;
   google.protobuf.DescriptorProto parameters_schema = 3;
+  // Canonical manifest parameter schema for declarative devices. Empty for
+  // legacy compiled profiles, which continue to use parameters_schema.
+  string parameters_json = 4;
 }
 
 message PublishCommandRequest {
