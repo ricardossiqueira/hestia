@@ -21,11 +21,12 @@ ACL pelos topicos passados. `--remove <device_id>` revoga a credencial e
 remove o bloco ACL. O restante deste documento explica o que o script faz
 por baixo dos panos e como fazer manualmente se precisar depurar algo.
 
-A UI de admin (`iot-gateway-admin.service`, ver `deploy/README.md`) chama
-este mesmo script por baixo dos panos e ainda escreve o `gateway.yaml` e
-reinicia o gateway - use-a no dia a dia; volte a este script quando precisar
-depurar algo diretamente no Mosquitto ou quando o serviço de admin estiver
-fora do ar.
+`gateway-web` (via `DeviceAdminService`, servido por
+`iot-gateway-admin.service` - ver `deploy/README.md`) chama este mesmo
+script por baixo dos panos e ainda escreve o `gateway.yaml` e reinicia o
+gateway - use-o no dia a dia; volte a este script quando precisar depurar
+algo diretamente no Mosquitto ou quando o serviço de admin estiver fora do
+ar.
 
 Exemplo real: `cyd-monitor` recebe comandos do gateway, portanto possui uma
 credencial MQTT propria e permissao de **leitura** somente em

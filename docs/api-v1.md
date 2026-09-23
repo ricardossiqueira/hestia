@@ -3,11 +3,13 @@
 ## Objetivo
 
 Este documento descreve a API local: listagem de dispositivos cadastrados,
-descoberta do schema de comandos que cada um aceita, publicação de comandos
-e leitura do status do gateway. Ela substitui o antigo `POST /commands` em
-8082 (`internal/commandapi`, removido). A UI HTML em 8081
-(`internal/admin`) continua existindo só para mutações de cadastro
-(registrar/remover device) — ver "Fora de escopo" abaixo.
+descoberta do schema de comandos que cada um aceita, publicação de comandos,
+leitura do status do gateway e administração de dispositivos
+(`DeviceAdminService`). Ela substitui o antigo `POST /commands` em 8082
+(`internal/commandapi`, removido) e a UI HTML de admin em 8081
+(`internal/admin`, aposentada — ver ADR-015 em `docs/decisions.md`). É o
+único caminho de administração hoje; `gateway-web` é o cliente do dia a
+dia.
 
 O protocolo é Connect-RPC (`connectrpc.com/connect`), que serve gRPC,
 gRPC-Web e HTTP/JSON na mesma porta a partir do mesmo `.proto`. O arquivo
@@ -37,15 +39,14 @@ iot-gateway admin (root, :8082 público)
 
 `iot-gateway run` continua sendo o único processo com a conexão MQTT viva
 (por isso `PublishCommand` mora ali), mas nunca mais é alcançável
-diretamente da LAN. `iot-gateway admin` (o mesmo processo que já serve a UI
-HTML em 8081) é o único que autentica e aplica CORS.
+diretamente da LAN. `iot-gateway admin` (root) é o único que autentica e
+aplica CORS.
 
 ## Limites desta versão
 
 - Escopo: comandos, leitura e administração de dispositivos
-  (`DeviceAdminService`). A UI HTML em 8081 continua existindo em paralelo
-  — mesmas operações, caminho diferente — até ser validada e aposentada
-  (ver "Fora de escopo").
+  (`DeviceAdminService`) — único caminho de administração; a UI HTML de
+  admin em 8081 foi aposentada (ADR-015 em `docs/decisions.md`).
 - Publicação de comando é fire-and-forget: a resposta confirma que o
   broker aceitou a publicação (QoS 1), não que o dispositivo executou o
   comando.
@@ -183,14 +184,15 @@ declarado `string` na mensagem do comando.
 
 ## Administração de dispositivos
 
-`DeviceAdminService` reaproveita a mesma lógica que a UI HTML em 8081 já
-usa (`internal/admin/registration.go`), só muda o transporte.
+`DeviceAdminService` roda sobre `internal/admin/registration.go` — a mesma
+lógica que a antiga UI HTML de admin em 8081 usava, agora sem nenhuma
+superfície HTTP própria (ADR-015).
 
 ### Templates de provisionamento
 
-`ProvisionDevice` não aceita tipo/tópicos livres como a UI HTML — cria o
-device a partir de um template compilado em `internal/admin` (registry no
-mesmo espírito do `internal/deviceprofile`). Só existe um por enquanto:
+`ProvisionDevice` não aceita tipo/tópicos livres — cria o device a partir
+de um template compilado em `internal/admin` (registry no mesmo espírito
+do `internal/deviceprofile`). Só existe um por enquanto:
 
 | Template | `type` | `profile` | Tópicos |
 | --- | --- | --- | --- |
@@ -305,10 +307,9 @@ curl -u <usuario>:<senha> \
 
 ## Fora de escopo (próxima fase)
 
-A UI HTML em 8081 continua no ar como contingência — `DeviceAdminService`
-já cobre as mesmas três operações, mas só é aposentada depois de validada
-fim a fim em produção (cadastro, habilitar/desabilitar, remoção, rollback e
-recuperação após reinício — ver `gateway-web/docs/spec.md` Marco 2). Depois
-disso: API de observabilidade/fila (contadores por device, histórico) e
-correlação de `command_result` (`PublishCommand` continua fire-and-forget
-até lá) — ver `docs/implementation-plan.md`.
+A UI HTML de admin em 8081 foi aposentada (ADR-015) depois de
+`DeviceAdminService`/`gateway-web` validados fim a fim em produção (spec do
+`gateway-web`, Marco 2/4) — `DeviceAdminService` é o único caminho de
+administração agora. Próximo: API de observabilidade/fila (contadores por
+device, histórico) e correlação de `command_result` (`PublishCommand`
+continua fire-and-forget até lá) — ver `docs/implementation-plan.md`.

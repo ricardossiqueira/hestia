@@ -28,7 +28,7 @@
 - Transformação genérica `json_command`, configurada inteiramente por YAML.
 - QoS e retenção definidos por rota; sem conhecimento de domínios de dispositivos no gateway.
 
-## Extensão local — UI de admin (concluído)
+## Extensão local — UI de admin (concluído, substituído)
 
 - Serviço systemd separado e privilegiado (`iot-gateway-admin.service`),
   fora do sandbox do gateway (ADR-008 em `decisions.md`).
@@ -37,6 +37,9 @@
   `gateway.yaml` preservando comentários/formatação, restart do gateway.
 - Autenticação HTTP Basic com credencial única vinda de variáveis de
   ambiente; sem TLS — uso restrito à LAN confiável.
+- **Substituída** por `DeviceAdminService` (abaixo) e removida, depois de
+  `gateway-web` validado fim a fim em produção (ADR-015). A lógica de
+  mutação (`internal/admin`) não mudou — só a superfície HTML foi apagada.
 
 ## Extensão local — endpoint HTTP de comando (concluído, substituído)
 
@@ -93,14 +96,24 @@
 
 - `ProvisionDevice`, `SetDeviceEnabled`, `RemoveDevice` em
   `internal/apigateway`, atendidos diretamente (sem proxy) reaproveitando
-  `internal/admin/registration.go` — a mesma lógica que a UI HTML em 8081
-  já usa, agora também acessível via Connect-RPC.
+  `internal/admin/registration.go` — a mesma lógica que a UI HTML de admin
+  usava, agora só acessível via Connect-RPC.
 - `ProvisionDevice` cria a partir de um template compilado (só
   `esp32_led.v1` por enquanto) e tem rollback automático se a escrita em
   `gateway.yaml` falhar depois da credencial Mosquitto já criada;
   `RemoveDevice` não desfaz uma remoção parcial (ADR-014).
-- UI HTML em 8081 continua no ar como contingência até esse fluxo ser
-  validado fim a fim em produção — ver `gateway-web/docs/spec.md` Marco 2.
+
+## Extensão local — aposentadoria da UI HTML de admin (concluído)
+
+- `internal/admin` perdeu toda a superfície HTTP própria
+  (`templates/index.html`, `messages.go`, os handlers HTTP) — vira só o
+  motor que `internal/apigateway`'s `DeviceAdminService` já consumia
+  (ADR-015 em `decisions.md`).
+- `iot-gateway admin` não abre mais `:8081`; sem `api:` configurado, recusa
+  iniciar (antes disso, a UI HTML sempre dava um motivo para rodar).
+- `gateway-web` é o único cliente de administração de dispositivo agora —
+  validado fim a fim em produção antes da remoção (spec do `gateway-web`,
+  Marco 2/4).
 
 ## Marco 3 — Outbox SQLite
 

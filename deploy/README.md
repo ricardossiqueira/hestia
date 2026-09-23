@@ -171,23 +171,51 @@ Treat write access to this repository, its deploy key, and direct pushes to
 `main` as control of the Orange Pi. Keep `orangepi` limited to trusted users
 and protect `main` with the CI workflow in GitHub before enabling this agent.
 
-## Admin UI (device registration)
+## Device administration
 
-`iot-gateway-admin.service` serves a small LAN-facing web UI
-(`internal/admin`) to register, list, and remove devices without SSH-ing
-in: it creates the Mosquitto credential/ACL (by calling
+Registering, enabling/disabling and removing a device (without SSH-ing in)
+goes through `DeviceAdminService` on the local API below - `gateway-web` is
+the day-to-day client. It creates the Mosquitto credential/ACL (by calling
 `deploy/mosquitto-provision-device.sh` under the hood), writes the entry to
-`gateway.yaml`, and restarts `iot-gateway.service` to apply it. See
-`docs/decisions.md` ADR-008 for why this runs as its **own** root service
-instead of a route inside the sandboxed gateway process, and
-`docs/mosquitto-device-provisioning.md` for what it automates underneath.
+`gateway.yaml`, and restarts `iot-gateway.service` to apply it - the same
+thing a small LAN-facing HTML page (`iot-gateway-admin.service`, port 8081)
+used to do before `gateway-web` reached parity with it (`docs/decisions.md`
+ADR-015). `iot-gateway-admin.service` still exists and still must run as
+its **own** root process - see ADR-008 for why (writing
+`/etc/mosquitto/*`/`gateway.yaml` and calling `systemctl` can never happen
+in the sandboxed gateway process) - it just has no HTML of its own left to
+open in a browser. `docs/mosquitto-device-provisioning.md` documents what
+the underlying script automates, for when you need to debug it directly.
+
+## Local API (Connect-RPC)
+
+Listing devices, discovering what commands they accept, publishing a
+command, reading gateway status, and device administration
+(`DeviceAdminService`, above) all go through one Connect-RPC API (gRPC,
+gRPC-Web and HTTP/JSON on one port). See `docs/api-v1.md` for the full
+contract, the RPCs, and `curl` examples.
+
+**Two processes compose it (`docs/decisions.md` ADR-013)** - this matters
+for where credentials and env vars go:
+
+- `iot-gateway-admin.service` (root) binds `api.address` and is the
+  **only public listener**. It authenticates (HTTP Basic) and applies
+  CORS, and answers `DeviceAdminService` directly.
+- `iot-gateway.service` (sandboxed) binds `api.internal_address`
+  (loopback-only, defaults to `127.0.0.1:8083`, normally not set
+  explicitly) and answers `DeviceService`/`GatewayService` - the admin
+  process reverse-proxies to it. It needs no credentials of its own: the
+  loopback binding is its whole trust boundary.
+
+Both processes read the **same** `api:` section in `gateway.yaml` - no
+duplication needed there. It is optional and off by default - add the
+section (see `configs/gateway.example.yaml`) to turn the whole thing on.
+Since `iot-gateway-admin.service` has nothing else to do without it, `admin`
+now refuses to start at all if `api:` is absent.
 
 **LAN-trusted only. Never port-forward or expose this to the internet.**
-It listens on `0.0.0.0:8081` in plain HTTP (no TLS) behind a single shared
-HTTP Basic Auth credential - acceptable inside a trusted home LAN, nowhere
-else.
-
-Generate a strong Basic Auth password and create its environment file:
+Plain HTTP (no TLS), one shared HTTP Basic Auth credential, from the
+**admin** environment file:
 
 ```bash
 openssl rand -base64 24
@@ -196,8 +224,8 @@ sudoedit /etc/iot-gateway/admin-environment
 ```
 
 ```ini
-IOT_GATEWAY_ADMIN_USERNAME=admin
-IOT_GATEWAY_ADMIN_PASSWORD=the-generated-password
+IOT_GATEWAY_API_USERNAME=api
+IOT_GATEWAY_API_PASSWORD=the-generated-password
 ```
 
 ```bash
@@ -213,60 +241,12 @@ just enable-admin-service
 just admin-status
 ```
 
-Open `http://<orange-pi-lan-ip>:8081/` from a browser on the same LAN,
-logging in with the credential above.
-
-## Local API (Connect-RPC)
-
-Listing devices, discovering what commands they accept, publishing a
-command, and reading gateway status go through a Connect-RPC API (gRPC,
-gRPC-Web and HTTP/JSON all on one port). See `docs/api-v1.md` for the full
-contract, the RPCs, and `curl` examples.
-
-**Two processes compose it (`docs/decisions.md` ADR-013)** - this matters
-for where credentials and env vars go:
-
-- `iot-gateway-admin.service` (root, the same process serving the HTML UI
-  above) binds `api.address` and is the **only public listener**. It
-  authenticates (HTTP Basic) and applies CORS.
-- `iot-gateway.service` (sandboxed) binds `api.internal_address`
-  (loopback-only, defaults to `127.0.0.1:8083`, normally not set
-  explicitly) and answers `DeviceService`/`GatewayService` - the admin
-  process reverse-proxies to it. It needs no credentials of its own: the
-  loopback binding is its whole trust boundary.
-
-`DeviceAdminService` (`ProvisionDevice`, `SetDeviceEnabled`,
-`RemoveDevice`) is answered directly by `iot-gateway-admin.service` - no
-proxy, no separate credential, no new port: it reuses the exact same
-`api.address` and `IOT_GATEWAY_API_USERNAME`/`PASSWORD` set up below, and
-the exact same device-mutation logic (`internal/admin`) the HTML UI at
-`:8081` already uses. **The HTML UI stays enabled** - this is a second way
-to reach the same operations, not a replacement yet (see `docs/api-v1.md`
-"Fora de escopo").
-
-Both processes read the **same** `api:` section in `gateway.yaml` - no
-duplication needed there. It is optional and off by default - add the
-section (see `configs/gateway.example.yaml`) to turn the whole thing on.
-
-**Same LAN-trusted-only rule as the admin UI**: plain HTTP, one shared
-Basic Auth credential, this time in the **admin** environment file (not
-the main gateway's - see below).
-
-```bash
-openssl rand -base64 24
-sudoedit /etc/iot-gateway/admin-environment
-```
-
-```ini
-IOT_GATEWAY_ADMIN_USERNAME=admin
-IOT_GATEWAY_ADMIN_PASSWORD=the-admin-ui-password
-
-IOT_GATEWAY_API_USERNAME=api
-IOT_GATEWAY_API_PASSWORD=the-generated-password
-```
+If this file still has `IOT_GATEWAY_ADMIN_USERNAME`/`PASSWORD` from before
+the HTML UI was retired, they are simply unused now - safe to remove or to
+leave.
 
 `iot-gateway.service`'s own `/etc/iot-gateway/environment` does **not**
-need `IOT_GATEWAY_API_USERNAME`/`PASSWORD` any more - only
+need `IOT_GATEWAY_API_USERNAME`/`PASSWORD` - only
 `MQTT_GATEWAY_USERNAME`/`PASSWORD`. If a previous install left the API
 variables there, they are simply unused now; safe to remove or to leave.
 
@@ -304,9 +284,7 @@ just install-binary
 sudo systemctl restart iot-gateway.service iot-gateway-admin.service
 ```
 
-Send a command (`configs/gateway.example.yaml` suggests port `8082`,
-since the admin UI's own HTML page already defaults to `8081` on the same
-process):
+Send a command (`configs/gateway.example.yaml` suggests port `8082`):
 
 ```bash
 curl -u api:the-generated-password \
