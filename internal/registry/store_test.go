@@ -196,6 +196,44 @@ func TestResolveInconsistencyRejectsUnknownOrAlreadyResolvedID(t *testing.T) {
 	}
 }
 
+func TestDefaultDeviceManifestsAreSeededAndReadable(t *testing.T) {
+	store := openTestStore(t)
+	manifests, err := store.ListPublishedManifests(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(manifests) != 3 {
+		t.Fatalf("ListPublishedManifests() = %#v, want three seeds", manifests)
+	}
+	led, err := store.GetPublishedManifest(context.Background(), "esp32-c3-led")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if led.Revision != 1 || led.DisplayName != "ESP32-C3 LED" || led.Document == "" || led.CreatedBy == "" || led.CreatedAt.IsZero() {
+		t.Fatalf("GetPublishedManifest() = %#v", led)
+	}
+	if _, err := store.GetPublishedManifest(context.Background(), "missing"); !errors.Is(err, ErrManifestNotFound) {
+		t.Fatalf("GetPublishedManifest(missing) error = %v", err)
+	}
+}
+
+func TestDeviceManifestBindingRequiresExistingPublishedRevisionAndDevice(t *testing.T) {
+	store := openTestStore(t)
+	ctx := context.Background()
+	if err := store.BindDeviceManifest(ctx, "missing", "esp32-c3-led", 1); !errors.Is(err, ErrDeviceNotFound) {
+		t.Fatalf("BindDeviceManifest(missing device) error = %v", err)
+	}
+	if _, err := store.AddDevice(ctx, testDevice("led-1", true), "add"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.BindDeviceManifest(ctx, "led-1", "esp32-c3-led", 2); !errors.Is(err, ErrManifestNotFound) {
+		t.Fatalf("BindDeviceManifest(missing revision) error = %v", err)
+	}
+	if err := store.BindDeviceManifest(ctx, "led-1", "esp32-c3-led", 1); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func openTestStore(t *testing.T) *Store {
 	t.Helper()
 	store, err := Open(context.Background(), filepath.Join(t.TempDir(), "gateway.db"))

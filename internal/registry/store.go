@@ -28,6 +28,7 @@ var (
 	ErrRouteAlreadyExists    = errors.New("registry route already exists")
 	ErrRouteNotFound         = errors.New("registry route not found")
 	ErrInconsistencyNotFound = errors.New("registry inconsistency not found")
+	ErrManifestNotFound      = errors.New("registry device manifest not found")
 )
 
 // Snapshot is one coherent, revisioned routing policy.
@@ -47,6 +48,27 @@ type Inconsistency struct {
 	Cause             string
 	CompensationError string
 	CreatedAt         time.Time
+}
+
+// DeviceManifest is one published, immutable revision of a device-family
+// definition. Document is canonical JSON and deliberately excludes secrets.
+type DeviceManifest struct {
+	ID          string
+	DisplayName string
+	Revision    uint64
+	Document    string
+	CreatedBy   string
+	CreatedAt   time.Time
+}
+
+// DeviceManifestBinding records which exact definition was used for a device
+// instance. It is written by the generic provisioner in the next milestone;
+// keeping the relation now prevents a published edit from changing old
+// instances implicitly.
+type DeviceManifestBinding struct {
+	DeviceID         string
+	ManifestID       string
+	ManifestRevision uint64
 }
 
 // Store serializes writes on the edge device and provides durable snapshots.
@@ -79,7 +101,12 @@ func Open(ctx context.Context, sqlitePath string) (*Store, error) {
 		_ = db.Close()
 		return nil, err
 	}
-	return &Store{db: db, now: func() time.Time { return time.Now().UTC() }}, nil
+	store := &Store{db: db, now: func() time.Time { return time.Now().UTC() }}
+	if err := store.seedDefaultManifests(ctx); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	return store, nil
 }
 
 func (s *Store) Close() error {
