@@ -177,6 +177,28 @@ func (s *Server) ProvisionCYD(ctx context.Context, req *connect.Request[apiv1.Pr
 	}), nil
 }
 
+// ProvisionLED uses the same direct-to-NVS first-boot protocol as the CYD.
+// Keeping the generated password out of this response ensures gateway-web
+// never handles an MQTT secret for either ESP family.
+func (s *Server) ProvisionLED(ctx context.Context, req *connect.Request[apiv1.ProvisionLEDRequest]) (*connect.Response[apiv1.ProvisionLEDResponse], error) {
+	device, address, err := s.cfg.Admin.ProvisionLED(ctx, req.Msg.GetDeviceId(), req.Msg.GetDeviceIp())
+	if err != nil {
+		switch {
+		case errors.Is(err, admin.ErrDeviceAlreadyExists):
+			return nil, connect.NewError(connect.CodeAlreadyExists, err)
+		case errors.Is(err, admin.ErrInvalidDeviceID), errors.Is(err, admin.ErrInvalidDeviceAddress):
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		case errors.Is(err, admin.ErrDeviceNotProvisionable):
+			return nil, connect.NewError(connect.CodeFailedPrecondition, err)
+		default:
+			return nil, connect.NewError(connect.CodeInternal, err)
+		}
+	}
+	return connect.NewResponse(&apiv1.ProvisionLEDResponse{
+		Device: deviceToProto(device), DeviceIp: address, AppliedAt: timestamppb.Now(),
+	}), nil
+}
+
 // SetDeviceEnabled toggles a device's enabled field. CodeNotFound for an
 // unknown device, CodeInternal for a restart failure - see
 // admin.Server.SetDeviceEnabled's doc comment for why a restart failure

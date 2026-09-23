@@ -63,6 +63,9 @@ type fakeDeviceAdmin struct {
 	cydProvisionErr     error
 	cydProvisioned      config.Device
 	cydAddress          string
+	ledProvisionErr     error
+	ledProvisioned      config.Device
+	ledAddress          string
 
 	setEnabledErr error
 	setEnabled    config.Device
@@ -121,6 +124,15 @@ func (f *fakeDeviceAdmin) ProvisionCYD(ctx context.Context, id, address string) 
 		return config.Device{}, "", f.cydProvisionErr
 	}
 	return f.cydProvisioned, f.cydAddress, nil
+}
+
+func (f *fakeDeviceAdmin) ProvisionLED(ctx context.Context, id, address string) (config.Device, string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.ledProvisionErr != nil {
+		return config.Device{}, "", f.ledProvisionErr
+	}
+	return f.ledProvisioned, f.ledAddress, nil
 }
 
 func (f *fakeDeviceAdmin) SetDeviceEnabled(ctx context.Context, id string, enabled bool) (config.Device, error) {
@@ -480,6 +492,25 @@ func TestDeviceAdminService_ProvisionCYD_MapsInvalidAddress(t *testing.T) {
 	}))
 	if connect.CodeOf(err) != connect.CodeInvalidArgument {
 		t.Errorf("code = %v, want InvalidArgument", connect.CodeOf(err))
+	}
+}
+
+func TestDeviceAdminService_ProvisionLED_DoesNotExposeMQTTPassword(t *testing.T) {
+	backend, _ := newFakeInternalAPI(t)
+	enabled := true
+	fake := &fakeDeviceAdmin{
+		ledProvisioned: config.Device{ID: "led-sala", Type: "esp32", Profile: "led.v1", Enabled: &enabled},
+		ledAddress:     "192.168.15.43",
+	}
+	ts := newTestGatewayWithAdmin(t, backend.URL, nil, fake)
+	response, err := connectClient(ts).ProvisionLED(context.Background(), authedRequest(&apiv1.ProvisionLEDRequest{
+		DeviceId: "led-sala", DeviceIp: "192.168.15.43",
+	}))
+	if err != nil {
+		t.Fatalf("ProvisionLED() error = %v", err)
+	}
+	if response.Msg.GetDevice().GetId() != "led-sala" || response.Msg.GetDeviceIp() != "192.168.15.43" || response.Msg.GetAppliedAt() == nil {
+		t.Fatalf("response = %#v", response.Msg)
 	}
 }
 

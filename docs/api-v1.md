@@ -133,6 +133,7 @@ Regras:
 | `RemoveRoute` | `DeviceAdminService` | Remove uma rota local pelo ID. |
 | `ProvisionDevice` | `DeviceAdminService` | Cadastra um device novo a partir de um template. Devolve a senha MQTT uma única vez. |
 | `ProvisionCYD` | `DeviceAdminService` | Entrega a credencial MQTT diretamente ao CYD nao provisionado pelo IP; a resposta nunca contem senha. |
+| `ProvisionLED` | `DeviceAdminService` | Entrega a credencial MQTT diretamente ao ESP32-C3 LED nao provisionado pelo IP; a resposta nunca contem senha. |
 | `SetDeviceEnabled` | `DeviceAdminService` | Habilita/desabilita um device e aplica a politica sem reiniciar o gateway. |
 | `RemoveDevice` | `DeviceAdminService` | Revoga a credencial Mosquitto e remove o device do registry SQLite. |
 
@@ -238,7 +239,7 @@ do `internal/deviceprofile`). Só existe um por enquanto:
 
 | Template | `type` | `profile` | Tópicos |
 | --- | --- | --- | --- |
-| `esp32_led.v1` | `esp32` | `led.v1` | `command` |
+| `esp32_led.v1` | `esp32` | `led.v1` | `state`, `command` |
 
 Um device criado por esse template já sai com `profile: led.v1`, então
 `PublishCommand`/`ListDeviceCommands` já validam `set_led` nele sem
@@ -332,8 +333,8 @@ não aparece de novo em nenhuma outra chamada):
 ```bash
 curl -u <usuario>:<senha> \
   -H 'Content-Type: application/json' \
-  -d '{"deviceId":"led-3","template":"esp32_led.v1"}' \
-  http://<orange-pi>:<porta>/iot.gateway.api.v1.DeviceAdminService/ProvisionDevice
+  -d '{"deviceId":"led-3","deviceIp":"192.168.15.43"}' \
+  http://<orange-pi>:<porta>/iot.gateway.api.v1.DeviceAdminService/ProvisionLED
 ```
 
 Desabilitar um device (fica cadastrado, só para de aceitar comandos):

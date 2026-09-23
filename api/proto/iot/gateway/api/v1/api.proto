@@ -47,6 +47,10 @@ service DeviceAdminService {
   // temporary LAN endpoint. Unlike ProvisionDevice, it never returns a
   // password to the caller.
   rpc ProvisionCYD(ProvisionCYDRequest) returns (ProvisionCYDResponse);
+  // ProvisionLED delivers the MQTT identity to an unprovisioned ESP32-C3 LED
+  // over its temporary LAN endpoint. The password is never returned to the
+  // browser.
+  rpc ProvisionLED(ProvisionLEDRequest) returns (ProvisionLEDResponse);
   rpc SetDeviceEnabled(SetDeviceEnabledRequest) returns (SetDeviceEnabledResponse);
   rpc RemoveDevice(RemoveDeviceRequest) returns (RemoveDeviceResponse);
 }
@@ -121,6 +125,18 @@ message ProvisionCYDRequest {
 }
 
 message ProvisionCYDResponse {
+  Device device = 1;
+  string device_ip = 2;
+  google.protobuf.Timestamp applied_at = 3;
+}
+
+message ProvisionLEDRequest {
+  string device_id = 1;
+  // IPv4 printed by the LED over Serial before its first MQTT connection.
+  string device_ip = 2;
+}
+
+message ProvisionLEDResponse {
   Device device = 1;
   string device_ip = 2;
   google.protobuf.Timestamp applied_at = 3;

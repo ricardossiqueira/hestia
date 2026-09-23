@@ -220,8 +220,8 @@ func TestAddDeviceFromTemplate(t *testing.T) {
 	if added.Topics.Command != "devices/led-1/command" {
 		t.Errorf("added.Topics.Command = %q", added.Topics.Command)
 	}
-	if added.Topics.Telemetry != "" || added.Topics.State != "" {
-		t.Errorf("template should only set command: %#v", added.Topics)
+	if added.Topics.Telemetry != "" || added.Topics.State != "devices/led-1/state" {
+		t.Errorf("template should set state and command only: %#v", added.Topics)
 	}
 }
 

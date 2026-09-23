@@ -29,7 +29,7 @@ var deviceTemplates = map[string]DeviceTemplate{
 	"esp32_led.v1": {
 		Type:    "esp32",
 		Profile: "led.v1",
-		Topics:  []string{"command"},
+		Topics:  []string{"state", "command"},
 	},
 	// CYD renders the generic render_system_status contract in its firmware.
 	// It has no Protobuf command profile yet, so the gateway accepts its

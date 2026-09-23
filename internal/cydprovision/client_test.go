@@ -49,7 +49,7 @@ func decodeDeviceInfo(reader *strings.Reader) (DeviceInfo, error) {
 	if err := decodeOneJSON(reader, &info); err != nil {
 		return DeviceInfo{}, err
 	}
-	if info.Model != deviceModel || info.Status != deviceStatus {
+	if info.Model != defaultDeviceModel || info.Status != deviceStatus {
 		return DeviceInfo{}, ErrUnexpectedDevice
 	}
 	return info, nil

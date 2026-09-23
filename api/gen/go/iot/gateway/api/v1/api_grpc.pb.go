@@ -357,6 +357,7 @@ const (
 	DeviceAdminService_RemoveRoute_FullMethodName            = "/iot.gateway.api.v1.DeviceAdminService/RemoveRoute"
 	DeviceAdminService_ProvisionDevice_FullMethodName        = "/iot.gateway.api.v1.DeviceAdminService/ProvisionDevice"
 	DeviceAdminService_ProvisionCYD_FullMethodName           = "/iot.gateway.api.v1.DeviceAdminService/ProvisionCYD"
+	DeviceAdminService_ProvisionLED_FullMethodName           = "/iot.gateway.api.v1.DeviceAdminService/ProvisionLED"
 	DeviceAdminService_SetDeviceEnabled_FullMethodName       = "/iot.gateway.api.v1.DeviceAdminService/SetDeviceEnabled"
 	DeviceAdminService_RemoveDevice_FullMethodName           = "/iot.gateway.api.v1.DeviceAdminService/RemoveDevice"
 )
@@ -386,6 +387,10 @@ type DeviceAdminServiceClient interface {
 	// temporary LAN endpoint. Unlike ProvisionDevice, it never returns a
 	// password to the caller.
 	ProvisionCYD(ctx context.Context, in *ProvisionCYDRequest, opts ...grpc.CallOption) (*ProvisionCYDResponse, error)
+	// ProvisionLED delivers the MQTT identity to an unprovisioned ESP32-C3 LED
+	// over its temporary LAN endpoint. The password is never returned to the
+	// browser.
+	ProvisionLED(ctx context.Context, in *ProvisionLEDRequest, opts ...grpc.CallOption) (*ProvisionLEDResponse, error)
 	SetDeviceEnabled(ctx context.Context, in *SetDeviceEnabledRequest, opts ...grpc.CallOption) (*SetDeviceEnabledResponse, error)
 	RemoveDevice(ctx context.Context, in *RemoveDeviceRequest, opts ...grpc.CallOption) (*RemoveDeviceResponse, error)
 }
@@ -458,6 +463,16 @@ func (c *deviceAdminServiceClient) ProvisionCYD(ctx context.Context, in *Provisi
 	return out, nil
 }
 
+func (c *deviceAdminServiceClient) ProvisionLED(ctx context.Context, in *ProvisionLEDRequest, opts ...grpc.CallOption) (*ProvisionLEDResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ProvisionLEDResponse)
+	err := c.cc.Invoke(ctx, DeviceAdminService_ProvisionLED_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *deviceAdminServiceClient) SetDeviceEnabled(ctx context.Context, in *SetDeviceEnabledRequest, opts ...grpc.CallOption) (*SetDeviceEnabledResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(SetDeviceEnabledResponse)
@@ -503,6 +518,10 @@ type DeviceAdminServiceServer interface {
 	// temporary LAN endpoint. Unlike ProvisionDevice, it never returns a
 	// password to the caller.
 	ProvisionCYD(context.Context, *ProvisionCYDRequest) (*ProvisionCYDResponse, error)
+	// ProvisionLED delivers the MQTT identity to an unprovisioned ESP32-C3 LED
+	// over its temporary LAN endpoint. The password is never returned to the
+	// browser.
+	ProvisionLED(context.Context, *ProvisionLEDRequest) (*ProvisionLEDResponse, error)
 	SetDeviceEnabled(context.Context, *SetDeviceEnabledRequest) (*SetDeviceEnabledResponse, error)
 	RemoveDevice(context.Context, *RemoveDeviceRequest) (*RemoveDeviceResponse, error)
 }
@@ -531,6 +550,9 @@ func (UnimplementedDeviceAdminServiceServer) ProvisionDevice(context.Context, *P
 }
 func (UnimplementedDeviceAdminServiceServer) ProvisionCYD(context.Context, *ProvisionCYDRequest) (*ProvisionCYDResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ProvisionCYD not implemented")
+}
+func (UnimplementedDeviceAdminServiceServer) ProvisionLED(context.Context, *ProvisionLEDRequest) (*ProvisionLEDResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ProvisionLED not implemented")
 }
 func (UnimplementedDeviceAdminServiceServer) SetDeviceEnabled(context.Context, *SetDeviceEnabledRequest) (*SetDeviceEnabledResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetDeviceEnabled not implemented")
@@ -666,6 +688,24 @@ func _DeviceAdminService_ProvisionCYD_Handler(srv interface{}, ctx context.Conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DeviceAdminService_ProvisionLED_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ProvisionLEDRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DeviceAdminServiceServer).ProvisionLED(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DeviceAdminService_ProvisionLED_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DeviceAdminServiceServer).ProvisionLED(ctx, req.(*ProvisionLEDRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _DeviceAdminService_SetDeviceEnabled_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(SetDeviceEnabledRequest)
 	if err := dec(in); err != nil {
@@ -732,6 +772,10 @@ var DeviceAdminService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ProvisionCYD",
 			Handler:    _DeviceAdminService_ProvisionCYD_Handler,
+		},
+		{
+			MethodName: "ProvisionLED",
+			Handler:    _DeviceAdminService_ProvisionLED_Handler,
 		},
 		{
 			MethodName: "SetDeviceEnabled",

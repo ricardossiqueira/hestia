@@ -371,6 +371,7 @@ func runAdmin(args []string, stderr io.Writer) int {
 		Credentials:      credentials,
 		Registry:         deviceRegistry,
 		CYD:              cydprovision.NewHTTPClient(adminRequestTimeout),
+		LED:              cydprovision.NewHTTPClientForModel(adminRequestTimeout, "esp32c3-led"),
 		DeviceBrokerHost: strings.TrimSpace(os.Getenv("IOT_GATEWAY_DEVICE_MQTT_HOST")),
 		DeviceBrokerPort: mqttPort(cfg.MQTT.URL),
 		RequestTimeout:   adminRequestTimeout,

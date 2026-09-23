@@ -1,6 +1,6 @@
-// Package cydprovision is the small, deliberately device-specific HTTP
-// client for the first-boot CYD provisioning endpoint. The browser never
-// talks to that endpoint: only the authenticated admin process does.
+// Package cydprovision implements the small first-boot ESP provisioning
+// protocol. The browser never talks to a device endpoint: only the
+// authenticated admin process does.
 package cydprovision
 
 import (
@@ -18,10 +18,10 @@ import (
 )
 
 const (
-	deviceModel       = "cyd-monitor"
-	deviceStatus      = "unprovisioned"
-	provisioningPort  = 8080
-	maxResponseLength = 4096
+	defaultDeviceModel = "cyd-monitor"
+	deviceStatus       = "unprovisioned"
+	provisioningPort   = 8080
+	maxResponseLength  = 4096
 )
 
 var (
@@ -54,16 +54,29 @@ type Client interface {
 	Provision(context.Context, string, Settings) error
 }
 
-type HTTPClient struct{ client *http.Client }
+type HTTPClient struct {
+	client *http.Client
+	model  string
+}
 
 func NewHTTPClient(timeout time.Duration) *HTTPClient {
+	if timeout <= 0 {
+		timeout = 10 * time.Second
+	}
+	return NewHTTPClientForModel(timeout, defaultDeviceModel)
+}
+
+// NewHTTPClientForModel returns an endpoint client that accepts exactly one
+// unprovisioned device model. This prevents a LED request from accidentally
+// sending MQTT credentials to a different ESP on the LAN.
+func NewHTTPClientForModel(timeout time.Duration, model string) *HTTPClient {
 	if timeout <= 0 {
 		timeout = 10 * time.Second
 	}
 	return &HTTPClient{client: &http.Client{
 		Timeout:       timeout,
 		CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse },
-	}}
+	}, model: model}
 }
 
 func (c *HTTPClient) Inspect(ctx context.Context, address string) (DeviceInfo, error) {
@@ -87,7 +100,7 @@ func (c *HTTPClient) Inspect(ctx context.Context, address string) (DeviceInfo, e
 	if err := decodeOneJSON(response.Body, &info); err != nil {
 		return DeviceInfo{}, fmt.Errorf("decode device information at %s: %w", address, err)
 	}
-	if info.Model != deviceModel || info.Status != deviceStatus {
+	if info.Model != c.model || info.Status != deviceStatus {
 		return DeviceInfo{}, ErrUnexpectedDevice
 	}
 	return info, nil
