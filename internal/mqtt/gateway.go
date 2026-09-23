@@ -131,6 +131,12 @@ type Gateway struct {
 	closed    bool
 	startedAt *time.Time
 
+	// telemetryMu guards lastTelemetry - data-plane state updated on every
+	// accepted message, deliberately separate from configMu (control-plane
+	// policy) so a burst of telemetry never contends with Apply/Devices.
+	telemetryMu   sync.RWMutex
+	lastTelemetry map[string]telemetryEntry
+
 	acceptedMessages     atomic.Uint64
 	rejectedMessages     atomic.Uint64
 	localRoutesPublished atomic.Uint64
@@ -161,6 +167,14 @@ type route struct {
 	kind     Kind
 }
 
+// telemetryEntry is the most recently accepted Telemetry-kind payload for
+// one device, kept only in memory - no history, no persistence. See
+// LastTelemetry's doc comment.
+type telemetryEntry struct {
+	payload    []byte
+	observedAt time.Time
+}
+
 // New constructs the MQTT gateway from an already validated configuration.
 func New(cfg config.Config, client Client, logger Logger, queue Outbox) (*Gateway, error) {
 	return newGateway(cfg, client, logger, queue, true)
@@ -182,9 +196,10 @@ func newGateway(cfg config.Config, client Client, logger Logger, queue Outbox, r
 	}
 
 	gateway := &Gateway{
-		client: client,
-		logger: logger,
-		outbox: queue,
+		client:        client,
+		logger:        logger,
+		outbox:        queue,
+		lastTelemetry: make(map[string]telemetryEntry),
 	}
 	routes, forwards, toOutbox, topics, devices, err := buildRouting(cfg, queue, requireOutbox)
 	if err != nil {
@@ -267,6 +282,23 @@ func (g *Gateway) Snapshot() Snapshot {
 		OutboxDiscarded:      g.outboxDiscarded.Load(),
 		OutboxFailed:         g.outboxFailed.Load(),
 	}
+}
+
+// LastTelemetry returns the most recently accepted Telemetry-kind payload
+// for deviceID, and the timestamp the payload itself declared (already
+// validated RFC3339 UTC by validateInbound) - not when this method was
+// called. ok is false when nothing has been received since the process
+// started, which is not an error: the caller (internal/api) turns that into
+// available=false, not a failure. There is no history and nothing is
+// persisted - a restart forgets it, same as every other counter on Gateway.
+func (g *Gateway) LastTelemetry(deviceID string) ([]byte, time.Time, bool) {
+	g.telemetryMu.RLock()
+	defer g.telemetryMu.RUnlock()
+	entry, ok := g.lastTelemetry[deviceID]
+	if !ok {
+		return nil, time.Time{}, false
+	}
+	return append([]byte(nil), entry.payload...), entry.observedAt, true
 }
 
 // Devices returns a stable copy of the currently applied device policy. It
@@ -362,6 +394,15 @@ func (g *Gateway) Apply(ctx context.Context, cfg config.Config) error {
 	}
 	g.routes, g.forwards, g.toOutbox, g.topics, g.devices = routes, forwards, toOutbox, topics, devices
 	g.configMu.Unlock()
+	// A device no longer in the new policy (disabled or removed) must not
+	// keep showing a stale last-known reading forever.
+	g.telemetryMu.Lock()
+	for id := range g.lastTelemetry {
+		if _, exists := devices[id]; !exists {
+			delete(g.lastTelemetry, id)
+		}
+	}
+	g.telemetryMu.Unlock()
 	if started {
 		if client, ok := g.client.(interface {
 			Unsubscribe(context.Context, string) error
@@ -432,6 +473,11 @@ func (g *Gateway) handleMessage(ctx context.Context, topic string, payload []byt
 	}
 	g.acceptedMessages.Add(1)
 	g.logger.Accepted(ctx, message)
+	if route.kind == Telemetry {
+		g.telemetryMu.Lock()
+		g.lastTelemetry[route.deviceID] = telemetryEntry{payload: message.Payload, observedAt: message.Timestamp}
+		g.telemetryMu.Unlock()
+	}
 	if kind, forward := toOutbox, forward; forward {
 		result, err := g.outbox.Enqueue(ctx, outbox.Message{
 			MessageID: message.MessageID,

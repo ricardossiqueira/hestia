@@ -14,6 +14,11 @@ service DeviceService {
   rpc ListDevices(ListDevicesRequest) returns (ListDevicesResponse);
   rpc ListDeviceCommands(ListDeviceCommandsRequest) returns (ListDeviceCommandsResponse);
   rpc PublishCommand(PublishCommandRequest) returns (PublishCommandResponse);
+  // GetDeviceTelemetry returns the most recent accepted telemetry message
+  // for a device, cached in memory only (no history, no persistence - see
+  // docs/api-v1.md). available=false means nothing has been received yet
+  // since this process started, not an error.
+  rpc GetDeviceTelemetry(GetDeviceTelemetryRequest) returns (GetDeviceTelemetryResponse);
 }
 
 // GatewayService reports the gateway's own runtime status.
@@ -209,6 +214,25 @@ message PublishCommandResponse {
   // profile) - the same meaning as ListDeviceCommandsResponse's field.
   bool schema_validated = 3;
   google.protobuf.Timestamp published_at = 4;
+}
+
+message GetDeviceTelemetryRequest {
+  string device_id = 1;
+}
+
+message GetDeviceTelemetryResponse {
+  string device_id = 1;
+  // available is false when the gateway has not accepted a telemetry
+  // message for this device since the process started. payload and
+  // observed_at are unset in that case - this is not an error.
+  bool available = 2;
+  // payload is a Struct, not bytes - same reasoning as
+  // PublishCommandRequest.parameters (ADR-012): keeps this readable over
+  // plain curl/HTTP-JSON instead of becoming base64.
+  google.protobuf.Struct payload = 3;
+  // observed_at is the payload's own `timestamp` field (already validated
+  // RFC3339 UTC by internal/mqtt), not when this RPC was called.
+  google.protobuf.Timestamp observed_at = 4;
 }
 
 message GetStatusRequest {}

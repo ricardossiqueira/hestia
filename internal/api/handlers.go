@@ -156,6 +156,38 @@ func (s *Server) PublishCommand(ctx context.Context, req *connect.Request[apiv1.
 	}), nil
 }
 
+// GetDeviceTelemetry returns the most recently accepted Telemetry-kind
+// payload for a device, cached only in memory by internal/mqtt.Gateway - no
+// history, no persistence. A device that exists but has not published
+// telemetry yet (or never declares a telemetry topic) is not an error:
+// the response comes back with available=false.
+func (s *Server) GetDeviceTelemetry(ctx context.Context, req *connect.Request[apiv1.GetDeviceTelemetryRequest]) (*connect.Response[apiv1.GetDeviceTelemetryResponse], error) {
+	deviceID := strings.TrimSpace(req.Msg.GetDeviceId())
+	if _, ok := s.deviceByID(deviceID); !ok {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("unknown device %q", deviceID))
+	}
+
+	payload, observedAt, ok := s.telemetry.LastTelemetry(deviceID)
+	if !ok {
+		return connect.NewResponse(&apiv1.GetDeviceTelemetryResponse{DeviceId: deviceID, Available: false}), nil
+	}
+
+	var payloadStruct structpb.Struct
+	if err := protojson.Unmarshal(payload, &payloadStruct); err != nil {
+		// internal/mqtt only caches payloads that already passed
+		// validateInbound's JSON-object check, so this can only mean a bug
+		// in that guarantee, not a client error.
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("decode cached telemetry payload: %w", err))
+	}
+
+	return connect.NewResponse(&apiv1.GetDeviceTelemetryResponse{
+		DeviceId:   deviceID,
+		Available:  true,
+		Payload:    &payloadStruct,
+		ObservedAt: timestamppb.New(observedAt),
+	}), nil
+}
+
 // GetStatus mirrors mqtt.Snapshot 1:1 - see api.proto's GetStatusResponse
 // doc comment.
 func (s *Server) GetStatus(ctx context.Context, req *connect.Request[apiv1.GetStatusRequest]) (*connect.Response[apiv1.GetStatusResponse], error) {

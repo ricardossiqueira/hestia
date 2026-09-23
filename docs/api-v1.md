@@ -125,6 +125,7 @@ Regras:
 | `ListDevices` | `DeviceService` | Lista todos os dispositivos cadastrados, habilitados ou não. |
 | `ListDeviceCommands` | `DeviceService` | Descreve os comandos que um dispositivo aceita (schema Protobuf). |
 | `PublishCommand` | `DeviceService` | Publica um comando, validado por schema quando o dispositivo tem profile. |
+| `GetDeviceTelemetry` | `DeviceService` | Devolve a última mensagem `telemetry` aceita de um device, em cache (sem histórico). |
 | `GetStatus` | `GatewayService` | Espelha `internal/mqtt.Snapshot`: sessão MQTT, contadores, sem payloads. |
 | `RegisterExistingDevice` | `DeviceAdminService` | Adota um serviço local com identidade MQTT já existente, sem alterar senha. |
 | `ListRoutes` | `DeviceAdminService` | Lista as rotas locais persistidas no SQLite. |
@@ -161,6 +162,20 @@ curl -u <usuario>:<senha> \
   -d '{"route":{"id":"orangepi-monitor-to-monitor","sourceTopic":"devices/orangepi-monitor/telemetry","destinationTopic":"devices/monitor/command","commandType":"render_system_status","qos":1,"retain":false}}' \
   http://<orange-pi>:<porta>/iot.gateway.api.v1.DeviceAdminService/CreateRoute
 ```
+
+### Telemetria em cache
+
+`GetDeviceTelemetry` não é uma API de histórico/observabilidade (essa
+ainda não foi desenhada — ver HANDOFF.md). `internal/mqtt.Gateway` guarda
+só a última mensagem `telemetry` aceita por device, em memória, sem
+persistência: um restart do processo esquece tudo, e desabilitar/remover
+o device limpa a entrada. `available: false` significa "nada recebido
+ainda desde que o processo subiu", não um erro; `device_id` desconhecido
+continua sendo `connect.CodeInvalidArgument`, como as demais RPCs de
+`DeviceService`. `payload` é um `google.protobuf.Struct` (mesmo motivo do
+`parameters` de `PublishCommand` — ver a seção abaixo) com o JSON que o
+device publicou; `observed_at` é o `timestamp` que o próprio payload
+declarou, não o instante da chamada.
 
 ## Profile, validação e fallback opaco
 
@@ -291,6 +306,16 @@ curl -u <usuario>:<senha> \
 
 `{}`, `{"on":"sim"}` ou `{"ligado":true}` para `led-1` voltam com erro e
 **nada é publicado no MQTT**.
+
+Ler a última telemetria em cache de um device (`available:false` se nada
+foi recebido ainda desde que o processo subiu):
+
+```bash
+curl -u <usuario>:<senha> \
+  -H 'Content-Type: application/json' \
+  -d '{"deviceId":"orangepi-monitor"}' \
+  http://<orange-pi>:<porta>/iot.gateway.api.v1.DeviceService/GetDeviceTelemetry
+```
 
 Ler o status do gateway:
 

@@ -51,6 +51,13 @@ type StatusProvider interface {
 	Snapshot() mqtt.Snapshot
 }
 
+// TelemetryProvider is the one capability this package needs to serve
+// GetDeviceTelemetry - satisfied structurally by *mqtt.Gateway already,
+// same pattern as CommandPublisher/StatusProvider above.
+type TelemetryProvider interface {
+	LastTelemetry(deviceID string) ([]byte, time.Time, bool)
+}
+
 type DeviceProvider interface {
 	Devices() []config.Device
 }
@@ -76,6 +83,7 @@ type Server struct {
 	cfg       Config
 	publisher CommandPublisher
 	status    StatusProvider
+	telemetry TelemetryProvider
 	logger    *slog.Logger
 	http      *http.Server
 
@@ -84,7 +92,7 @@ type Server struct {
 	deviceProvider DeviceProvider
 }
 
-func New(cfg Config, publisher CommandPublisher, status StatusProvider, logger *slog.Logger) (*Server, error) {
+func New(cfg Config, publisher CommandPublisher, status StatusProvider, telemetry TelemetryProvider, logger *slog.Logger) (*Server, error) {
 	if strings.TrimSpace(cfg.Address) == "" {
 		return nil, errors.New("api address is required")
 	}
@@ -93,6 +101,9 @@ func New(cfg Config, publisher CommandPublisher, status StatusProvider, logger *
 	}
 	if status == nil {
 		return nil, errors.New("api status provider is required")
+	}
+	if telemetry == nil {
+		return nil, errors.New("api telemetry provider is required")
 	}
 	if cfg.RequestTimeout <= 0 {
 		cfg.RequestTimeout = 10 * time.Second
@@ -113,6 +124,7 @@ func New(cfg Config, publisher CommandPublisher, status StatusProvider, logger *
 		cfg:            cfg,
 		publisher:      publisher,
 		status:         status,
+		telemetry:      telemetry,
 		logger:         logger,
 		devices:        devices,
 		deviceList:     deviceList,

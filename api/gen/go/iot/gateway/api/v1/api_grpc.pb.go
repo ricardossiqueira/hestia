@@ -22,6 +22,7 @@ const (
 	DeviceService_ListDevices_FullMethodName        = "/iot.gateway.api.v1.DeviceService/ListDevices"
 	DeviceService_ListDeviceCommands_FullMethodName = "/iot.gateway.api.v1.DeviceService/ListDeviceCommands"
 	DeviceService_PublishCommand_FullMethodName     = "/iot.gateway.api.v1.DeviceService/PublishCommand"
+	DeviceService_GetDeviceTelemetry_FullMethodName = "/iot.gateway.api.v1.DeviceService/GetDeviceTelemetry"
 )
 
 // DeviceServiceClient is the client API for DeviceService service.
@@ -34,6 +35,11 @@ type DeviceServiceClient interface {
 	ListDevices(ctx context.Context, in *ListDevicesRequest, opts ...grpc.CallOption) (*ListDevicesResponse, error)
 	ListDeviceCommands(ctx context.Context, in *ListDeviceCommandsRequest, opts ...grpc.CallOption) (*ListDeviceCommandsResponse, error)
 	PublishCommand(ctx context.Context, in *PublishCommandRequest, opts ...grpc.CallOption) (*PublishCommandResponse, error)
+	// GetDeviceTelemetry returns the most recent accepted telemetry message
+	// for a device, cached in memory only (no history, no persistence - see
+	// docs/api-v1.md). available=false means nothing has been received yet
+	// since this process started, not an error.
+	GetDeviceTelemetry(ctx context.Context, in *GetDeviceTelemetryRequest, opts ...grpc.CallOption) (*GetDeviceTelemetryResponse, error)
 }
 
 type deviceServiceClient struct {
@@ -74,6 +80,16 @@ func (c *deviceServiceClient) PublishCommand(ctx context.Context, in *PublishCom
 	return out, nil
 }
 
+func (c *deviceServiceClient) GetDeviceTelemetry(ctx context.Context, in *GetDeviceTelemetryRequest, opts ...grpc.CallOption) (*GetDeviceTelemetryResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetDeviceTelemetryResponse)
+	err := c.cc.Invoke(ctx, DeviceService_GetDeviceTelemetry_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // DeviceServiceServer is the server API for DeviceService service.
 // All implementations should embed UnimplementedDeviceServiceServer
 // for forward compatibility.
@@ -84,6 +100,11 @@ type DeviceServiceServer interface {
 	ListDevices(context.Context, *ListDevicesRequest) (*ListDevicesResponse, error)
 	ListDeviceCommands(context.Context, *ListDeviceCommandsRequest) (*ListDeviceCommandsResponse, error)
 	PublishCommand(context.Context, *PublishCommandRequest) (*PublishCommandResponse, error)
+	// GetDeviceTelemetry returns the most recent accepted telemetry message
+	// for a device, cached in memory only (no history, no persistence - see
+	// docs/api-v1.md). available=false means nothing has been received yet
+	// since this process started, not an error.
+	GetDeviceTelemetry(context.Context, *GetDeviceTelemetryRequest) (*GetDeviceTelemetryResponse, error)
 }
 
 // UnimplementedDeviceServiceServer should be embedded to have
@@ -101,6 +122,9 @@ func (UnimplementedDeviceServiceServer) ListDeviceCommands(context.Context, *Lis
 }
 func (UnimplementedDeviceServiceServer) PublishCommand(context.Context, *PublishCommandRequest) (*PublishCommandResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method PublishCommand not implemented")
+}
+func (UnimplementedDeviceServiceServer) GetDeviceTelemetry(context.Context, *GetDeviceTelemetryRequest) (*GetDeviceTelemetryResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetDeviceTelemetry not implemented")
 }
 func (UnimplementedDeviceServiceServer) testEmbeddedByValue() {}
 
@@ -176,6 +200,24 @@ func _DeviceService_PublishCommand_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DeviceService_GetDeviceTelemetry_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetDeviceTelemetryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DeviceServiceServer).GetDeviceTelemetry(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DeviceService_GetDeviceTelemetry_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DeviceServiceServer).GetDeviceTelemetry(ctx, req.(*GetDeviceTelemetryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // DeviceService_ServiceDesc is the grpc.ServiceDesc for DeviceService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -194,6 +236,10 @@ var DeviceService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "PublishCommand",
 			Handler:    _DeviceService_PublishCommand_Handler,
+		},
+		{
+			MethodName: "GetDeviceTelemetry",
+			Handler:    _DeviceService_GetDeviceTelemetry_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

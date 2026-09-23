@@ -46,6 +46,9 @@ const (
 	// DeviceServicePublishCommandProcedure is the fully-qualified name of the DeviceService's
 	// PublishCommand RPC.
 	DeviceServicePublishCommandProcedure = "/iot.gateway.api.v1.DeviceService/PublishCommand"
+	// DeviceServiceGetDeviceTelemetryProcedure is the fully-qualified name of the DeviceService's
+	// GetDeviceTelemetry RPC.
+	DeviceServiceGetDeviceTelemetryProcedure = "/iot.gateway.api.v1.DeviceService/GetDeviceTelemetry"
 	// GatewayServiceGetStatusProcedure is the fully-qualified name of the GatewayService's GetStatus
 	// RPC.
 	GatewayServiceGetStatusProcedure = "/iot.gateway.api.v1.GatewayService/GetStatus"
@@ -80,6 +83,11 @@ type DeviceServiceClient interface {
 	ListDevices(context.Context, *connect.Request[v1.ListDevicesRequest]) (*connect.Response[v1.ListDevicesResponse], error)
 	ListDeviceCommands(context.Context, *connect.Request[v1.ListDeviceCommandsRequest]) (*connect.Response[v1.ListDeviceCommandsResponse], error)
 	PublishCommand(context.Context, *connect.Request[v1.PublishCommandRequest]) (*connect.Response[v1.PublishCommandResponse], error)
+	// GetDeviceTelemetry returns the most recent accepted telemetry message
+	// for a device, cached in memory only (no history, no persistence - see
+	// docs/api-v1.md). available=false means nothing has been received yet
+	// since this process started, not an error.
+	GetDeviceTelemetry(context.Context, *connect.Request[v1.GetDeviceTelemetryRequest]) (*connect.Response[v1.GetDeviceTelemetryResponse], error)
 }
 
 // NewDeviceServiceClient constructs a client for the iot.gateway.api.v1.DeviceService service. By
@@ -111,6 +119,12 @@ func NewDeviceServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			connect.WithSchema(deviceServiceMethods.ByName("PublishCommand")),
 			connect.WithClientOptions(opts...),
 		),
+		getDeviceTelemetry: connect.NewClient[v1.GetDeviceTelemetryRequest, v1.GetDeviceTelemetryResponse](
+			httpClient,
+			baseURL+DeviceServiceGetDeviceTelemetryProcedure,
+			connect.WithSchema(deviceServiceMethods.ByName("GetDeviceTelemetry")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -119,6 +133,7 @@ type deviceServiceClient struct {
 	listDevices        *connect.Client[v1.ListDevicesRequest, v1.ListDevicesResponse]
 	listDeviceCommands *connect.Client[v1.ListDeviceCommandsRequest, v1.ListDeviceCommandsResponse]
 	publishCommand     *connect.Client[v1.PublishCommandRequest, v1.PublishCommandResponse]
+	getDeviceTelemetry *connect.Client[v1.GetDeviceTelemetryRequest, v1.GetDeviceTelemetryResponse]
 }
 
 // ListDevices calls iot.gateway.api.v1.DeviceService.ListDevices.
@@ -136,11 +151,21 @@ func (c *deviceServiceClient) PublishCommand(ctx context.Context, req *connect.R
 	return c.publishCommand.CallUnary(ctx, req)
 }
 
+// GetDeviceTelemetry calls iot.gateway.api.v1.DeviceService.GetDeviceTelemetry.
+func (c *deviceServiceClient) GetDeviceTelemetry(ctx context.Context, req *connect.Request[v1.GetDeviceTelemetryRequest]) (*connect.Response[v1.GetDeviceTelemetryResponse], error) {
+	return c.getDeviceTelemetry.CallUnary(ctx, req)
+}
+
 // DeviceServiceHandler is an implementation of the iot.gateway.api.v1.DeviceService service.
 type DeviceServiceHandler interface {
 	ListDevices(context.Context, *connect.Request[v1.ListDevicesRequest]) (*connect.Response[v1.ListDevicesResponse], error)
 	ListDeviceCommands(context.Context, *connect.Request[v1.ListDeviceCommandsRequest]) (*connect.Response[v1.ListDeviceCommandsResponse], error)
 	PublishCommand(context.Context, *connect.Request[v1.PublishCommandRequest]) (*connect.Response[v1.PublishCommandResponse], error)
+	// GetDeviceTelemetry returns the most recent accepted telemetry message
+	// for a device, cached in memory only (no history, no persistence - see
+	// docs/api-v1.md). available=false means nothing has been received yet
+	// since this process started, not an error.
+	GetDeviceTelemetry(context.Context, *connect.Request[v1.GetDeviceTelemetryRequest]) (*connect.Response[v1.GetDeviceTelemetryResponse], error)
 }
 
 // NewDeviceServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -168,6 +193,12 @@ func NewDeviceServiceHandler(svc DeviceServiceHandler, opts ...connect.HandlerOp
 		connect.WithSchema(deviceServiceMethods.ByName("PublishCommand")),
 		connect.WithHandlerOptions(opts...),
 	)
+	deviceServiceGetDeviceTelemetryHandler := connect.NewUnaryHandler(
+		DeviceServiceGetDeviceTelemetryProcedure,
+		svc.GetDeviceTelemetry,
+		connect.WithSchema(deviceServiceMethods.ByName("GetDeviceTelemetry")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/iot.gateway.api.v1.DeviceService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case DeviceServiceListDevicesProcedure:
@@ -176,6 +207,8 @@ func NewDeviceServiceHandler(svc DeviceServiceHandler, opts ...connect.HandlerOp
 			deviceServiceListDeviceCommandsHandler.ServeHTTP(w, r)
 		case DeviceServicePublishCommandProcedure:
 			deviceServicePublishCommandHandler.ServeHTTP(w, r)
+		case DeviceServiceGetDeviceTelemetryProcedure:
+			deviceServiceGetDeviceTelemetryHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -195,6 +228,10 @@ func (UnimplementedDeviceServiceHandler) ListDeviceCommands(context.Context, *co
 
 func (UnimplementedDeviceServiceHandler) PublishCommand(context.Context, *connect.Request[v1.PublishCommandRequest]) (*connect.Response[v1.PublishCommandResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("iot.gateway.api.v1.DeviceService.PublishCommand is not implemented"))
+}
+
+func (UnimplementedDeviceServiceHandler) GetDeviceTelemetry(context.Context, *connect.Request[v1.GetDeviceTelemetryRequest]) (*connect.Response[v1.GetDeviceTelemetryResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("iot.gateway.api.v1.DeviceService.GetDeviceTelemetry is not implemented"))
 }
 
 // GatewayServiceClient is a client for the iot.gateway.api.v1.GatewayService service.

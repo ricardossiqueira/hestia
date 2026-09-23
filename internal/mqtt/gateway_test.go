@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ricardossiqueira/iot-gateway/internal/config"
 	"github.com/ricardossiqueira/iot-gateway/internal/outbox"
@@ -433,6 +434,68 @@ func TestGatewayApplyChangesPolicyWithoutRestart(t *testing.T) {
 	client.deliver("devices/esp32-sala/state", []byte(`{"message_id":"a9f2290d-d1ee-4cbc-841d-03e29a7f028c","timestamp":"2026-09-18T15:00:00Z"}`))
 	if len(logger.accepted) != 0 {
 		t.Fatalf("stale topic was accepted: %#v", logger.accepted)
+	}
+}
+
+func TestGatewayLastTelemetryReturnsMostRecentAcceptedMessage(t *testing.T) {
+	client := &fakeClient{}
+	gateway, err := New(testConfig(), client, &recordingLogger{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := gateway.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, ok := gateway.LastTelemetry("esp32-sala"); ok {
+		t.Fatal("LastTelemetry() ok = true before any message was received")
+	}
+
+	client.deliver("devices/esp32-sala/telemetry", []byte(`{"message_id":"b4a5bb31-1710-4f7b-a043-1b6a292d04ad","timestamp":"2026-09-18T15:00:00Z","temperature_c":24.6}`))
+	payload, observedAt, ok := gateway.LastTelemetry("esp32-sala")
+	if !ok {
+		t.Fatal("LastTelemetry() ok = false after an accepted telemetry message")
+	}
+	if !strings.Contains(string(payload), `"temperature_c":24.6`) {
+		t.Errorf("LastTelemetry() payload = %s", payload)
+	}
+	if got := observedAt.Format(time.RFC3339); got != "2026-09-18T15:00:00Z" {
+		t.Errorf("LastTelemetry() observedAt = %v", got)
+	}
+
+	// A later message replaces the cached one instead of accumulating.
+	client.deliver("devices/esp32-sala/telemetry", []byte(`{"message_id":"a9f2290d-d1ee-4cbc-841d-03e29a7f028c","timestamp":"2026-09-18T15:00:05Z","temperature_c":25.1}`))
+	payload, _, _ = gateway.LastTelemetry("esp32-sala")
+	if !strings.Contains(string(payload), `"temperature_c":25.1`) {
+		t.Errorf("LastTelemetry() did not update to the latest message: %s", payload)
+	}
+
+	// Non-telemetry kinds are not cached here.
+	client.deliver("devices/esp32-sala/state", []byte(`{"message_id":"a9f2290d-d1ee-4cbc-841d-03e29a7f028c","timestamp":"2026-09-18T15:00:10Z"}`))
+	if _, _, ok := gateway.LastTelemetry("unknown-device"); ok {
+		t.Fatal("LastTelemetry() ok = true for a device that never published telemetry")
+	}
+}
+
+func TestGatewayApplyPrunesLastTelemetryForRemovedDevice(t *testing.T) {
+	client := &fakeClient{}
+	gateway, err := New(testConfig(), client, &recordingLogger{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := gateway.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	client.deliver("devices/esp32-sala/telemetry", []byte(`{"message_id":"b4a5bb31-1710-4f7b-a043-1b6a292d04ad","timestamp":"2026-09-18T15:00:00Z"}`))
+	if _, _, ok := gateway.LastTelemetry("esp32-sala"); !ok {
+		t.Fatal("setup: expected a cached telemetry reading")
+	}
+
+	if err := gateway.Apply(context.Background(), config.Config{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, ok := gateway.LastTelemetry("esp32-sala"); ok {
+		t.Fatal("LastTelemetry() ok = true for a device removed by Apply")
 	}
 }
 

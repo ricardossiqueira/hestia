@@ -1455,6 +1455,126 @@ func (x *PublishCommandResponse) GetPublishedAt() *timestamppb.Timestamp {
 	return nil
 }
 
+type GetDeviceTelemetryRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	DeviceId      string                 `protobuf:"bytes,1,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetDeviceTelemetryRequest) Reset() {
+	*x = GetDeviceTelemetryRequest{}
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetDeviceTelemetryRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetDeviceTelemetryRequest) ProtoMessage() {}
+
+func (x *GetDeviceTelemetryRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetDeviceTelemetryRequest.ProtoReflect.Descriptor instead.
+func (*GetDeviceTelemetryRequest) Descriptor() ([]byte, []int) {
+	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *GetDeviceTelemetryRequest) GetDeviceId() string {
+	if x != nil {
+		return x.DeviceId
+	}
+	return ""
+}
+
+type GetDeviceTelemetryResponse struct {
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	DeviceId string                 `protobuf:"bytes,1,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
+	// available is false when the gateway has not accepted a telemetry
+	// message for this device since the process started. payload and
+	// observed_at are unset in that case - this is not an error.
+	Available bool `protobuf:"varint,2,opt,name=available,proto3" json:"available,omitempty"`
+	// payload is a Struct, not bytes - same reasoning as
+	// PublishCommandRequest.parameters (ADR-012): keeps this readable over
+	// plain curl/HTTP-JSON instead of becoming base64.
+	Payload *structpb.Struct `protobuf:"bytes,3,opt,name=payload,proto3" json:"payload,omitempty"`
+	// observed_at is the payload's own `timestamp` field (already validated
+	// RFC3339 UTC by internal/mqtt), not when this RPC was called.
+	ObservedAt    *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=observed_at,json=observedAt,proto3" json:"observed_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetDeviceTelemetryResponse) Reset() {
+	*x = GetDeviceTelemetryResponse{}
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetDeviceTelemetryResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetDeviceTelemetryResponse) ProtoMessage() {}
+
+func (x *GetDeviceTelemetryResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetDeviceTelemetryResponse.ProtoReflect.Descriptor instead.
+func (*GetDeviceTelemetryResponse) Descriptor() ([]byte, []int) {
+	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *GetDeviceTelemetryResponse) GetDeviceId() string {
+	if x != nil {
+		return x.DeviceId
+	}
+	return ""
+}
+
+func (x *GetDeviceTelemetryResponse) GetAvailable() bool {
+	if x != nil {
+		return x.Available
+	}
+	return false
+}
+
+func (x *GetDeviceTelemetryResponse) GetPayload() *structpb.Struct {
+	if x != nil {
+		return x.Payload
+	}
+	return nil
+}
+
+func (x *GetDeviceTelemetryResponse) GetObservedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.ObservedAt
+	}
+	return nil
+}
+
 type GetStatusRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -1463,7 +1583,7 @@ type GetStatusRequest struct {
 
 func (x *GetStatusRequest) Reset() {
 	*x = GetStatusRequest{}
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[26]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1475,7 +1595,7 @@ func (x *GetStatusRequest) String() string {
 func (*GetStatusRequest) ProtoMessage() {}
 
 func (x *GetStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[26]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1488,7 +1608,7 @@ func (x *GetStatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetStatusRequest.ProtoReflect.Descriptor instead.
 func (*GetStatusRequest) Descriptor() ([]byte, []int) {
-	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{26}
+	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{28}
 }
 
 // GetStatusResponse mirrors internal/mqtt.Snapshot field for field.
@@ -1511,7 +1631,7 @@ type GetStatusResponse struct {
 
 func (x *GetStatusResponse) Reset() {
 	*x = GetStatusResponse{}
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[27]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1523,7 +1643,7 @@ func (x *GetStatusResponse) String() string {
 func (*GetStatusResponse) ProtoMessage() {}
 
 func (x *GetStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[27]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1536,7 +1656,7 @@ func (x *GetStatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetStatusResponse.ProtoReflect.Descriptor instead.
 func (*GetStatusResponse) Descriptor() ([]byte, []int) {
-	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{27}
+	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *GetStatusResponse) GetStartedAt() *timestamppb.Timestamp {
@@ -1714,7 +1834,15 @@ const file_iot_gateway_api_v1_api_proto_rawDesc = "" +
 	"command_id\x18\x01 \x01(\tR\tcommandId\x12\x1b\n" +
 	"\tdevice_id\x18\x02 \x01(\tR\bdeviceId\x12)\n" +
 	"\x10schema_validated\x18\x03 \x01(\bR\x0fschemaValidated\x12=\n" +
-	"\fpublished_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\vpublishedAt\"\x12\n" +
+	"\fpublished_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\vpublishedAt\"8\n" +
+	"\x19GetDeviceTelemetryRequest\x12\x1b\n" +
+	"\tdevice_id\x18\x01 \x01(\tR\bdeviceId\"\xc7\x01\n" +
+	"\x1aGetDeviceTelemetryResponse\x12\x1b\n" +
+	"\tdevice_id\x18\x01 \x01(\tR\bdeviceId\x12\x1c\n" +
+	"\tavailable\x18\x02 \x01(\bR\tavailable\x121\n" +
+	"\apayload\x18\x03 \x01(\v2\x17.google.protobuf.StructR\apayload\x12;\n" +
+	"\vobserved_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
+	"observedAt\"\x12\n" +
 	"\x10GetStatusRequest\"\xea\x03\n" +
 	"\x11GetStatusResponse\x129\n" +
 	"\n" +
@@ -1729,11 +1857,12 @@ const file_iot_gateway_api_v1_api_proto_rawDesc = "" +
 	"\routbox_stored\x18\t \x01(\x04R\foutboxStored\x12)\n" +
 	"\x10outbox_discarded\x18\n" +
 	" \x01(\x04R\x0foutboxDiscarded\x12#\n" +
-	"\routbox_failed\x18\v \x01(\x04R\foutboxFailed2\xcd\x02\n" +
+	"\routbox_failed\x18\v \x01(\x04R\foutboxFailed2\xc2\x03\n" +
 	"\rDeviceService\x12^\n" +
 	"\vListDevices\x12&.iot.gateway.api.v1.ListDevicesRequest\x1a'.iot.gateway.api.v1.ListDevicesResponse\x12s\n" +
 	"\x12ListDeviceCommands\x12-.iot.gateway.api.v1.ListDeviceCommandsRequest\x1a..iot.gateway.api.v1.ListDeviceCommandsResponse\x12g\n" +
-	"\x0ePublishCommand\x12).iot.gateway.api.v1.PublishCommandRequest\x1a*.iot.gateway.api.v1.PublishCommandResponse2j\n" +
+	"\x0ePublishCommand\x12).iot.gateway.api.v1.PublishCommandRequest\x1a*.iot.gateway.api.v1.PublishCommandResponse\x12s\n" +
+	"\x12GetDeviceTelemetry\x12-.iot.gateway.api.v1.GetDeviceTelemetryRequest\x1a..iot.gateway.api.v1.GetDeviceTelemetryResponse2j\n" +
 	"\x0eGatewayService\x12X\n" +
 	"\tGetStatus\x12$.iot.gateway.api.v1.GetStatusRequest\x1a%.iot.gateway.api.v1.GetStatusResponse2\xd3\x06\n" +
 	"\x12DeviceAdminService\x12\x7f\n" +
@@ -1759,7 +1888,7 @@ func file_iot_gateway_api_v1_api_proto_rawDescGZIP() []byte {
 	return file_iot_gateway_api_v1_api_proto_rawDescData
 }
 
-var file_iot_gateway_api_v1_api_proto_msgTypes = make([]protoimpl.MessageInfo, 28)
+var file_iot_gateway_api_v1_api_proto_msgTypes = make([]protoimpl.MessageInfo, 30)
 var file_iot_gateway_api_v1_api_proto_goTypes = []any{
 	(*RegisterExistingDeviceRequest)(nil),  // 0: iot.gateway.api.v1.RegisterExistingDeviceRequest
 	(*RegisterExistingDeviceResponse)(nil), // 1: iot.gateway.api.v1.RegisterExistingDeviceResponse
@@ -1787,63 +1916,69 @@ var file_iot_gateway_api_v1_api_proto_goTypes = []any{
 	(*CommandDescriptor)(nil),              // 23: iot.gateway.api.v1.CommandDescriptor
 	(*PublishCommandRequest)(nil),          // 24: iot.gateway.api.v1.PublishCommandRequest
 	(*PublishCommandResponse)(nil),         // 25: iot.gateway.api.v1.PublishCommandResponse
-	(*GetStatusRequest)(nil),               // 26: iot.gateway.api.v1.GetStatusRequest
-	(*GetStatusResponse)(nil),              // 27: iot.gateway.api.v1.GetStatusResponse
-	(*timestamppb.Timestamp)(nil),          // 28: google.protobuf.Timestamp
-	(*descriptorpb.DescriptorProto)(nil),   // 29: google.protobuf.DescriptorProto
-	(*structpb.Struct)(nil),                // 30: google.protobuf.Struct
+	(*GetDeviceTelemetryRequest)(nil),      // 26: iot.gateway.api.v1.GetDeviceTelemetryRequest
+	(*GetDeviceTelemetryResponse)(nil),     // 27: iot.gateway.api.v1.GetDeviceTelemetryResponse
+	(*GetStatusRequest)(nil),               // 28: iot.gateway.api.v1.GetStatusRequest
+	(*GetStatusResponse)(nil),              // 29: iot.gateway.api.v1.GetStatusResponse
+	(*timestamppb.Timestamp)(nil),          // 30: google.protobuf.Timestamp
+	(*descriptorpb.DescriptorProto)(nil),   // 31: google.protobuf.DescriptorProto
+	(*structpb.Struct)(nil),                // 32: google.protobuf.Struct
 }
 var file_iot_gateway_api_v1_api_proto_depIdxs = []int32{
 	19, // 0: iot.gateway.api.v1.RegisterExistingDeviceResponse.device:type_name -> iot.gateway.api.v1.Device
-	28, // 1: iot.gateway.api.v1.RegisterExistingDeviceResponse.applied_at:type_name -> google.protobuf.Timestamp
+	30, // 1: iot.gateway.api.v1.RegisterExistingDeviceResponse.applied_at:type_name -> google.protobuf.Timestamp
 	2,  // 2: iot.gateway.api.v1.ListRoutesResponse.routes:type_name -> iot.gateway.api.v1.Route
 	2,  // 3: iot.gateway.api.v1.CreateRouteRequest.route:type_name -> iot.gateway.api.v1.Route
 	2,  // 4: iot.gateway.api.v1.CreateRouteResponse.route:type_name -> iot.gateway.api.v1.Route
-	28, // 5: iot.gateway.api.v1.CreateRouteResponse.applied_at:type_name -> google.protobuf.Timestamp
-	28, // 6: iot.gateway.api.v1.RemoveRouteResponse.applied_at:type_name -> google.protobuf.Timestamp
+	30, // 5: iot.gateway.api.v1.CreateRouteResponse.applied_at:type_name -> google.protobuf.Timestamp
+	30, // 6: iot.gateway.api.v1.RemoveRouteResponse.applied_at:type_name -> google.protobuf.Timestamp
 	19, // 7: iot.gateway.api.v1.ProvisionDeviceResponse.device:type_name -> iot.gateway.api.v1.Device
-	28, // 8: iot.gateway.api.v1.ProvisionDeviceResponse.applied_at:type_name -> google.protobuf.Timestamp
+	30, // 8: iot.gateway.api.v1.ProvisionDeviceResponse.applied_at:type_name -> google.protobuf.Timestamp
 	19, // 9: iot.gateway.api.v1.ProvisionCYDResponse.device:type_name -> iot.gateway.api.v1.Device
-	28, // 10: iot.gateway.api.v1.ProvisionCYDResponse.applied_at:type_name -> google.protobuf.Timestamp
+	30, // 10: iot.gateway.api.v1.ProvisionCYDResponse.applied_at:type_name -> google.protobuf.Timestamp
 	19, // 11: iot.gateway.api.v1.SetDeviceEnabledResponse.device:type_name -> iot.gateway.api.v1.Device
-	28, // 12: iot.gateway.api.v1.SetDeviceEnabledResponse.applied_at:type_name -> google.protobuf.Timestamp
-	28, // 13: iot.gateway.api.v1.RemoveDeviceResponse.applied_at:type_name -> google.protobuf.Timestamp
+	30, // 12: iot.gateway.api.v1.SetDeviceEnabledResponse.applied_at:type_name -> google.protobuf.Timestamp
+	30, // 13: iot.gateway.api.v1.RemoveDeviceResponse.applied_at:type_name -> google.protobuf.Timestamp
 	19, // 14: iot.gateway.api.v1.ListDevicesResponse.devices:type_name -> iot.gateway.api.v1.Device
 	20, // 15: iot.gateway.api.v1.Device.topics:type_name -> iot.gateway.api.v1.DeviceTopics
 	23, // 16: iot.gateway.api.v1.ListDeviceCommandsResponse.commands:type_name -> iot.gateway.api.v1.CommandDescriptor
-	29, // 17: iot.gateway.api.v1.CommandDescriptor.parameters_schema:type_name -> google.protobuf.DescriptorProto
-	30, // 18: iot.gateway.api.v1.PublishCommandRequest.parameters:type_name -> google.protobuf.Struct
-	28, // 19: iot.gateway.api.v1.PublishCommandResponse.published_at:type_name -> google.protobuf.Timestamp
-	28, // 20: iot.gateway.api.v1.GetStatusResponse.started_at:type_name -> google.protobuf.Timestamp
-	17, // 21: iot.gateway.api.v1.DeviceService.ListDevices:input_type -> iot.gateway.api.v1.ListDevicesRequest
-	21, // 22: iot.gateway.api.v1.DeviceService.ListDeviceCommands:input_type -> iot.gateway.api.v1.ListDeviceCommandsRequest
-	24, // 23: iot.gateway.api.v1.DeviceService.PublishCommand:input_type -> iot.gateway.api.v1.PublishCommandRequest
-	26, // 24: iot.gateway.api.v1.GatewayService.GetStatus:input_type -> iot.gateway.api.v1.GetStatusRequest
-	0,  // 25: iot.gateway.api.v1.DeviceAdminService.RegisterExistingDevice:input_type -> iot.gateway.api.v1.RegisterExistingDeviceRequest
-	3,  // 26: iot.gateway.api.v1.DeviceAdminService.ListRoutes:input_type -> iot.gateway.api.v1.ListRoutesRequest
-	5,  // 27: iot.gateway.api.v1.DeviceAdminService.CreateRoute:input_type -> iot.gateway.api.v1.CreateRouteRequest
-	7,  // 28: iot.gateway.api.v1.DeviceAdminService.RemoveRoute:input_type -> iot.gateway.api.v1.RemoveRouteRequest
-	9,  // 29: iot.gateway.api.v1.DeviceAdminService.ProvisionDevice:input_type -> iot.gateway.api.v1.ProvisionDeviceRequest
-	11, // 30: iot.gateway.api.v1.DeviceAdminService.ProvisionCYD:input_type -> iot.gateway.api.v1.ProvisionCYDRequest
-	13, // 31: iot.gateway.api.v1.DeviceAdminService.SetDeviceEnabled:input_type -> iot.gateway.api.v1.SetDeviceEnabledRequest
-	15, // 32: iot.gateway.api.v1.DeviceAdminService.RemoveDevice:input_type -> iot.gateway.api.v1.RemoveDeviceRequest
-	18, // 33: iot.gateway.api.v1.DeviceService.ListDevices:output_type -> iot.gateway.api.v1.ListDevicesResponse
-	22, // 34: iot.gateway.api.v1.DeviceService.ListDeviceCommands:output_type -> iot.gateway.api.v1.ListDeviceCommandsResponse
-	25, // 35: iot.gateway.api.v1.DeviceService.PublishCommand:output_type -> iot.gateway.api.v1.PublishCommandResponse
-	27, // 36: iot.gateway.api.v1.GatewayService.GetStatus:output_type -> iot.gateway.api.v1.GetStatusResponse
-	1,  // 37: iot.gateway.api.v1.DeviceAdminService.RegisterExistingDevice:output_type -> iot.gateway.api.v1.RegisterExistingDeviceResponse
-	4,  // 38: iot.gateway.api.v1.DeviceAdminService.ListRoutes:output_type -> iot.gateway.api.v1.ListRoutesResponse
-	6,  // 39: iot.gateway.api.v1.DeviceAdminService.CreateRoute:output_type -> iot.gateway.api.v1.CreateRouteResponse
-	8,  // 40: iot.gateway.api.v1.DeviceAdminService.RemoveRoute:output_type -> iot.gateway.api.v1.RemoveRouteResponse
-	10, // 41: iot.gateway.api.v1.DeviceAdminService.ProvisionDevice:output_type -> iot.gateway.api.v1.ProvisionDeviceResponse
-	12, // 42: iot.gateway.api.v1.DeviceAdminService.ProvisionCYD:output_type -> iot.gateway.api.v1.ProvisionCYDResponse
-	14, // 43: iot.gateway.api.v1.DeviceAdminService.SetDeviceEnabled:output_type -> iot.gateway.api.v1.SetDeviceEnabledResponse
-	16, // 44: iot.gateway.api.v1.DeviceAdminService.RemoveDevice:output_type -> iot.gateway.api.v1.RemoveDeviceResponse
-	33, // [33:45] is the sub-list for method output_type
-	21, // [21:33] is the sub-list for method input_type
-	21, // [21:21] is the sub-list for extension type_name
-	21, // [21:21] is the sub-list for extension extendee
-	0,  // [0:21] is the sub-list for field type_name
+	31, // 17: iot.gateway.api.v1.CommandDescriptor.parameters_schema:type_name -> google.protobuf.DescriptorProto
+	32, // 18: iot.gateway.api.v1.PublishCommandRequest.parameters:type_name -> google.protobuf.Struct
+	30, // 19: iot.gateway.api.v1.PublishCommandResponse.published_at:type_name -> google.protobuf.Timestamp
+	32, // 20: iot.gateway.api.v1.GetDeviceTelemetryResponse.payload:type_name -> google.protobuf.Struct
+	30, // 21: iot.gateway.api.v1.GetDeviceTelemetryResponse.observed_at:type_name -> google.protobuf.Timestamp
+	30, // 22: iot.gateway.api.v1.GetStatusResponse.started_at:type_name -> google.protobuf.Timestamp
+	17, // 23: iot.gateway.api.v1.DeviceService.ListDevices:input_type -> iot.gateway.api.v1.ListDevicesRequest
+	21, // 24: iot.gateway.api.v1.DeviceService.ListDeviceCommands:input_type -> iot.gateway.api.v1.ListDeviceCommandsRequest
+	24, // 25: iot.gateway.api.v1.DeviceService.PublishCommand:input_type -> iot.gateway.api.v1.PublishCommandRequest
+	26, // 26: iot.gateway.api.v1.DeviceService.GetDeviceTelemetry:input_type -> iot.gateway.api.v1.GetDeviceTelemetryRequest
+	28, // 27: iot.gateway.api.v1.GatewayService.GetStatus:input_type -> iot.gateway.api.v1.GetStatusRequest
+	0,  // 28: iot.gateway.api.v1.DeviceAdminService.RegisterExistingDevice:input_type -> iot.gateway.api.v1.RegisterExistingDeviceRequest
+	3,  // 29: iot.gateway.api.v1.DeviceAdminService.ListRoutes:input_type -> iot.gateway.api.v1.ListRoutesRequest
+	5,  // 30: iot.gateway.api.v1.DeviceAdminService.CreateRoute:input_type -> iot.gateway.api.v1.CreateRouteRequest
+	7,  // 31: iot.gateway.api.v1.DeviceAdminService.RemoveRoute:input_type -> iot.gateway.api.v1.RemoveRouteRequest
+	9,  // 32: iot.gateway.api.v1.DeviceAdminService.ProvisionDevice:input_type -> iot.gateway.api.v1.ProvisionDeviceRequest
+	11, // 33: iot.gateway.api.v1.DeviceAdminService.ProvisionCYD:input_type -> iot.gateway.api.v1.ProvisionCYDRequest
+	13, // 34: iot.gateway.api.v1.DeviceAdminService.SetDeviceEnabled:input_type -> iot.gateway.api.v1.SetDeviceEnabledRequest
+	15, // 35: iot.gateway.api.v1.DeviceAdminService.RemoveDevice:input_type -> iot.gateway.api.v1.RemoveDeviceRequest
+	18, // 36: iot.gateway.api.v1.DeviceService.ListDevices:output_type -> iot.gateway.api.v1.ListDevicesResponse
+	22, // 37: iot.gateway.api.v1.DeviceService.ListDeviceCommands:output_type -> iot.gateway.api.v1.ListDeviceCommandsResponse
+	25, // 38: iot.gateway.api.v1.DeviceService.PublishCommand:output_type -> iot.gateway.api.v1.PublishCommandResponse
+	27, // 39: iot.gateway.api.v1.DeviceService.GetDeviceTelemetry:output_type -> iot.gateway.api.v1.GetDeviceTelemetryResponse
+	29, // 40: iot.gateway.api.v1.GatewayService.GetStatus:output_type -> iot.gateway.api.v1.GetStatusResponse
+	1,  // 41: iot.gateway.api.v1.DeviceAdminService.RegisterExistingDevice:output_type -> iot.gateway.api.v1.RegisterExistingDeviceResponse
+	4,  // 42: iot.gateway.api.v1.DeviceAdminService.ListRoutes:output_type -> iot.gateway.api.v1.ListRoutesResponse
+	6,  // 43: iot.gateway.api.v1.DeviceAdminService.CreateRoute:output_type -> iot.gateway.api.v1.CreateRouteResponse
+	8,  // 44: iot.gateway.api.v1.DeviceAdminService.RemoveRoute:output_type -> iot.gateway.api.v1.RemoveRouteResponse
+	10, // 45: iot.gateway.api.v1.DeviceAdminService.ProvisionDevice:output_type -> iot.gateway.api.v1.ProvisionDeviceResponse
+	12, // 46: iot.gateway.api.v1.DeviceAdminService.ProvisionCYD:output_type -> iot.gateway.api.v1.ProvisionCYDResponse
+	14, // 47: iot.gateway.api.v1.DeviceAdminService.SetDeviceEnabled:output_type -> iot.gateway.api.v1.SetDeviceEnabledResponse
+	16, // 48: iot.gateway.api.v1.DeviceAdminService.RemoveDevice:output_type -> iot.gateway.api.v1.RemoveDeviceResponse
+	36, // [36:49] is the sub-list for method output_type
+	23, // [23:36] is the sub-list for method input_type
+	23, // [23:23] is the sub-list for extension type_name
+	23, // [23:23] is the sub-list for extension extendee
+	0,  // [0:23] is the sub-list for field type_name
 }
 
 func init() { file_iot_gateway_api_v1_api_proto_init() }
@@ -1857,7 +1992,7 @@ func file_iot_gateway_api_v1_api_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_iot_gateway_api_v1_api_proto_rawDesc), len(file_iot_gateway_api_v1_api_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   28,
+			NumMessages:   30,
 			NumExtensions: 0,
 			NumServices:   3,
 		},
