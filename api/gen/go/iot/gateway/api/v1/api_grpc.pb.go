@@ -402,6 +402,8 @@ const (
 	DeviceAdminService_ProvisionLED_FullMethodName           = "/iot.gateway.api.v1.DeviceAdminService/ProvisionLED"
 	DeviceAdminService_SetDeviceEnabled_FullMethodName       = "/iot.gateway.api.v1.DeviceAdminService/SetDeviceEnabled"
 	DeviceAdminService_RemoveDevice_FullMethodName           = "/iot.gateway.api.v1.DeviceAdminService/RemoveDevice"
+	DeviceAdminService_ListInconsistencies_FullMethodName    = "/iot.gateway.api.v1.DeviceAdminService/ListInconsistencies"
+	DeviceAdminService_ResolveInconsistency_FullMethodName   = "/iot.gateway.api.v1.DeviceAdminService/ResolveInconsistency"
 )
 
 // DeviceAdminServiceClient is the client API for DeviceAdminService service.
@@ -435,6 +437,11 @@ type DeviceAdminServiceClient interface {
 	ProvisionLED(ctx context.Context, in *ProvisionLEDRequest, opts ...grpc.CallOption) (*ProvisionLEDResponse, error)
 	SetDeviceEnabled(ctx context.Context, in *SetDeviceEnabledRequest, opts ...grpc.CallOption) (*SetDeviceEnabledResponse, error)
 	RemoveDevice(ctx context.Context, in *RemoveDeviceRequest, opts ...grpc.CallOption) (*RemoveDeviceResponse, error)
+	// ListInconsistencies returns provisioning operations whose best-effort
+	// compensation itself failed - the registry and the Mosquitto broker now
+	// disagree about a device. Empty is the healthy state. See docs/api-v1.md.
+	ListInconsistencies(ctx context.Context, in *ListInconsistenciesRequest, opts ...grpc.CallOption) (*ListInconsistenciesResponse, error)
+	ResolveInconsistency(ctx context.Context, in *ResolveInconsistencyRequest, opts ...grpc.CallOption) (*ResolveInconsistencyResponse, error)
 }
 
 type deviceAdminServiceClient struct {
@@ -535,6 +542,26 @@ func (c *deviceAdminServiceClient) RemoveDevice(ctx context.Context, in *RemoveD
 	return out, nil
 }
 
+func (c *deviceAdminServiceClient) ListInconsistencies(ctx context.Context, in *ListInconsistenciesRequest, opts ...grpc.CallOption) (*ListInconsistenciesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListInconsistenciesResponse)
+	err := c.cc.Invoke(ctx, DeviceAdminService_ListInconsistencies_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *deviceAdminServiceClient) ResolveInconsistency(ctx context.Context, in *ResolveInconsistencyRequest, opts ...grpc.CallOption) (*ResolveInconsistencyResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ResolveInconsistencyResponse)
+	err := c.cc.Invoke(ctx, DeviceAdminService_ResolveInconsistency_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // DeviceAdminServiceServer is the server API for DeviceAdminService service.
 // All implementations should embed UnimplementedDeviceAdminServiceServer
 // for forward compatibility.
@@ -566,6 +593,11 @@ type DeviceAdminServiceServer interface {
 	ProvisionLED(context.Context, *ProvisionLEDRequest) (*ProvisionLEDResponse, error)
 	SetDeviceEnabled(context.Context, *SetDeviceEnabledRequest) (*SetDeviceEnabledResponse, error)
 	RemoveDevice(context.Context, *RemoveDeviceRequest) (*RemoveDeviceResponse, error)
+	// ListInconsistencies returns provisioning operations whose best-effort
+	// compensation itself failed - the registry and the Mosquitto broker now
+	// disagree about a device. Empty is the healthy state. See docs/api-v1.md.
+	ListInconsistencies(context.Context, *ListInconsistenciesRequest) (*ListInconsistenciesResponse, error)
+	ResolveInconsistency(context.Context, *ResolveInconsistencyRequest) (*ResolveInconsistencyResponse, error)
 }
 
 // UnimplementedDeviceAdminServiceServer should be embedded to have
@@ -601,6 +633,12 @@ func (UnimplementedDeviceAdminServiceServer) SetDeviceEnabled(context.Context, *
 }
 func (UnimplementedDeviceAdminServiceServer) RemoveDevice(context.Context, *RemoveDeviceRequest) (*RemoveDeviceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RemoveDevice not implemented")
+}
+func (UnimplementedDeviceAdminServiceServer) ListInconsistencies(context.Context, *ListInconsistenciesRequest) (*ListInconsistenciesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListInconsistencies not implemented")
+}
+func (UnimplementedDeviceAdminServiceServer) ResolveInconsistency(context.Context, *ResolveInconsistencyRequest) (*ResolveInconsistencyResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ResolveInconsistency not implemented")
 }
 func (UnimplementedDeviceAdminServiceServer) testEmbeddedByValue() {}
 
@@ -784,6 +822,42 @@ func _DeviceAdminService_RemoveDevice_Handler(srv interface{}, ctx context.Conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DeviceAdminService_ListInconsistencies_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListInconsistenciesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DeviceAdminServiceServer).ListInconsistencies(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DeviceAdminService_ListInconsistencies_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DeviceAdminServiceServer).ListInconsistencies(ctx, req.(*ListInconsistenciesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DeviceAdminService_ResolveInconsistency_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ResolveInconsistencyRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DeviceAdminServiceServer).ResolveInconsistency(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DeviceAdminService_ResolveInconsistency_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DeviceAdminServiceServer).ResolveInconsistency(ctx, req.(*ResolveInconsistencyRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // DeviceAdminService_ServiceDesc is the grpc.ServiceDesc for DeviceAdminService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -826,6 +900,14 @@ var DeviceAdminService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "RemoveDevice",
 			Handler:    _DeviceAdminService_RemoveDevice_Handler,
+		},
+		{
+			MethodName: "ListInconsistencies",
+			Handler:    _DeviceAdminService_ListInconsistencies_Handler,
+		},
+		{
+			MethodName: "ResolveInconsistency",
+			Handler:    _DeviceAdminService_ResolveInconsistency_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

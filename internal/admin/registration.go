@@ -23,6 +23,7 @@ var (
 	ErrRouteAlreadyExists     = errors.New("route already exists")
 	ErrRouteNotFound          = errors.New("route not found")
 	ErrTemplateRequiresAdopt  = errors.New("template requires an existing broker identity")
+	ErrInconsistencyNotFound  = errors.New("inconsistency not found")
 )
 
 // RegisterDevice provisions a Mosquitto credential/ACL for a new device

@@ -38,6 +38,7 @@ import (
 
 	"github.com/ricardossiqueira/iot-gateway/api/gen/go/iot/gateway/api/v1/apiv1connect"
 	"github.com/ricardossiqueira/iot-gateway/internal/config"
+	"github.com/ricardossiqueira/iot-gateway/internal/registry"
 )
 
 // DeviceAdmin is the one capability this package needs to answer
@@ -58,6 +59,8 @@ type DeviceAdmin interface {
 	ProvisionLED(ctx context.Context, id, address string) (config.Device, string, error)
 	SetDeviceEnabled(ctx context.Context, id string, enabled bool) (config.Device, error)
 	RemoveDevice(ctx context.Context, id string) error
+	ListInconsistencies(ctx context.Context) ([]registry.Inconsistency, error)
+	ResolveInconsistency(ctx context.Context, id string) error
 }
 
 // Credentials gate every request behind HTTP Basic Auth, read from

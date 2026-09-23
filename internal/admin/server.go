@@ -168,6 +168,38 @@ func (s *Server) RemoveRoute(ctx context.Context, id string) error {
 	return nil
 }
 
+// ListInconsistencies returns provisioning operations whose best-effort
+// compensation itself failed - see registry.Store.RecordInconsistency's
+// doc comment and recordInconsistency below. Everything provisioned and
+// removed cleanly never shows up here; an empty list is the healthy state.
+func (s *Server) ListInconsistencies(ctx context.Context) ([]registry.Inconsistency, error) {
+	ctx, cancel := context.WithTimeout(ctx, s.cfg.RequestTimeout)
+	defer cancel()
+	if s.cfg.Registry == nil {
+		return nil, errors.New("inconsistency tracking requires the SQLite registry")
+	}
+	return s.cfg.Registry.ListInconsistencies(ctx)
+}
+
+// ResolveInconsistency marks an entry resolved once an operator has fixed
+// (or independently confirmed no fix is needed for) the underlying
+// registry/broker disagreement. It does not itself touch the registry or
+// the broker.
+func (s *Server) ResolveInconsistency(ctx context.Context, id string) error {
+	ctx, cancel := context.WithTimeout(ctx, s.cfg.RequestTimeout)
+	defer cancel()
+	if s.cfg.Registry == nil {
+		return errors.New("inconsistency tracking requires the SQLite registry")
+	}
+	if err := s.cfg.Registry.ResolveInconsistency(ctx, id); err != nil {
+		if errors.Is(err, registry.ErrInconsistencyNotFound) {
+			return fmt.Errorf("%w: %s", ErrInconsistencyNotFound, id)
+		}
+		return err
+	}
+	return nil
+}
+
 // ProvisionCYD supplies a new, Wi-Fi-connected CYD with its broker identity
 // over its one-time local HTTP endpoint. The password is kept in memory only:
 // it is sent directly to the CYD and never returned to gateway-web.
@@ -211,9 +243,11 @@ func (s *Server) ProvisionCYD(ctx context.Context, id, address string) (config.D
 	}
 	cleanupBeforeDelivery := func(cause error) (config.Device, string, error) {
 		if revokeErr := s.cfg.Credentials.Revoke(ctx, id); revokeErr != nil {
+			s.recordInconsistency("provision_cyd", id, cause, fmt.Errorf("revoke CYD credential also failed: %w", revokeErr))
 			return config.Device{}, "", fmt.Errorf("%v; revoke CYD credential also failed: %w", cause, revokeErr)
 		}
 		if removeErr := s.cfg.Registry.RemoveDevice(ctx, id, uuid.NewString()); removeErr != nil {
+			s.recordInconsistency("provision_cyd", id, cause, fmt.Errorf("remove pending CYD registry entry also failed: %w", removeErr))
 			return config.Device{}, "", fmt.Errorf("%v; remove pending CYD registry entry also failed: %w", cause, removeErr)
 		}
 		return config.Device{}, "", cause
@@ -222,6 +256,7 @@ func (s *Server) ProvisionCYD(ctx context.Context, id, address string) (config.D
 	password, err := s.cfg.Credentials.Provision(ctx, id, tmpl.Topics)
 	if err != nil {
 		if removeErr := s.cfg.Registry.RemoveDevice(ctx, id, uuid.NewString()); removeErr != nil {
+			s.recordInconsistency("provision_cyd", id, fmt.Errorf("create CYD credential: %w", err), fmt.Errorf("remove pending registry entry also failed: %w", removeErr))
 			return config.Device{}, "", fmt.Errorf("create CYD credential: %v; remove pending registry entry also failed: %w", err, removeErr)
 		}
 		return config.Device{}, "", fmt.Errorf("create CYD credential: %w", err)
@@ -237,13 +272,16 @@ func (s *Server) ProvisionCYD(ctx context.Context, id, address string) (config.D
 		return cleanupBeforeDelivery(fmt.Errorf("deliver CYD configuration: %w", err))
 	}
 	if err := s.cfg.Credentials.SetEnabled(ctx, id, true); err != nil {
+		s.recordInconsistency("provision_cyd", id, errors.New("CYD already stored its configuration"), fmt.Errorf("enable broker credential failed: %w", err))
 		return config.Device{}, "", fmt.Errorf("CYD stored its configuration but its broker credential remains disabled: %w", err)
 	}
 	active, err := s.cfg.Registry.SetDeviceEnabled(ctx, id, true, uuid.NewString())
 	if err != nil {
 		// Keep the recovery state coherent: a configured but disabled CYD can
 		// be activated later using SetDeviceEnabled, without resending secrets.
-		_ = s.cfg.Credentials.SetEnabled(context.Background(), id, false)
+		if rollbackErr := s.cfg.Credentials.SetEnabled(context.Background(), id, false); rollbackErr != nil {
+			s.recordInconsistency("provision_cyd", id, fmt.Errorf("registry activation failed: %w", err), fmt.Errorf("disable credential rollback also failed: %w", rollbackErr))
+		}
 		return config.Device{}, "", fmt.Errorf("CYD stored its configuration but registry activation failed: %w", err)
 	}
 	return active, address, nil
@@ -290,9 +328,11 @@ func (s *Server) ProvisionLED(ctx context.Context, id, address string) (config.D
 	}
 	cleanupBeforeDelivery := func(cause error) (config.Device, string, error) {
 		if revokeErr := s.cfg.Credentials.Revoke(ctx, id); revokeErr != nil {
+			s.recordInconsistency("provision_led", id, cause, fmt.Errorf("revoke LED credential also failed: %w", revokeErr))
 			return config.Device{}, "", fmt.Errorf("%v; revoke LED credential also failed: %w", cause, revokeErr)
 		}
 		if removeErr := s.cfg.Registry.RemoveDevice(ctx, id, uuid.NewString()); removeErr != nil {
+			s.recordInconsistency("provision_led", id, cause, fmt.Errorf("remove pending LED registry entry also failed: %w", removeErr))
 			return config.Device{}, "", fmt.Errorf("%v; remove pending LED registry entry also failed: %w", cause, removeErr)
 		}
 		return config.Device{}, "", cause
@@ -300,6 +340,7 @@ func (s *Server) ProvisionLED(ctx context.Context, id, address string) (config.D
 	password, err := s.cfg.Credentials.Provision(ctx, id, tmpl.Topics)
 	if err != nil {
 		if removeErr := s.cfg.Registry.RemoveDevice(ctx, id, uuid.NewString()); removeErr != nil {
+			s.recordInconsistency("provision_led", id, fmt.Errorf("create LED credential: %w", err), fmt.Errorf("remove pending registry entry also failed: %w", removeErr))
 			return config.Device{}, "", fmt.Errorf("create LED credential: %v; remove pending registry entry also failed: %w", err, removeErr)
 		}
 		return config.Device{}, "", fmt.Errorf("create LED credential: %w", err)
@@ -312,11 +353,14 @@ func (s *Server) ProvisionLED(ctx context.Context, id, address string) (config.D
 		return cleanupBeforeDelivery(fmt.Errorf("deliver LED configuration: %w", err))
 	}
 	if err := s.cfg.Credentials.SetEnabled(ctx, id, true); err != nil {
+		s.recordInconsistency("provision_led", id, errors.New("LED already stored its configuration"), fmt.Errorf("enable broker credential failed: %w", err))
 		return config.Device{}, "", fmt.Errorf("LED stored its configuration but its broker credential remains disabled: %w", err)
 	}
 	active, err := s.cfg.Registry.SetDeviceEnabled(ctx, id, true, uuid.NewString())
 	if err != nil {
-		_ = s.cfg.Credentials.SetEnabled(context.Background(), id, false)
+		if rollbackErr := s.cfg.Credentials.SetEnabled(context.Background(), id, false); rollbackErr != nil {
+			s.recordInconsistency("provision_led", id, fmt.Errorf("registry activation failed: %w", err), fmt.Errorf("disable credential rollback also failed: %w", rollbackErr))
+		}
 		return config.Device{}, "", fmt.Errorf("LED stored its configuration but registry activation failed: %w", err)
 	}
 	return active, address, nil
@@ -348,6 +392,7 @@ func (s *Server) SetDeviceEnabled(ctx context.Context, id string, enabled bool) 
 		device, err := s.cfg.Registry.SetDeviceEnabled(ctx, id, enabled, uuid.NewString())
 		if err != nil && *previous != enabled {
 			if rollbackErr := s.cfg.Credentials.SetEnabled(ctx, id, *previous); rollbackErr != nil {
+				s.recordInconsistency("set_device_enabled", id, fmt.Errorf("update registry after changing Mosquitto credential: %w", err), fmt.Errorf("rollback credential state also failed: %w", rollbackErr))
 				return config.Device{}, fmt.Errorf("update registry after changing Mosquitto credential (%v); rollback credential state also failed (%v)", err, rollbackErr)
 			}
 		}
@@ -382,6 +427,12 @@ func (s *Server) RemoveDevice(ctx context.Context, id string) error {
 			if errors.Is(err, registry.ErrDeviceNotFound) {
 				return fmt.Errorf("%w: %q", ErrDeviceNotFound, id)
 			}
+			// ADR-014: no automatic recovery here on purpose (recreating a
+			// credential for a removal the operator asked for is riskier
+			// than the removal itself), so this always needs a human -
+			// unlike the other call sites above where the compensation
+			// itself might still succeed.
+			s.recordInconsistency("remove_device", id, errors.New("Mosquitto credential already revoked"), fmt.Errorf("registry removal failed: %w", err))
 			return err
 		}
 		return nil
@@ -407,6 +458,7 @@ func (s *Server) provisionRegistry(ctx context.Context, id, template string) (co
 	}
 	if _, err := s.cfg.Registry.AddDevice(ctx, device, uuid.NewString()); err != nil {
 		if rollbackErr := s.cfg.Credentials.Revoke(ctx, id); rollbackErr != nil {
+			s.recordInconsistency("provision_device", id, fmt.Errorf("registry rejected device after Mosquitto provision: %w", err), fmt.Errorf("rollback also failed: %w", rollbackErr))
 			return config.Device{}, "", fmt.Errorf("registry rejected device after Mosquitto provision (%v); rollback also failed (%v)", err, rollbackErr)
 		}
 		if errors.Is(err, registry.ErrDeviceAlreadyExists) {
@@ -415,4 +467,22 @@ func (s *Server) provisionRegistry(ctx context.Context, id, template string) (co
 		return config.Device{}, "", fmt.Errorf("add device to registry: %w", err)
 	}
 	return device, password, nil
+}
+
+// recordInconsistency durably notes that a best-effort compensation failed
+// (see the doc comments above each call site), so ListInconsistencies
+// surfaces it to an operator even if nobody reads the HTTP error response
+// that also describes it. It always uses context.Background(), never a
+// caller's request-scoped ctx: that context may already be near
+// cancellation (it is the same one bounded by s.cfg.RequestTimeout), and
+// this write must still happen - the same reasoning ProvisionCYD/
+// ProvisionLED already apply to their own best-effort credential rollback.
+// Best-effort itself: if the SQLite write fails there is nothing more
+// useful to do here than let the original error, which the caller already
+// has, reach the operator.
+func (s *Server) recordInconsistency(kind, deviceID string, cause, compensationError error) {
+	if s.cfg.Registry == nil {
+		return
+	}
+	_ = s.cfg.Registry.RecordInconsistency(context.Background(), kind, deviceID, cause.Error(), compensationError.Error())
 }

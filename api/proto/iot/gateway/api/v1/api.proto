@@ -56,6 +56,11 @@ service DeviceAdminService {
   rpc ProvisionLED(ProvisionLEDRequest) returns (ProvisionLEDResponse);
   rpc SetDeviceEnabled(SetDeviceEnabledRequest) returns (SetDeviceEnabledResponse);
   rpc RemoveDevice(RemoveDeviceRequest) returns (RemoveDeviceResponse);
+  // ListInconsistencies returns provisioning operations whose best-effort
+  // compensation itself failed - the registry and the Mosquitto broker now
+  // disagree about a device. Empty is the healthy state. See docs/api-v1.md.
+  rpc ListInconsistencies(ListInconsistenciesRequest) returns (ListInconsistenciesResponse);
+  rpc ResolveInconsistency(ResolveInconsistencyRequest) returns (ResolveInconsistencyResponse);
 }
 
 message RegisterExistingDeviceRequest {
@@ -162,6 +167,34 @@ message RemoveDeviceRequest {
 message RemoveDeviceResponse {
   google.protobuf.Timestamp applied_at = 1;
 }
+
+// Inconsistency mirrors internal/registry.Inconsistency 1:1. See
+// docs/api-v1.md's "Inconsistências de provisionamento".
+message Inconsistency {
+  string id = 1;
+  // kind identifies which operation failed to compensate, e.g.
+  // "provision_cyd", "provision_led", "provision_device",
+  // "set_device_enabled", "remove_device".
+  string kind = 2;
+  string device_id = 3;
+  // cause is what triggered the original rollback attempt.
+  string cause = 4;
+  // compensation_error is why the rollback itself also failed.
+  string compensation_error = 5;
+  google.protobuf.Timestamp created_at = 6;
+}
+
+message ListInconsistenciesRequest {}
+
+message ListInconsistenciesResponse {
+  repeated Inconsistency inconsistencies = 1;
+}
+
+message ResolveInconsistencyRequest {
+  string id = 1;
+}
+
+message ResolveInconsistencyResponse {}
 
 message ListDevicesRequest {}
 

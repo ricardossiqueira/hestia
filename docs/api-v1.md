@@ -137,6 +137,8 @@ Regras:
 | `ProvisionLED` | `DeviceAdminService` | Entrega a credencial MQTT diretamente ao ESP32-C3 LED nao provisionado pelo IP; a resposta nunca contem senha. |
 | `SetDeviceEnabled` | `DeviceAdminService` | Habilita/desabilita um device e aplica a politica sem reiniciar o gateway. |
 | `RemoveDevice` | `DeviceAdminService` | Revoga a credencial Mosquitto e remove o device do registry SQLite. |
+| `ListInconsistencies` | `DeviceAdminService` | Lista provisionamentos cuja compensação (rollback) também falhou. |
+| `ResolveInconsistency` | `DeviceAdminService` | Marca uma inconsistência como resolvida, sem tocar registry ou broker. |
 
 `DeviceAdminService` é atendido **diretamente** pelo processo `iot-gateway
 admin` — não passa pelo reverse proxy que `DeviceService`/`GatewayService`
@@ -276,6 +278,23 @@ rollback da credencial DynSec quando o registro no SQLite falha. A remoção
 não recria automaticamente uma credencial cuja revogação já tenha sido
 solicitada: uma falha parcial retorna erro para investigação do operador.
 
+### Inconsistências de provisionamento
+
+Cada operação de `DeviceAdminService` que mexe em mais de um sistema
+(registry SQLite + credencial Mosquitto + entrega ao device) já tenta se
+compensar sozinha quando um passo falha depois de outro ter sido aplicado —
+ver "Operação atômica sem reinício" acima. `ListInconsistencies`/
+`ResolveInconsistency` cobrem o que sobra: quando a **própria compensação**
+também falha (ex. o registry aceitou o device, mas revogar a credencial
+Mosquitto de limpeza também deu erro). Isso não é um reconciliador
+assíncrono com retry automático — não existe no `iot-gateway` hoje (ver
+HANDOFF.md). É só um registro durável, gravado em
+`registry_inconsistencies` (`internal/registry`) no momento da falha, para
+que o operador não dependa de ler a resposta HTTP daquela requisição
+específica. `ResolveInconsistency` só marca a entrada como tratada; não
+mexe no registry nem no broker — o operador corrige por fora (ex.
+`mosquitto_ctrl`) e depois confirma aqui. Lista vazia é o estado saudável.
+
 ### Códigos de erro
 
 Ao contrário de `DeviceService` (que colapsa a maioria dos erros em
@@ -286,7 +305,7 @@ Ao contrário de `DeviceService` (que colapsa a maioria dos erros em
 | --- | --- |
 | `AlreadyExists` | `ProvisionDevice` para um `device_id` já cadastrado. |
 | `InvalidArgument` | `device_id` inválido ou `template` desconhecido. |
-| `NotFound` | `SetDeviceEnabled`/`RemoveDevice` para um device inexistente. |
+| `NotFound` | `SetDeviceEnabled`/`RemoveDevice` para um device inexistente; `ResolveInconsistency` para um `id` desconhecido ou já resolvido. |
 | `Internal` | Falha do script de provisionamento, escrita em `gateway.yaml` ou `systemctl` — nada que o cliente resolva mudando a requisição. |
 
 ## Exemplos `curl`
@@ -379,6 +398,24 @@ curl -u <usuario>:<senha> \
   -H 'Content-Type: application/json' \
   -d '{"deviceId":"led-3"}' \
   http://<orange-pi>:<porta>/iot.gateway.api.v1.DeviceAdminService/RemoveDevice
+```
+
+Listar inconsistências pendentes (vazio é o estado saudável):
+
+```bash
+curl -u <usuario>:<senha> \
+  -H 'Content-Type: application/json' \
+  -d '{}' \
+  http://<orange-pi>:<porta>/iot.gateway.api.v1.DeviceAdminService/ListInconsistencies
+```
+
+Marcar uma inconsistência como resolvida, depois de corrigir por fora:
+
+```bash
+curl -u <usuario>:<senha> \
+  -H 'Content-Type: application/json' \
+  -d '{"id":"<id da inconsistência>"}' \
+  http://<orange-pi>:<porta>/iot.gateway.api.v1.DeviceAdminService/ResolveInconsistency
 ```
 
 ## Fora de escopo (próxima fase)

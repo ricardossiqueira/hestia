@@ -138,6 +138,64 @@ func TestAddRouteRejectsDisabledOrUnknownEndpoints(t *testing.T) {
 	}
 }
 
+func TestRecordListAndResolveInconsistency(t *testing.T) {
+	store := openTestStore(t)
+	ctx := context.Background()
+
+	if got, err := store.ListInconsistencies(ctx); err != nil || len(got) != 0 {
+		t.Fatalf("ListInconsistencies() = %#v, %v, want empty", got, err)
+	}
+
+	if err := store.RecordInconsistency(ctx, "provision_cyd", "cyd-sala", "deliver CYD configuration failed", "revoke CYD credential also failed"); err != nil {
+		t.Fatal(err)
+	}
+
+	list, err := store.ListInconsistencies(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("ListInconsistencies() = %#v, want 1 entry", list)
+	}
+	entry := list[0]
+	if entry.Kind != "provision_cyd" || entry.DeviceID != "cyd-sala" {
+		t.Errorf("entry = %#v", entry)
+	}
+	if entry.Cause == "" || entry.CompensationError == "" || entry.CreatedAt.IsZero() {
+		t.Errorf("entry = %#v", entry)
+	}
+
+	if err := store.ResolveInconsistency(ctx, entry.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := store.ListInconsistencies(ctx); err != nil || len(got) != 0 {
+		t.Fatalf("ListInconsistencies() after resolve = %#v, %v, want empty", got, err)
+	}
+}
+
+func TestResolveInconsistencyRejectsUnknownOrAlreadyResolvedID(t *testing.T) {
+	store := openTestStore(t)
+	ctx := context.Background()
+
+	if err := store.ResolveInconsistency(ctx, "ghost"); !errors.Is(err, ErrInconsistencyNotFound) {
+		t.Fatalf("ResolveInconsistency() error = %v, want ErrInconsistencyNotFound", err)
+	}
+
+	if err := store.RecordInconsistency(ctx, "remove_device", "led-1", "cause", "compensation"); err != nil {
+		t.Fatal(err)
+	}
+	list, err := store.ListInconsistencies(ctx)
+	if err != nil || len(list) != 1 {
+		t.Fatalf("setup: ListInconsistencies() = %#v, %v", list, err)
+	}
+	if err := store.ResolveInconsistency(ctx, list[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ResolveInconsistency(ctx, list[0].ID); !errors.Is(err, ErrInconsistencyNotFound) {
+		t.Fatalf("ResolveInconsistency() on an already-resolved ID error = %v, want ErrInconsistencyNotFound", err)
+	}
+}
+
 func openTestStore(t *testing.T) *Store {
 	t.Helper()
 	store, err := Open(context.Background(), filepath.Join(t.TempDir(), "gateway.db"))

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"connectrpc.com/connect"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/ricardossiqueira/iot-gateway/api/gen/go/iot/gateway/api/v1/apiv1connect"
 	"github.com/ricardossiqueira/iot-gateway/internal/admin"
 	"github.com/ricardossiqueira/iot-gateway/internal/config"
+	"github.com/ricardossiqueira/iot-gateway/internal/registry"
 )
 
 func authHeader(user, pass string) string {
@@ -80,6 +82,11 @@ type fakeDeviceAdmin struct {
 	createdRoute   config.Route
 	removeRouteErr error
 	removedRouteID string
+
+	inconsistencies         []registry.Inconsistency
+	listInconsistenciesErr  error
+	resolveInconsistencyErr error
+	resolvedInconsistencyID string
 }
 
 func (f *fakeDeviceAdmin) RegisterExistingDevice(ctx context.Context, id, template string) (config.Device, error) {
@@ -150,6 +157,19 @@ func (f *fakeDeviceAdmin) RemoveDevice(ctx context.Context, id string) error {
 	f.removedID = id
 	f.removedCalls++
 	return f.removeErr
+}
+
+func (f *fakeDeviceAdmin) ListInconsistencies(ctx context.Context) ([]registry.Inconsistency, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.inconsistencies, f.listInconsistenciesErr
+}
+
+func (f *fakeDeviceAdmin) ResolveInconsistency(ctx context.Context, id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.resolvedInconsistencyID = id
+	return f.resolveInconsistencyErr
 }
 
 func newTestGateway(t *testing.T, backendURL string, allowedOrigins []string) *httptest.Server {
@@ -642,5 +662,56 @@ func TestDeviceAdminService_RemoveDevice_Internal(t *testing.T) {
 	}))
 	if connect.CodeOf(err) != connect.CodeInternal {
 		t.Errorf("code = %v, want Internal", connect.CodeOf(err))
+	}
+}
+
+func TestDeviceAdminService_ListInconsistencies(t *testing.T) {
+	backend, _ := newFakeInternalAPI(t)
+	createdAt := time.Date(2026, 9, 24, 9, 0, 0, 0, time.UTC)
+	fake := &fakeDeviceAdmin{inconsistencies: []registry.Inconsistency{{
+		ID: "abc123", Kind: "remove_device", DeviceID: "led-1",
+		Cause: "Mosquitto credential already revoked", CompensationError: "registry removal failed: disk full",
+		CreatedAt: createdAt,
+	}}}
+	ts := newTestGatewayWithAdmin(t, backend.URL, nil, fake)
+
+	resp, err := connectClient(ts).ListInconsistencies(context.Background(), authedRequest(&apiv1.ListInconsistenciesRequest{}))
+	if err != nil {
+		t.Fatalf("ListInconsistencies() error = %v", err)
+	}
+	items := resp.Msg.GetInconsistencies()
+	if len(items) != 1 {
+		t.Fatalf("inconsistencies = %#v, want 1", items)
+	}
+	if items[0].GetId() != "abc123" || items[0].GetDeviceId() != "led-1" || items[0].GetKind() != "remove_device" {
+		t.Errorf("entry = %#v", items[0])
+	}
+	if items[0].GetCreatedAt() == nil || !items[0].GetCreatedAt().AsTime().Equal(createdAt) {
+		t.Errorf("CreatedAt = %v, want %v", items[0].GetCreatedAt(), createdAt)
+	}
+}
+
+func TestDeviceAdminService_ResolveInconsistency_Success(t *testing.T) {
+	backend, _ := newFakeInternalAPI(t)
+	fake := &fakeDeviceAdmin{}
+	ts := newTestGatewayWithAdmin(t, backend.URL, nil, fake)
+
+	_, err := connectClient(ts).ResolveInconsistency(context.Background(), authedRequest(&apiv1.ResolveInconsistencyRequest{Id: "abc123"}))
+	if err != nil {
+		t.Fatalf("ResolveInconsistency() error = %v", err)
+	}
+	if fake.resolvedInconsistencyID != "abc123" {
+		t.Errorf("resolvedInconsistencyID = %q, want abc123", fake.resolvedInconsistencyID)
+	}
+}
+
+func TestDeviceAdminService_ResolveInconsistency_NotFound(t *testing.T) {
+	backend, _ := newFakeInternalAPI(t)
+	fake := &fakeDeviceAdmin{resolveInconsistencyErr: admin.ErrInconsistencyNotFound}
+	ts := newTestGatewayWithAdmin(t, backend.URL, nil, fake)
+
+	_, err := connectClient(ts).ResolveInconsistency(context.Background(), authedRequest(&apiv1.ResolveInconsistencyRequest{Id: "ghost"}))
+	if connect.CodeOf(err) != connect.CodeNotFound {
+		t.Errorf("code = %v, want NotFound", connect.CodeOf(err))
 	}
 }

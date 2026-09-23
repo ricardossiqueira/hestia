@@ -82,6 +82,12 @@ const (
 	// DeviceAdminServiceRemoveDeviceProcedure is the fully-qualified name of the DeviceAdminService's
 	// RemoveDevice RPC.
 	DeviceAdminServiceRemoveDeviceProcedure = "/iot.gateway.api.v1.DeviceAdminService/RemoveDevice"
+	// DeviceAdminServiceListInconsistenciesProcedure is the fully-qualified name of the
+	// DeviceAdminService's ListInconsistencies RPC.
+	DeviceAdminServiceListInconsistenciesProcedure = "/iot.gateway.api.v1.DeviceAdminService/ListInconsistencies"
+	// DeviceAdminServiceResolveInconsistencyProcedure is the fully-qualified name of the
+	// DeviceAdminService's ResolveInconsistency RPC.
+	DeviceAdminServiceResolveInconsistencyProcedure = "/iot.gateway.api.v1.DeviceAdminService/ResolveInconsistency"
 )
 
 // DeviceServiceClient is a client for the iot.gateway.api.v1.DeviceService service.
@@ -362,6 +368,11 @@ type DeviceAdminServiceClient interface {
 	ProvisionLED(context.Context, *connect.Request[v1.ProvisionLEDRequest]) (*connect.Response[v1.ProvisionLEDResponse], error)
 	SetDeviceEnabled(context.Context, *connect.Request[v1.SetDeviceEnabledRequest]) (*connect.Response[v1.SetDeviceEnabledResponse], error)
 	RemoveDevice(context.Context, *connect.Request[v1.RemoveDeviceRequest]) (*connect.Response[v1.RemoveDeviceResponse], error)
+	// ListInconsistencies returns provisioning operations whose best-effort
+	// compensation itself failed - the registry and the Mosquitto broker now
+	// disagree about a device. Empty is the healthy state. See docs/api-v1.md.
+	ListInconsistencies(context.Context, *connect.Request[v1.ListInconsistenciesRequest]) (*connect.Response[v1.ListInconsistenciesResponse], error)
+	ResolveInconsistency(context.Context, *connect.Request[v1.ResolveInconsistencyRequest]) (*connect.Response[v1.ResolveInconsistencyResponse], error)
 }
 
 // NewDeviceAdminServiceClient constructs a client for the iot.gateway.api.v1.DeviceAdminService
@@ -429,6 +440,18 @@ func NewDeviceAdminServiceClient(httpClient connect.HTTPClient, baseURL string, 
 			connect.WithSchema(deviceAdminServiceMethods.ByName("RemoveDevice")),
 			connect.WithClientOptions(opts...),
 		),
+		listInconsistencies: connect.NewClient[v1.ListInconsistenciesRequest, v1.ListInconsistenciesResponse](
+			httpClient,
+			baseURL+DeviceAdminServiceListInconsistenciesProcedure,
+			connect.WithSchema(deviceAdminServiceMethods.ByName("ListInconsistencies")),
+			connect.WithClientOptions(opts...),
+		),
+		resolveInconsistency: connect.NewClient[v1.ResolveInconsistencyRequest, v1.ResolveInconsistencyResponse](
+			httpClient,
+			baseURL+DeviceAdminServiceResolveInconsistencyProcedure,
+			connect.WithSchema(deviceAdminServiceMethods.ByName("ResolveInconsistency")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -443,6 +466,8 @@ type deviceAdminServiceClient struct {
 	provisionLED           *connect.Client[v1.ProvisionLEDRequest, v1.ProvisionLEDResponse]
 	setDeviceEnabled       *connect.Client[v1.SetDeviceEnabledRequest, v1.SetDeviceEnabledResponse]
 	removeDevice           *connect.Client[v1.RemoveDeviceRequest, v1.RemoveDeviceResponse]
+	listInconsistencies    *connect.Client[v1.ListInconsistenciesRequest, v1.ListInconsistenciesResponse]
+	resolveInconsistency   *connect.Client[v1.ResolveInconsistencyRequest, v1.ResolveInconsistencyResponse]
 }
 
 // RegisterExistingDevice calls iot.gateway.api.v1.DeviceAdminService.RegisterExistingDevice.
@@ -490,6 +515,16 @@ func (c *deviceAdminServiceClient) RemoveDevice(ctx context.Context, req *connec
 	return c.removeDevice.CallUnary(ctx, req)
 }
 
+// ListInconsistencies calls iot.gateway.api.v1.DeviceAdminService.ListInconsistencies.
+func (c *deviceAdminServiceClient) ListInconsistencies(ctx context.Context, req *connect.Request[v1.ListInconsistenciesRequest]) (*connect.Response[v1.ListInconsistenciesResponse], error) {
+	return c.listInconsistencies.CallUnary(ctx, req)
+}
+
+// ResolveInconsistency calls iot.gateway.api.v1.DeviceAdminService.ResolveInconsistency.
+func (c *deviceAdminServiceClient) ResolveInconsistency(ctx context.Context, req *connect.Request[v1.ResolveInconsistencyRequest]) (*connect.Response[v1.ResolveInconsistencyResponse], error) {
+	return c.resolveInconsistency.CallUnary(ctx, req)
+}
+
 // DeviceAdminServiceHandler is an implementation of the iot.gateway.api.v1.DeviceAdminService
 // service.
 type DeviceAdminServiceHandler interface {
@@ -513,6 +548,11 @@ type DeviceAdminServiceHandler interface {
 	ProvisionLED(context.Context, *connect.Request[v1.ProvisionLEDRequest]) (*connect.Response[v1.ProvisionLEDResponse], error)
 	SetDeviceEnabled(context.Context, *connect.Request[v1.SetDeviceEnabledRequest]) (*connect.Response[v1.SetDeviceEnabledResponse], error)
 	RemoveDevice(context.Context, *connect.Request[v1.RemoveDeviceRequest]) (*connect.Response[v1.RemoveDeviceResponse], error)
+	// ListInconsistencies returns provisioning operations whose best-effort
+	// compensation itself failed - the registry and the Mosquitto broker now
+	// disagree about a device. Empty is the healthy state. See docs/api-v1.md.
+	ListInconsistencies(context.Context, *connect.Request[v1.ListInconsistenciesRequest]) (*connect.Response[v1.ListInconsistenciesResponse], error)
+	ResolveInconsistency(context.Context, *connect.Request[v1.ResolveInconsistencyRequest]) (*connect.Response[v1.ResolveInconsistencyResponse], error)
 }
 
 // NewDeviceAdminServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -576,6 +616,18 @@ func NewDeviceAdminServiceHandler(svc DeviceAdminServiceHandler, opts ...connect
 		connect.WithSchema(deviceAdminServiceMethods.ByName("RemoveDevice")),
 		connect.WithHandlerOptions(opts...),
 	)
+	deviceAdminServiceListInconsistenciesHandler := connect.NewUnaryHandler(
+		DeviceAdminServiceListInconsistenciesProcedure,
+		svc.ListInconsistencies,
+		connect.WithSchema(deviceAdminServiceMethods.ByName("ListInconsistencies")),
+		connect.WithHandlerOptions(opts...),
+	)
+	deviceAdminServiceResolveInconsistencyHandler := connect.NewUnaryHandler(
+		DeviceAdminServiceResolveInconsistencyProcedure,
+		svc.ResolveInconsistency,
+		connect.WithSchema(deviceAdminServiceMethods.ByName("ResolveInconsistency")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/iot.gateway.api.v1.DeviceAdminService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case DeviceAdminServiceRegisterExistingDeviceProcedure:
@@ -596,6 +648,10 @@ func NewDeviceAdminServiceHandler(svc DeviceAdminServiceHandler, opts ...connect
 			deviceAdminServiceSetDeviceEnabledHandler.ServeHTTP(w, r)
 		case DeviceAdminServiceRemoveDeviceProcedure:
 			deviceAdminServiceRemoveDeviceHandler.ServeHTTP(w, r)
+		case DeviceAdminServiceListInconsistenciesProcedure:
+			deviceAdminServiceListInconsistenciesHandler.ServeHTTP(w, r)
+		case DeviceAdminServiceResolveInconsistencyProcedure:
+			deviceAdminServiceResolveInconsistencyHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -639,4 +695,12 @@ func (UnimplementedDeviceAdminServiceHandler) SetDeviceEnabled(context.Context, 
 
 func (UnimplementedDeviceAdminServiceHandler) RemoveDevice(context.Context, *connect.Request[v1.RemoveDeviceRequest]) (*connect.Response[v1.RemoveDeviceResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("iot.gateway.api.v1.DeviceAdminService.RemoveDevice is not implemented"))
+}
+
+func (UnimplementedDeviceAdminServiceHandler) ListInconsistencies(context.Context, *connect.Request[v1.ListInconsistenciesRequest]) (*connect.Response[v1.ListInconsistenciesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("iot.gateway.api.v1.DeviceAdminService.ListInconsistencies is not implemented"))
+}
+
+func (UnimplementedDeviceAdminServiceHandler) ResolveInconsistency(context.Context, *connect.Request[v1.ResolveInconsistencyRequest]) (*connect.Response[v1.ResolveInconsistencyResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("iot.gateway.api.v1.DeviceAdminService.ResolveInconsistency is not implemented"))
 }

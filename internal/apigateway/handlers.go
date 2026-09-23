@@ -19,6 +19,7 @@ import (
 	// proxied over the network and could in principle run elsewhere.
 	"github.com/ricardossiqueira/iot-gateway/internal/admin"
 	"github.com/ricardossiqueira/iot-gateway/internal/config"
+	"github.com/ricardossiqueira/iot-gateway/internal/registry"
 )
 
 // deviceToProto is deliberately its own copy of the identical mapping in
@@ -238,4 +239,41 @@ func (s *Server) RemoveDevice(ctx context.Context, req *connect.Request[apiv1.Re
 	return connect.NewResponse(&apiv1.RemoveDeviceResponse{
 		AppliedAt: timestamppb.Now(),
 	}), nil
+}
+
+func inconsistencyToProto(item registry.Inconsistency) *apiv1.Inconsistency {
+	return &apiv1.Inconsistency{
+		Id: item.ID, Kind: item.Kind, DeviceId: item.DeviceID,
+		Cause: item.Cause, CompensationError: item.CompensationError,
+		CreatedAt: timestamppb.New(item.CreatedAt),
+	}
+}
+
+// ListInconsistencies is read-only and payload-free by construction
+// (Inconsistency carries only error strings, never a device secret or MQTT
+// payload) - safe to answer without the granular error-code treatment
+// ProvisionDevice/ProvisionCYD above need.
+func (s *Server) ListInconsistencies(ctx context.Context, _ *connect.Request[apiv1.ListInconsistenciesRequest]) (*connect.Response[apiv1.ListInconsistenciesResponse], error) {
+	items, err := s.cfg.Admin.ListInconsistencies(ctx)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	response := &apiv1.ListInconsistenciesResponse{Inconsistencies: make([]*apiv1.Inconsistency, 0, len(items))}
+	for _, item := range items {
+		response.Inconsistencies = append(response.Inconsistencies, inconsistencyToProto(item))
+	}
+	return connect.NewResponse(response), nil
+}
+
+// ResolveInconsistency only marks the entry resolved (registry.Store.
+// ResolveInconsistency's doc comment) - it never touches the registry or
+// the broker itself.
+func (s *Server) ResolveInconsistency(ctx context.Context, req *connect.Request[apiv1.ResolveInconsistencyRequest]) (*connect.Response[apiv1.ResolveInconsistencyResponse], error) {
+	if err := s.cfg.Admin.ResolveInconsistency(ctx, req.Msg.GetId()); err != nil {
+		if errors.Is(err, admin.ErrInconsistencyNotFound) {
+			return nil, connect.NewError(connect.CodeNotFound, err)
+		}
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	return connect.NewResponse(&apiv1.ResolveInconsistencyResponse{}), nil
 }

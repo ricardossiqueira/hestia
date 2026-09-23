@@ -23,10 +23,11 @@ import (
 var migrationFiles embed.FS
 
 var (
-	ErrDeviceAlreadyExists = errors.New("registry device already exists")
-	ErrDeviceNotFound      = errors.New("registry device not found")
-	ErrRouteAlreadyExists  = errors.New("registry route already exists")
-	ErrRouteNotFound       = errors.New("registry route not found")
+	ErrDeviceAlreadyExists   = errors.New("registry device already exists")
+	ErrDeviceNotFound        = errors.New("registry device not found")
+	ErrRouteAlreadyExists    = errors.New("registry route already exists")
+	ErrRouteNotFound         = errors.New("registry route not found")
+	ErrInconsistencyNotFound = errors.New("registry inconsistency not found")
 )
 
 // Snapshot is one coherent, revisioned routing policy.
@@ -34,6 +35,18 @@ type Snapshot struct {
 	Revision uint64
 	Devices  []config.Device
 	Routes   []config.Route
+}
+
+// Inconsistency records a best-effort compensation in internal/admin that
+// itself failed, leaving the registry and the Mosquitto broker disagreeing
+// about a device - see RecordInconsistency's doc comment.
+type Inconsistency struct {
+	ID                string
+	Kind              string
+	DeviceID          string
+	Cause             string
+	CompensationError string
+	CreatedAt         time.Time
 }
 
 // Store serializes writes on the edge device and provides durable snapshots.
@@ -313,6 +326,78 @@ func (s *Store) RemoveRoute(ctx context.Context, id string) error {
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit registry route removal: %w", err)
+	}
+	return nil
+}
+
+// RecordInconsistency durably records that a best-effort compensation in
+// internal/admin (undoing a partially-applied provisioning step) itself
+// failed - the registry and the Mosquitto broker now disagree about
+// deviceID. cause is what triggered the original rollback attempt;
+// compensationError is why the rollback itself failed. This is deliberately
+// not part of a transaction with whatever registry write preceded it: it
+// runs after that write already committed (or after it was attempted and
+// failed), as an independent durable note for an operator to act on -
+// see ListInconsistencies/ResolveInconsistency.
+func (s *Store) RecordInconsistency(ctx context.Context, kind, deviceID, cause, compensationError string) error {
+	if s == nil || s.db == nil {
+		return errors.New("registry store is closed")
+	}
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO registry_inconsistencies
+		(id, kind, device_id, cause, compensation_error, created_at_ns)
+		VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, ?)`,
+		kind, deviceID, cause, compensationError, s.now().UnixNano()); err != nil {
+		return fmt.Errorf("record registry inconsistency: %w", err)
+	}
+	return nil
+}
+
+// ListInconsistencies returns unresolved inconsistencies, most recent first.
+func (s *Store) ListInconsistencies(ctx context.Context) ([]Inconsistency, error) {
+	if s == nil || s.db == nil {
+		return nil, errors.New("registry store is closed")
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT id, kind, device_id, cause, compensation_error, created_at_ns
+		FROM registry_inconsistencies WHERE resolved_at_ns IS NULL ORDER BY created_at_ns DESC`)
+	if err != nil {
+		return nil, fmt.Errorf("list registry inconsistencies: %w", err)
+	}
+	defer rows.Close()
+	inconsistencies := make([]Inconsistency, 0)
+	for rows.Next() {
+		var item Inconsistency
+		var createdAtNS int64
+		if err := rows.Scan(&item.ID, &item.Kind, &item.DeviceID, &item.Cause, &item.CompensationError, &createdAtNS); err != nil {
+			return nil, fmt.Errorf("read registry inconsistency: %w", err)
+		}
+		item.CreatedAt = time.Unix(0, createdAtNS).UTC()
+		inconsistencies = append(inconsistencies, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list registry inconsistencies: %w", err)
+	}
+	return inconsistencies, nil
+}
+
+// ResolveInconsistency marks an inconsistency resolved without deleting it,
+// preserving the audit trail. It does not itself change anything in the
+// registry or the broker - the operator has already fixed the underlying
+// state by hand (or independently confirmed it needs no fix).
+func (s *Store) ResolveInconsistency(ctx context.Context, id string) error {
+	if s == nil || s.db == nil {
+		return errors.New("registry store is closed")
+	}
+	result, err := s.db.ExecContext(ctx, `UPDATE registry_inconsistencies SET resolved_at_ns = ?
+		WHERE id = ? AND resolved_at_ns IS NULL`, s.now().UnixNano(), id)
+	if err != nil {
+		return fmt.Errorf("resolve registry inconsistency: %w", err)
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("count resolved registry inconsistency: %w", err)
+	}
+	if count == 0 {
+		return fmt.Errorf("%w: %q", ErrInconsistencyNotFound, id)
 	}
 	return nil
 }
