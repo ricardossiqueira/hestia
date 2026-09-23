@@ -163,13 +163,15 @@ nunca receberão credenciais ou endereços uns dos outros.
 
 ### Marco 1 — modelo de manifest no SQLite
 
-- [ ] Adicionar migrations para `device_manifests`, revisões e vínculo da
+- [x] Adicionar migrations para `device_manifests`, revisões e vínculo da
   instância à revisão provisionada.
-- [ ] Definir schema JSON versionado e validação Go sem executar conteúdo do
+- [x] Definir schema JSON versionado e validação Go sem executar conteúdo do
   manifest.
-- [ ] Criar seeds de `esp32-c3-led`, `cyd-monitor` e `orangepi-monitor`.
-- [ ] Expor leitura/listagem de manifests publicados pela API admin.
-- [ ] Registrar auditoria: autor, horário, revisão anterior e conteúdo.
+- [x] Criar seeds de `esp32-c3-led`, `cyd-monitor` e `orangepi-monitor`.
+- [x] Expor leitura/listagem de manifests publicados pela API admin.
+- [x] Persistir auditoria de seeds com autor, horário, revisão e conteúdo.
+- [ ] Registrar auditoria de autoria e revisão anterior nas futuras operações
+  de rascunho/publicação (Marco 3).
 
 ### Marco 2 — provisionamento genérico
 

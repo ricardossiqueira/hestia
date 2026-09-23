@@ -15,6 +15,7 @@ import (
 
 	apiv1 "github.com/ricardossiqueira/iot-gateway/api/gen/go/iot/gateway/api/v1"
 	"github.com/ricardossiqueira/iot-gateway/internal/deviceprofile"
+	"github.com/ricardossiqueira/iot-gateway/internal/mqtt"
 )
 
 // ListDevices returns every configured device, sorted by ID. It never
@@ -210,10 +211,19 @@ func (s *Server) GetQueueSummary(ctx context.Context, req *connect.Request[apiv1
 // recent first, already payload-free, already capped - nothing to filter
 // or reorder here.
 func (s *Server) GetRecentEvents(ctx context.Context, req *connect.Request[apiv1.GetRecentEventsRequest]) (*connect.Response[apiv1.GetRecentEventsResponse], error) {
-	source := s.events.RecentEvents()
+	filter := mqtt.EventFilter{
+		DeviceID:       req.Msg.GetDeviceId(),
+		Limit:          int(req.Msg.GetLimit()),
+		BeforeSequence: req.Msg.GetBeforeSequence(),
+	}
+	if req.Msg.GetSince() != nil {
+		filter.Since = req.Msg.GetSince().AsTime()
+	}
+	source, hasMore := s.events.RecentEvents(filter)
 	events := make([]*apiv1.ActivityEvent, 0, len(source))
 	for _, event := range source {
 		events = append(events, &apiv1.ActivityEvent{
+			Sequence:  event.Sequence,
 			Timestamp: timestamppb.New(event.Timestamp),
 			DeviceId:  event.DeviceID,
 			Kind:      string(event.Kind),
@@ -222,7 +232,7 @@ func (s *Server) GetRecentEvents(ctx context.Context, req *connect.Request[apiv1
 			Detail:    event.Detail,
 		})
 	}
-	return connect.NewResponse(&apiv1.GetRecentEventsResponse{Events: events}), nil
+	return connect.NewResponse(&apiv1.GetRecentEventsResponse{Events: events, HasMore: hasMore}), nil
 }
 
 // GetStatus mirrors mqtt.Snapshot 1:1 - see api.proto's GetStatusResponse

@@ -134,6 +134,25 @@ func (s *Server) ListRoutes(ctx context.Context) ([]config.Route, error) {
 	return cfg.Routes, nil
 }
 
+// ListPublishedDeviceManifests returns only immutable revisions available for
+// provisioning. Text editing and publication are intentionally introduced
+// separately, so an unfinished draft can never drive broker policy.
+func (s *Server) ListPublishedDeviceManifests(ctx context.Context) ([]registry.DeviceManifest, error) {
+	if s.cfg.Registry == nil {
+		return nil, errors.New("listing device manifests requires the SQLite registry")
+	}
+	return s.cfg.Registry.ListPublishedManifests(ctx)
+}
+
+// GetPublishedDeviceManifest returns one published definition by its stable
+// manifest ID.
+func (s *Server) GetPublishedDeviceManifest(ctx context.Context, id string) (registry.DeviceManifest, error) {
+	if s.cfg.Registry == nil {
+		return registry.DeviceManifest{}, errors.New("reading a device manifest requires the SQLite registry")
+	}
+	return s.cfg.Registry.GetPublishedManifest(ctx, id)
+}
+
 // CreateRoute records a route in SQLite. It deliberately has no broker or
 // systemd side effect: the long-lived gateway sees the new revision itself.
 func (s *Server) CreateRoute(ctx context.Context, route config.Route) error {

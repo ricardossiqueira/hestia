@@ -441,6 +441,8 @@ const (
 	DeviceAdminService_ListRoutes_FullMethodName             = "/iot.gateway.api.v1.DeviceAdminService/ListRoutes"
 	DeviceAdminService_CreateRoute_FullMethodName            = "/iot.gateway.api.v1.DeviceAdminService/CreateRoute"
 	DeviceAdminService_RemoveRoute_FullMethodName            = "/iot.gateway.api.v1.DeviceAdminService/RemoveRoute"
+	DeviceAdminService_ListDeviceManifests_FullMethodName    = "/iot.gateway.api.v1.DeviceAdminService/ListDeviceManifests"
+	DeviceAdminService_GetDeviceManifest_FullMethodName      = "/iot.gateway.api.v1.DeviceAdminService/GetDeviceManifest"
 	DeviceAdminService_ProvisionDevice_FullMethodName        = "/iot.gateway.api.v1.DeviceAdminService/ProvisionDevice"
 	DeviceAdminService_ProvisionCYD_FullMethodName           = "/iot.gateway.api.v1.DeviceAdminService/ProvisionCYD"
 	DeviceAdminService_ProvisionLED_FullMethodName           = "/iot.gateway.api.v1.DeviceAdminService/ProvisionLED"
@@ -470,6 +472,10 @@ type DeviceAdminServiceClient interface {
 	ListRoutes(ctx context.Context, in *ListRoutesRequest, opts ...grpc.CallOption) (*ListRoutesResponse, error)
 	CreateRoute(ctx context.Context, in *CreateRouteRequest, opts ...grpc.CallOption) (*CreateRouteResponse, error)
 	RemoveRoute(ctx context.Context, in *RemoveRouteRequest, opts ...grpc.CallOption) (*RemoveRouteResponse, error)
+	// ListDeviceManifests exposes only published family definitions. Draft
+	// editing/publishing is deliberately a later milestone.
+	ListDeviceManifests(ctx context.Context, in *ListDeviceManifestsRequest, opts ...grpc.CallOption) (*ListDeviceManifestsResponse, error)
+	GetDeviceManifest(ctx context.Context, in *GetDeviceManifestRequest, opts ...grpc.CallOption) (*GetDeviceManifestResponse, error)
 	ProvisionDevice(ctx context.Context, in *ProvisionDeviceRequest, opts ...grpc.CallOption) (*ProvisionDeviceResponse, error)
 	// ProvisionCYD delivers the MQTT identity to an unprovisioned CYD over its
 	// temporary LAN endpoint. Unlike ProvisionDevice, it never returns a
@@ -530,6 +536,26 @@ func (c *deviceAdminServiceClient) RemoveRoute(ctx context.Context, in *RemoveRo
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(RemoveRouteResponse)
 	err := c.cc.Invoke(ctx, DeviceAdminService_RemoveRoute_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *deviceAdminServiceClient) ListDeviceManifests(ctx context.Context, in *ListDeviceManifestsRequest, opts ...grpc.CallOption) (*ListDeviceManifestsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListDeviceManifestsResponse)
+	err := c.cc.Invoke(ctx, DeviceAdminService_ListDeviceManifests_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *deviceAdminServiceClient) GetDeviceManifest(ctx context.Context, in *GetDeviceManifestRequest, opts ...grpc.CallOption) (*GetDeviceManifestResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetDeviceManifestResponse)
+	err := c.cc.Invoke(ctx, DeviceAdminService_GetDeviceManifest_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -626,6 +652,10 @@ type DeviceAdminServiceServer interface {
 	ListRoutes(context.Context, *ListRoutesRequest) (*ListRoutesResponse, error)
 	CreateRoute(context.Context, *CreateRouteRequest) (*CreateRouteResponse, error)
 	RemoveRoute(context.Context, *RemoveRouteRequest) (*RemoveRouteResponse, error)
+	// ListDeviceManifests exposes only published family definitions. Draft
+	// editing/publishing is deliberately a later milestone.
+	ListDeviceManifests(context.Context, *ListDeviceManifestsRequest) (*ListDeviceManifestsResponse, error)
+	GetDeviceManifest(context.Context, *GetDeviceManifestRequest) (*GetDeviceManifestResponse, error)
 	ProvisionDevice(context.Context, *ProvisionDeviceRequest) (*ProvisionDeviceResponse, error)
 	// ProvisionCYD delivers the MQTT identity to an unprovisioned CYD over its
 	// temporary LAN endpoint. Unlike ProvisionDevice, it never returns a
@@ -662,6 +692,12 @@ func (UnimplementedDeviceAdminServiceServer) CreateRoute(context.Context, *Creat
 }
 func (UnimplementedDeviceAdminServiceServer) RemoveRoute(context.Context, *RemoveRouteRequest) (*RemoveRouteResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RemoveRoute not implemented")
+}
+func (UnimplementedDeviceAdminServiceServer) ListDeviceManifests(context.Context, *ListDeviceManifestsRequest) (*ListDeviceManifestsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListDeviceManifests not implemented")
+}
+func (UnimplementedDeviceAdminServiceServer) GetDeviceManifest(context.Context, *GetDeviceManifestRequest) (*GetDeviceManifestResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetDeviceManifest not implemented")
 }
 func (UnimplementedDeviceAdminServiceServer) ProvisionDevice(context.Context, *ProvisionDeviceRequest) (*ProvisionDeviceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ProvisionDevice not implemented")
@@ -772,6 +808,42 @@ func _DeviceAdminService_RemoveRoute_Handler(srv interface{}, ctx context.Contex
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(DeviceAdminServiceServer).RemoveRoute(ctx, req.(*RemoveRouteRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DeviceAdminService_ListDeviceManifests_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListDeviceManifestsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DeviceAdminServiceServer).ListDeviceManifests(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DeviceAdminService_ListDeviceManifests_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DeviceAdminServiceServer).ListDeviceManifests(ctx, req.(*ListDeviceManifestsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DeviceAdminService_GetDeviceManifest_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetDeviceManifestRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DeviceAdminServiceServer).GetDeviceManifest(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DeviceAdminService_GetDeviceManifest_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DeviceAdminServiceServer).GetDeviceManifest(ctx, req.(*GetDeviceManifestRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -924,6 +996,14 @@ var DeviceAdminService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "RemoveRoute",
 			Handler:    _DeviceAdminService_RemoveRoute_Handler,
+		},
+		{
+			MethodName: "ListDeviceManifests",
+			Handler:    _DeviceAdminService_ListDeviceManifests_Handler,
+		},
+		{
+			MethodName: "GetDeviceManifest",
+			Handler:    _DeviceAdminService_GetDeviceManifest_Handler,
 		},
 		{
 			MethodName: "ProvisionDevice",

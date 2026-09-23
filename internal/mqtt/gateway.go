@@ -137,10 +137,11 @@ type Gateway struct {
 	telemetryMu   sync.RWMutex
 	lastTelemetry map[string]telemetryEntry
 
-	// eventsMu guards recentEvents - same reasoning as telemetryMu: a
-	// data-plane ring buffer, separate from configMu.
+	// eventsMu guards recentEvents and nextEventSeq - same reasoning as
+	// telemetryMu: a data-plane ring buffer, separate from configMu.
 	eventsMu     sync.RWMutex
 	recentEvents []ActivityEvent
+	nextEventSeq uint64
 
 	acceptedMessages     atomic.Uint64
 	rejectedMessages     atomic.Uint64
@@ -185,12 +186,21 @@ type telemetryEntry struct {
 // principle this codebase already applies everywhere state accumulates.
 const maxRecentEvents = 200
 
+// defaultEventsLimit is how many events RecentEvents returns per call when
+// EventFilter.Limit is unset - a page for gateway-web's activity table, not
+// the whole buffer every time.
+const defaultEventsLimit = 50
+
 // ActivityEvent is one payload-free entry in the in-memory activity log -
 // same privacy discipline as Message/RejectedMessage above (never a
 // payload), kept only for RecentEvents/GetRecentEvents (docs/api-v1.md).
 // No history beyond maxRecentEvents, no persistence - a restart forgets it,
 // like every other counter on Gateway.
 type ActivityEvent struct {
+	// Sequence is monotonically increasing, assigned by recordEvent. It is
+	// a stable identifier/cursor - gateway-web uses it as a React key and
+	// as EventFilter.BeforeSequence's pagination cursor.
+	Sequence  uint64
 	Timestamp time.Time
 	DeviceID  string
 	// Kind is empty for a route_published/route_failed outcome - a route
@@ -203,6 +213,21 @@ type ActivityEvent struct {
 	// Detail is the rejection reason, or the route ID (plus failure cause
 	// for route_failed) - never a payload.
 	Detail string
+}
+
+// EventFilter narrows RecentEvents. The zero value means "the most recent
+// defaultEventsLimit events, any device, no time bound".
+type EventFilter struct {
+	// DeviceID, if non-empty, only returns events for that device.
+	DeviceID string
+	// Since, if non-zero, excludes events older than it.
+	Since time.Time
+	// Limit caps the page size; 0 means defaultEventsLimit. Always capped
+	// at maxRecentEvents regardless of what is requested.
+	Limit int
+	// BeforeSequence, if non-zero, only considers events with a strictly
+	// smaller Sequence - gateway-web's "next page" cursor.
+	BeforeSequence uint64
 }
 
 // New constructs the MQTT gateway from an already validated configuration.
@@ -331,26 +356,53 @@ func (g *Gateway) LastTelemetry(deviceID string) ([]byte, time.Time, bool) {
 	return append([]byte(nil), entry.payload...), entry.observedAt, true
 }
 
-// RecentEvents returns a copy of the in-memory activity ring buffer, most
-// recent first - see ActivityEvent's doc comment for what it captures and
-// why (no payload, no persistence, capped at maxRecentEvents).
-func (g *Gateway) RecentEvents() []ActivityEvent {
+// RecentEvents returns a filtered page of the in-memory activity ring
+// buffer, most recent first, plus whether older matching events exist
+// beyond the page (hasMore) - see ActivityEvent's doc comment for what it
+// captures and why (no payload, no persistence, capped at maxRecentEvents),
+// and EventFilter's for what each field does.
+//
+// recentEvents is stored oldest-first internally (append-friendly); this
+// walks it backward so both the "most recent first" ordering and the
+// Since/BeforeSequence cutoffs are natural single-pass checks.
+func (g *Gateway) RecentEvents(filter EventFilter) (events []ActivityEvent, hasMore bool) {
 	g.eventsMu.RLock()
 	defer g.eventsMu.RUnlock()
-	events := make([]ActivityEvent, len(g.recentEvents))
-	for i, event := range g.recentEvents {
-		events[len(events)-1-i] = event
+	limit := filter.Limit
+	if limit <= 0 || limit > maxRecentEvents {
+		limit = defaultEventsLimit
 	}
-	return events
+	events = make([]ActivityEvent, 0, limit)
+	for i := len(g.recentEvents) - 1; i >= 0; i-- {
+		event := g.recentEvents[i]
+		if filter.BeforeSequence != 0 && event.Sequence >= filter.BeforeSequence {
+			continue
+		}
+		// recentEvents is strictly ordered by Sequence/Timestamp, so once
+		// one event is older than Since, every event before it (older
+		// still) is too - safe to stop rather than merely skip it.
+		if !filter.Since.IsZero() && event.Timestamp.Before(filter.Since) {
+			break
+		}
+		if filter.DeviceID != "" && event.DeviceID != filter.DeviceID {
+			continue
+		}
+		if len(events) >= limit {
+			hasMore = true
+			break
+		}
+		events = append(events, event)
+	}
+	return events, hasMore
 }
 
 // recordEvent appends to the ring buffer, dropping the oldest entry once
-// maxRecentEvents is reached. recentEvents is stored oldest-first
-// internally so trimming the front is the only bookkeeping needed;
-// RecentEvents reverses it for callers.
+// maxRecentEvents is reached, and assigns the next monotonic Sequence.
 func (g *Gateway) recordEvent(event ActivityEvent) {
 	g.eventsMu.Lock()
 	defer g.eventsMu.Unlock()
+	g.nextEventSeq++
+	event.Sequence = g.nextEventSeq
 	g.recentEvents = append(g.recentEvents, event)
 	if excess := len(g.recentEvents) - maxRecentEvents; excess > 0 {
 		g.recentEvents = g.recentEvents[excess:]

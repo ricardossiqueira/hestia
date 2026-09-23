@@ -218,6 +218,16 @@ mensagens hoje (só que sem deixar consultar pela API). Sem persistência:
 um restart do processo esquece tudo, como qualquer contador de
 `GetStatus`.
 
+**Filtros e paginação** (obrigatórios para não puxar sempre o buffer
+inteiro): `device_id` restringe a um device; `since` exclui eventos mais
+antigos que o timestamp dado; `limit` (padrão 50, teto 200) define o
+tamanho da página; `before_sequence` pagina pra trás — cada
+`ActivityEvent` tem um `sequence` monotônico (também serve de chave
+estável de UI), então a próxima página é
+`before_sequence = <sequence do último evento da página atual>`.
+`has_more` na resposta indica se ainda existem eventos mais antigos além
+da página devolvida.
+
 ## Profile, validação e fallback opaco
 
 Um dispositivo pode declarar `profile: led.v1` em `gateway.yaml`
@@ -394,12 +404,23 @@ curl -u <usuario>:<senha> \
   http://<orange-pi>:<porta>/iot.gateway.api.v1.GatewayService/GetQueueSummary
 ```
 
-Ler a atividade recente (últimos 200 eventos, sem payload):
+Ler a atividade recente, filtrada por device (sem `deviceId`/`since`/
+`limit`, devolve os 50 mais recentes de qualquer device):
 
 ```bash
 curl -u <usuario>:<senha> \
   -H 'Content-Type: application/json' \
-  -d '{}' \
+  -d '{"deviceId":"orangepi-monitor","limit":20}' \
+  http://<orange-pi>:<porta>/iot.gateway.api.v1.GatewayService/GetRecentEvents
+```
+
+Próxima página (`hasMore: true` na resposta anterior — `beforeSequence` é
+o `sequence` do último evento devolvido):
+
+```bash
+curl -u <usuario>:<senha> \
+  -H 'Content-Type: application/json' \
+  -d '{"limit":20,"beforeSequence":"118"}' \
   http://<orange-pi>:<porta>/iot.gateway.api.v1.GatewayService/GetRecentEvents
 ```
 

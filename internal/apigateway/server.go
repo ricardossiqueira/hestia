@@ -54,6 +54,8 @@ type DeviceAdmin interface {
 	ListRoutes(ctx context.Context) ([]config.Route, error)
 	CreateRoute(ctx context.Context, route config.Route) error
 	RemoveRoute(ctx context.Context, id string) error
+	ListPublishedDeviceManifests(ctx context.Context) ([]registry.DeviceManifest, error)
+	GetPublishedDeviceManifest(ctx context.Context, id string) (registry.DeviceManifest, error)
 	ProvisionDevice(ctx context.Context, id, template string) (config.Device, string, error)
 	ProvisionCYD(ctx context.Context, id, address string) (config.Device, string, error)
 	ProvisionLED(ctx context.Context, id, address string) (config.Device, string, error)

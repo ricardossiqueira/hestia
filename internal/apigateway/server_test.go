@@ -83,6 +83,11 @@ type fakeDeviceAdmin struct {
 	removeRouteErr error
 	removedRouteID string
 
+	manifests        []registry.DeviceManifest
+	listManifestsErr error
+	manifest         registry.DeviceManifest
+	getManifestErr   error
+
 	inconsistencies         []registry.Inconsistency
 	listInconsistenciesErr  error
 	resolveInconsistencyErr error
@@ -113,6 +118,18 @@ func (f *fakeDeviceAdmin) RemoveRoute(ctx context.Context, id string) error {
 	defer f.mu.Unlock()
 	f.removedRouteID = id
 	return f.removeRouteErr
+}
+
+func (f *fakeDeviceAdmin) ListPublishedDeviceManifests(ctx context.Context) ([]registry.DeviceManifest, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.manifests, f.listManifestsErr
+}
+
+func (f *fakeDeviceAdmin) GetPublishedDeviceManifest(ctx context.Context, id string) (registry.DeviceManifest, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.manifest, f.getManifestErr
 }
 
 func (f *fakeDeviceAdmin) ProvisionDevice(ctx context.Context, id, template string) (config.Device, string, error) {
@@ -559,6 +576,41 @@ func TestDeviceAdminService_CreateAndListRoutes(t *testing.T) {
 	}
 	if created.Msg.GetAppliedAt() == nil || fake.createdRoute != route {
 		t.Fatalf("response = %#v, route = %#v", created.Msg, fake.createdRoute)
+	}
+}
+
+func TestDeviceAdminService_ListAndGetPublishedDeviceManifests(t *testing.T) {
+	backend, _ := newFakeInternalAPI(t)
+	createdAt := time.Date(2026, time.September, 24, 12, 0, 0, 0, time.UTC)
+	manifest := registry.DeviceManifest{
+		ID: "esp32-c3-led", DisplayName: "ESP32-C3 LED", Revision: 1,
+		Document: `{"schema_version":1}`, CreatedBy: "system:bootstrap", CreatedAt: createdAt,
+	}
+	fake := &fakeDeviceAdmin{manifests: []registry.DeviceManifest{manifest}, manifest: manifest}
+	ts := newTestGatewayWithAdmin(t, backend.URL, nil, fake)
+
+	list, err := connectClient(ts).ListDeviceManifests(context.Background(), authedRequest(&apiv1.ListDeviceManifestsRequest{}))
+	if err != nil {
+		t.Fatalf("ListDeviceManifests() error = %v", err)
+	}
+	if len(list.Msg.GetManifests()) != 1 || list.Msg.GetManifests()[0].GetId() != manifest.ID || list.Msg.GetManifests()[0].GetDocumentJson() != manifest.Document {
+		t.Fatalf("list = %#v", list.Msg)
+	}
+	got, err := connectClient(ts).GetDeviceManifest(context.Background(), authedRequest(&apiv1.GetDeviceManifestRequest{ManifestId: manifest.ID}))
+	if err != nil {
+		t.Fatalf("GetDeviceManifest() error = %v", err)
+	}
+	if got.Msg.GetManifest().GetCreatedAt().AsTime() != createdAt || got.Msg.GetManifest().GetCreatedBy() != manifest.CreatedBy {
+		t.Fatalf("get = %#v", got.Msg)
+	}
+}
+
+func TestDeviceAdminService_GetDeviceManifestMapsNotFound(t *testing.T) {
+	backend, _ := newFakeInternalAPI(t)
+	ts := newTestGatewayWithAdmin(t, backend.URL, nil, &fakeDeviceAdmin{getManifestErr: registry.ErrManifestNotFound})
+	_, err := connectClient(ts).GetDeviceManifest(context.Background(), authedRequest(&apiv1.GetDeviceManifestRequest{ManifestId: "missing"}))
+	if connect.CodeOf(err) != connect.CodeNotFound {
+		t.Fatalf("code = %v, want NotFound", connect.CodeOf(err))
 	}
 }
 

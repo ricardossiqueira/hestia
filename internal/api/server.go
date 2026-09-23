@@ -68,7 +68,7 @@ type TelemetryProvider interface {
 // GetRecentEvents - satisfied structurally by *mqtt.Gateway already, same
 // pattern as CommandPublisher/StatusProvider/TelemetryProvider.
 type EventProvider interface {
-	RecentEvents() []mqtt.ActivityEvent
+	RecentEvents(filter mqtt.EventFilter) (events []mqtt.ActivityEvent, hasMore bool)
 }
 
 type QueueProvider interface {

@@ -49,6 +49,10 @@ service DeviceAdminService {
   rpc ListRoutes(ListRoutesRequest) returns (ListRoutesResponse);
   rpc CreateRoute(CreateRouteRequest) returns (CreateRouteResponse);
   rpc RemoveRoute(RemoveRouteRequest) returns (RemoveRouteResponse);
+  // ListDeviceManifests exposes only published family definitions. Draft
+  // editing/publishing is deliberately a later milestone.
+  rpc ListDeviceManifests(ListDeviceManifestsRequest) returns (ListDeviceManifestsResponse);
+  rpc GetDeviceManifest(GetDeviceManifestRequest) returns (GetDeviceManifestResponse);
   rpc ProvisionDevice(ProvisionDeviceRequest) returns (ProvisionDeviceResponse);
   // ProvisionCYD delivers the MQTT identity to an unprovisioned CYD over its
   // temporary LAN endpoint. Unlike ProvisionDevice, it never returns a
@@ -107,6 +111,32 @@ message RemoveRouteRequest {
 
 message RemoveRouteResponse {
   google.protobuf.Timestamp applied_at = 1;
+}
+
+// DeviceManifest is canonical JSON stored in the registry. It contains
+// declarative compatibility, MQTT topics and capabilities, never secrets or
+// executable configuration.
+message DeviceManifest {
+  string id = 1;
+  string display_name = 2;
+  uint64 revision = 3;
+  string document_json = 4;
+  string created_by = 5;
+  google.protobuf.Timestamp created_at = 6;
+}
+
+message ListDeviceManifestsRequest {}
+
+message ListDeviceManifestsResponse {
+  repeated DeviceManifest manifests = 1;
+}
+
+message GetDeviceManifestRequest {
+  string manifest_id = 1;
+}
+
+message GetDeviceManifestResponse {
+  DeviceManifest manifest = 1;
 }
 
 message ProvisionDeviceRequest {
@@ -323,6 +353,9 @@ message GetQueueSummaryResponse {
 // ActivityEvent mirrors internal/mqtt.ActivityEvent 1:1. Never a payload -
 // see docs/api-v1.md's "Atividade recente".
 message ActivityEvent {
+  // sequence is monotonically increasing - a stable pagination cursor (see
+  // GetRecentEventsRequest.before_sequence) and a stable UI list key.
+  uint64 sequence = 7;
   google.protobuf.Timestamp timestamp = 1;
   string device_id = 2;
   // kind is empty for a route_published/route_failed outcome.
@@ -336,9 +369,23 @@ message ActivityEvent {
   string detail = 6;
 }
 
-message GetRecentEventsRequest {}
+message GetRecentEventsRequest {
+  // device_id, if set, only returns events for that device.
+  string device_id = 1;
+  // since, if set, excludes events older than it.
+  google.protobuf.Timestamp since = 2;
+  // limit caps the page size; unset/0 means the server default (50, see
+  // docs/api-v1.md), always capped at 200.
+  uint32 limit = 3;
+  // before_sequence, if set, only considers events with a strictly
+  // smaller sequence - the pagination cursor for "next page" (pass the
+  // last event's sequence from the previous response).
+  uint64 before_sequence = 4;
+}
 
 message GetRecentEventsResponse {
-  // Most recent first, capped at internal/mqtt.maxRecentEvents (200).
+  // Most recent first, one page (see GetRecentEventsRequest.limit).
   repeated ActivityEvent events = 1;
+  // has_more is true when older matching events exist beyond this page.
+  bool has_more = 2;
 }

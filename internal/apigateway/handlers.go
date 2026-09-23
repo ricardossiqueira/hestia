@@ -66,6 +66,14 @@ func routeFromProto(route *apiv1.Route) (config.Route, error) {
 	}, nil
 }
 
+func manifestToProto(manifest registry.DeviceManifest) *apiv1.DeviceManifest {
+	return &apiv1.DeviceManifest{
+		Id: manifest.ID, DisplayName: manifest.DisplayName, Revision: manifest.Revision,
+		DocumentJson: manifest.Document, CreatedBy: manifest.CreatedBy,
+		CreatedAt: timestamppb.New(manifest.CreatedAt),
+	}
+}
+
 // RegisterExistingDevice adopts a pre-existing broker identity without ever
 // returning or rotating its password. This keeps local collectors online while
 // making their inbound topics visible to the runtime registry.
@@ -120,6 +128,32 @@ func (s *Server) RemoveRoute(ctx context.Context, req *connect.Request[apiv1.Rem
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	return connect.NewResponse(&apiv1.RemoveRouteResponse{AppliedAt: timestamppb.Now()}), nil
+}
+
+// ListDeviceManifests returns the published catalog for the future textual
+// editor and generic provisioning form. It intentionally never exposes a
+// draft, because only published definitions may change runtime policy.
+func (s *Server) ListDeviceManifests(ctx context.Context, _ *connect.Request[apiv1.ListDeviceManifestsRequest]) (*connect.Response[apiv1.ListDeviceManifestsResponse], error) {
+	manifests, err := s.cfg.Admin.ListPublishedDeviceManifests(ctx)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	response := &apiv1.ListDeviceManifestsResponse{Manifests: make([]*apiv1.DeviceManifest, 0, len(manifests))}
+	for _, manifest := range manifests {
+		response.Manifests = append(response.Manifests, manifestToProto(manifest))
+	}
+	return connect.NewResponse(response), nil
+}
+
+func (s *Server) GetDeviceManifest(ctx context.Context, req *connect.Request[apiv1.GetDeviceManifestRequest]) (*connect.Response[apiv1.GetDeviceManifestResponse], error) {
+	manifest, err := s.cfg.Admin.GetPublishedDeviceManifest(ctx, req.Msg.GetManifestId())
+	if errors.Is(err, registry.ErrManifestNotFound) {
+		return nil, connect.NewError(connect.CodeNotFound, err)
+	}
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	return connect.NewResponse(&apiv1.GetDeviceManifestResponse{Manifest: manifestToProto(manifest)}), nil
 }
 
 // ProvisionDevice creates a new device from a template, returning its

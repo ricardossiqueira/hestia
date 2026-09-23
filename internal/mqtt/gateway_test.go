@@ -493,8 +493,8 @@ func TestGatewayRecentEventsCapturesAcceptedRejectedAndRouteOutcomes(t *testing.
 		t.Fatal(err)
 	}
 
-	if got := gateway.RecentEvents(); len(got) != 0 {
-		t.Fatalf("RecentEvents() before any message = %#v, want empty", got)
+	if got, hasMore := gateway.RecentEvents(EventFilter{}); len(got) != 0 || hasMore {
+		t.Fatalf("RecentEvents() before any message = %#v, %v, want empty/false", got, hasMore)
 	}
 
 	// accepted + route_published (the route above forwards this telemetry
@@ -503,9 +503,9 @@ func TestGatewayRecentEventsCapturesAcceptedRejectedAndRouteOutcomes(t *testing.
 	// rejected (malformed JSON).
 	client.deliver("devices/esp32-sala/state", []byte(`not json`))
 
-	events := gateway.RecentEvents()
-	if len(events) != 3 {
-		t.Fatalf("RecentEvents() = %#v, want 3", events)
+	events, hasMore := gateway.RecentEvents(EventFilter{})
+	if len(events) != 3 || hasMore {
+		t.Fatalf("RecentEvents() = %#v, hasMore=%v, want 3/false", events, hasMore)
 	}
 	// Most recent first.
 	if events[0].Outcome != "rejected" || events[0].DeviceID != "esp32-sala" {
@@ -522,9 +522,72 @@ func TestGatewayRecentEventsCapturesAcceptedRejectedAndRouteOutcomes(t *testing.
 			t.Errorf("event %#v has a zero Timestamp", event)
 		}
 	}
+	// Sequence is strictly increasing, oldest to newest - so descending
+	// here, most-recent-first.
+	if !(events[0].Sequence > events[1].Sequence && events[1].Sequence > events[2].Sequence) {
+		t.Errorf("Sequence is not strictly decreasing across events: %d, %d, %d", events[0].Sequence, events[1].Sequence, events[2].Sequence)
+	}
 }
 
-func TestGatewayRecentEventsIsBoundedByMax(t *testing.T) {
+func TestGatewayRecentEventsFiltersByDeviceAndSince(t *testing.T) {
+	client := &fakeClient{}
+	cfg := testConfig()
+	cfg.Devices = append(cfg.Devices, config.Device{ID: "led-2", Enabled: boolPtr(true), Topics: config.Topics{State: "devices/led-2/state"}})
+	gateway, err := New(cfg, client, &recordingLogger{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := gateway.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	// "accepted" events use the payload's own declared timestamp
+	// (message.Timestamp), not wall-clock time - see handleMessage.
+	client.deliver("devices/esp32-sala/state", []byte(`{"message_id":"b4a5bb31-1710-4f7b-a043-1b6a292d04ad","timestamp":"2026-09-18T15:00:00Z"}`))
+	between := time.Date(2026, 9, 18, 15, 0, 0, 500_000_000, time.UTC)
+	client.deliver("devices/led-2/state", []byte(`{"message_id":"a9f2290d-d1ee-4cbc-841d-03e29a7f028c","timestamp":"2026-09-18T15:00:01Z"}`))
+
+	byDevice, _ := gateway.RecentEvents(EventFilter{DeviceID: "led-2"})
+	if len(byDevice) != 1 || byDevice[0].DeviceID != "led-2" {
+		t.Fatalf("RecentEvents(DeviceID) = %#v", byDevice)
+	}
+
+	bySince, _ := gateway.RecentEvents(EventFilter{Since: between})
+	if len(bySince) != 1 || bySince[0].DeviceID != "led-2" {
+		t.Fatalf("RecentEvents(Since) = %#v", bySince)
+	}
+}
+
+func TestGatewayRecentEventsPaginatesWithBeforeSequenceAndHasMore(t *testing.T) {
+	client := &fakeClient{}
+	gateway, err := New(testConfig(), client, &recordingLogger{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := gateway.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 5; i++ {
+		client.deliver("devices/esp32-sala/state", []byte(`not json`))
+	}
+
+	page1, hasMore := gateway.RecentEvents(EventFilter{Limit: 2})
+	if len(page1) != 2 || !hasMore {
+		t.Fatalf("page1 = %#v, hasMore=%v, want 2/true", page1, hasMore)
+	}
+	page2, hasMore := gateway.RecentEvents(EventFilter{Limit: 2, BeforeSequence: page1[len(page1)-1].Sequence})
+	if len(page2) != 2 || !hasMore {
+		t.Fatalf("page2 = %#v, hasMore=%v, want 2/true", page2, hasMore)
+	}
+	if page2[0].Sequence >= page1[len(page1)-1].Sequence {
+		t.Errorf("page2 overlaps page1: page1 last = %d, page2 first = %d", page1[len(page1)-1].Sequence, page2[0].Sequence)
+	}
+	page3, hasMore := gateway.RecentEvents(EventFilter{Limit: 2, BeforeSequence: page2[len(page2)-1].Sequence})
+	if len(page3) != 1 || hasMore {
+		t.Fatalf("page3 = %#v, hasMore=%v, want 1/false (5 events, 2+2+1)", page3, hasMore)
+	}
+}
+
+func TestGatewayRecentEventsBufferIsBoundedByMax(t *testing.T) {
 	client := &fakeClient{}
 	gateway, err := New(testConfig(), client, &recordingLogger{}, nil)
 	if err != nil {
@@ -536,9 +599,9 @@ func TestGatewayRecentEventsIsBoundedByMax(t *testing.T) {
 	for i := 0; i < maxRecentEvents+20; i++ {
 		client.deliver("devices/esp32-sala/state", []byte(`not json`))
 	}
-	events := gateway.RecentEvents()
-	if len(events) != maxRecentEvents {
-		t.Fatalf("len(RecentEvents()) = %d, want %d", len(events), maxRecentEvents)
+	events, hasMore := gateway.RecentEvents(EventFilter{Limit: maxRecentEvents})
+	if len(events) != maxRecentEvents || hasMore {
+		t.Fatalf("RecentEvents(Limit: max) = %d events, hasMore=%v, want %d/false", len(events), hasMore, maxRecentEvents)
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/descriptorpb"
 	"google.golang.org/protobuf/types/known/structpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	apiv1 "github.com/ricardossiqueira/iot-gateway/api/gen/go/iot/gateway/api/v1"
 	"github.com/ricardossiqueira/iot-gateway/api/gen/go/iot/gateway/api/v1/apiv1connect"
@@ -81,9 +82,22 @@ type fakeQueue struct {
 
 func (f fakeQueue) Snapshot(context.Context) (outbox.Snapshot, error) { return f.snap, f.err }
 
-type fakeEvents []mqtt.ActivityEvent
+// fakeEvents is a pointer so a test can hold onto it after newTestServer
+// returns and assert on lastFilter (what GetRecentEvents actually passed
+// through) and control hasMore independently of len(events).
+type fakeEvents struct {
+	mu         sync.Mutex
+	events     []mqtt.ActivityEvent
+	hasMore    bool
+	lastFilter mqtt.EventFilter
+}
 
-func (f fakeEvents) RecentEvents() []mqtt.ActivityEvent { return f }
+func (f *fakeEvents) RecentEvents(filter mqtt.EventFilter) ([]mqtt.ActivityEvent, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.lastFilter = filter
+	return f.events, f.hasMore
+}
 
 func testDevices() []config.Device {
 	enabled := true
@@ -119,7 +133,7 @@ func newTestServer(t *testing.T, publisher *fakePublisher, status fakeStatus, te
 		RequestTimeout: time.Second,
 		Registry:       config.Config{Devices: testDevices()},
 	}
-	srv, err := New(cfg, publisher, status, telemetry, queue, fakeEvents(events), nil)
+	srv, err := New(cfg, publisher, status, telemetry, queue, &fakeEvents{events: events}, nil)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -467,4 +481,59 @@ func TestGetRecentEventsReturnsGatewayActivity(t *testing.T) {
 	if events[1].GetOutcome() != "route_published" || events[1].GetDetail() != "status-to-display" || events[1].GetKind() != "" {
 		t.Errorf("events[1] = %#v", events[1])
 	}
+}
+
+func TestGetRecentEventsPassesFilterThrough(t *testing.T) {
+	since := time.Date(2026, 9, 24, 9, 0, 0, 0, time.UTC)
+	events := &fakeEvents{}
+	ts := newTestServerWithEvents(t, events)
+	client := apiv1connect.NewGatewayServiceClient(ts.Client(), ts.URL)
+
+	_, err := client.GetRecentEvents(context.Background(), connect.NewRequest(&apiv1.GetRecentEventsRequest{
+		DeviceId: "led-1", Since: timestamppb.New(since), Limit: 10, BeforeSequence: 42,
+	}))
+	if err != nil {
+		t.Fatalf("GetRecentEvents() error = %v", err)
+	}
+	got := events.lastFilter
+	if got.DeviceID != "led-1" || got.Limit != 10 || got.BeforeSequence != 42 || !got.Since.Equal(since) {
+		t.Errorf("lastFilter = %#v, want device led-1, limit 10, beforeSequence 42, since %v", got, since)
+	}
+}
+
+func TestGetRecentEventsSurfacesHasMore(t *testing.T) {
+	events := &fakeEvents{
+		events:  []mqtt.ActivityEvent{{DeviceID: "led-1", Outcome: "accepted", Timestamp: time.Now().UTC()}},
+		hasMore: true,
+	}
+	ts := newTestServerWithEvents(t, events)
+	client := apiv1connect.NewGatewayServiceClient(ts.Client(), ts.URL)
+
+	resp, err := client.GetRecentEvents(context.Background(), connect.NewRequest(&apiv1.GetRecentEventsRequest{}))
+	if err != nil {
+		t.Fatalf("GetRecentEvents() error = %v", err)
+	}
+	if !resp.Msg.GetHasMore() {
+		t.Error("HasMore = false, want true")
+	}
+}
+
+// newTestServerWithEvents mirrors newTestServer but takes a pre-built
+// *fakeEvents directly, so a test can inspect it (lastFilter, hasMore)
+// after the call - the variadic form on newTestServer can't do that since
+// it builds its own *fakeEvents internally.
+func newTestServerWithEvents(t *testing.T, events *fakeEvents) *httptest.Server {
+	t.Helper()
+	cfg := Config{
+		Address:        "127.0.0.1:0",
+		RequestTimeout: time.Second,
+		Registry:       config.Config{Devices: testDevices()},
+	}
+	srv, err := New(cfg, &fakePublisher{}, fakeStatus{}, fakeTelemetry{}, fakeQueue{}, events, nil)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	ts := httptest.NewServer(srv.http.Handler)
+	t.Cleanup(ts.Close)
+	return ts
 }
