@@ -26,15 +26,18 @@ const (
 
 var (
 	ErrInvalidIPAddress = errors.New("device IP must be a private IPv4 address")
-	ErrUnexpectedDevice = errors.New("address is not an unprovisioned cyd-monitor")
+	ErrUnexpectedDevice = errors.New("address is not the expected unprovisioned device")
 )
 
 // DeviceInfo is the non-secret identity returned by GET /v1/device-info.
 type DeviceInfo struct {
-	Model       string `json:"model"`
-	Status      string `json:"status"`
-	BootstrapID string `json:"bootstrap_id"`
-	MACAddress  string `json:"mac_address"`
+	Model           string `json:"model"`
+	Status          string `json:"status"`
+	ProtocolVersion uint32 `json:"protocol_version"`
+	DeviceUID       string `json:"device_uid"`
+	FirmwareVersion string `json:"firmware_version"`
+	BootstrapID     string `json:"bootstrap_id"`
+	MACAddress      string `json:"mac_address"`
 }
 
 // Settings is sent only from the gateway admin process to the device. Its
@@ -100,7 +103,8 @@ func (c *HTTPClient) Inspect(ctx context.Context, address string) (DeviceInfo, e
 	if err := decodeOneJSON(response.Body, &info); err != nil {
 		return DeviceInfo{}, fmt.Errorf("decode device information at %s: %w", address, err)
 	}
-	if info.Model != c.model || info.Status != deviceStatus {
+	if info.Model != c.model || info.Status != deviceStatus || info.ProtocolVersion == 0 ||
+		strings.TrimSpace(info.DeviceUID) == "" || strings.TrimSpace(info.FirmwareVersion) == "" {
 		return DeviceInfo{}, ErrUnexpectedDevice
 	}
 	return info, nil

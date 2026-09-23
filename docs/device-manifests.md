@@ -170,27 +170,27 @@ nunca receberão credenciais ou endereços uns dos outros.
 - [x] Criar seeds de `esp32-c3-led`, `cyd-monitor` e `orangepi-monitor`.
 - [x] Expor leitura/listagem de manifests publicados pela API admin.
 - [x] Persistir auditoria de seeds com autor, horário, revisão e conteúdo.
-- [ ] Registrar auditoria de autoria e revisão anterior nas futuras operações
-  de rascunho/publicação (Marco 3).
+- [x] Registrar auditoria de autoria e revisão anterior nas operações de
+  rascunho/publicação.
 
 ### Marco 2 — provisionamento genérico
 
-- [ ] Tornar `protocol_version`, `device_uid` e `firmware_version` obrigatórios
+- [x] Tornar `protocol_version`, `device_uid` e `firmware_version` obrigatórios
   no contrato de primeiro boot dos firmwares.
-- [ ] Generalizar o cliente HTTP de provisionamento por protocolo, sem aceitar
+- [x] Generalizar o cliente HTTP de provisionamento por protocolo, sem aceitar
   modelo inesperado.
-- [ ] Implementar `ProvisionDeviceByIP` usando manifest publicado.
-- [ ] Garantir rollback de DynSec/registry antes da entrega ao NVS e estado de
+- [x] Implementar `ProvisionDeviceByIP` usando manifest publicado.
+- [x] Garantir rollback de DynSec/registry antes da entrega ao NVS e estado de
   recuperação explícito depois dela.
-- [ ] Migrar CYD e LED para a RPC genérica; manter RPCs legadas apenas durante
+- [x] Migrar a tela de cadastro de CYD e LED para a RPC genérica; manter RPCs legadas apenas durante
   uma janela de compatibilidade definida.
 
 ### Marco 3 — Web textual mínimo
 
-- [ ] Criar página de lista de manifests, com status e revisão publicada.
-- [ ] Criar editor JSON textual com validação remota e mensagens por campo.
-- [ ] Permitir criar rascunho, duplicar, validar, publicar e arquivar revisão.
-- [ ] Alterar “Novo dispositivo” para selecionar um manifest e informar ID/IP.
+- [x] Criar página de lista de manifests e revisão publicada.
+- [x] Criar editor JSON textual com validação no gateway e mensagens de erro.
+- [x] Permitir criar rascunho e publicar revisão (duplicar/arquivar seguem pendentes).
+- [x] Alterar “Novo dispositivo” para selecionar um manifest e informar ID/IP.
 - [ ] Exibir manifesto e revisão usados em cada dispositivo cadastrado.
 
 ### Marco 4 — comandos declarativos

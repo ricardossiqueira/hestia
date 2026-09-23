@@ -447,6 +447,7 @@ const (
 	DeviceAdminService_CreateDeviceManifestRevisionDraft_FullMethodName = "/iot.gateway.api.v1.DeviceAdminService/CreateDeviceManifestRevisionDraft"
 	DeviceAdminService_PublishDeviceManifest_FullMethodName             = "/iot.gateway.api.v1.DeviceAdminService/PublishDeviceManifest"
 	DeviceAdminService_ProvisionDevice_FullMethodName                   = "/iot.gateway.api.v1.DeviceAdminService/ProvisionDevice"
+	DeviceAdminService_ProvisionDeviceByIP_FullMethodName               = "/iot.gateway.api.v1.DeviceAdminService/ProvisionDeviceByIP"
 	DeviceAdminService_ProvisionCYD_FullMethodName                      = "/iot.gateway.api.v1.DeviceAdminService/ProvisionCYD"
 	DeviceAdminService_ProvisionLED_FullMethodName                      = "/iot.gateway.api.v1.DeviceAdminService/ProvisionLED"
 	DeviceAdminService_SetDeviceEnabled_FullMethodName                  = "/iot.gateway.api.v1.DeviceAdminService/SetDeviceEnabled"
@@ -483,6 +484,10 @@ type DeviceAdminServiceClient interface {
 	CreateDeviceManifestRevisionDraft(ctx context.Context, in *CreateDeviceManifestRevisionDraftRequest, opts ...grpc.CallOption) (*CreateDeviceManifestRevisionDraftResponse, error)
 	PublishDeviceManifest(ctx context.Context, in *PublishDeviceManifestRequest, opts ...grpc.CallOption) (*PublishDeviceManifestResponse, error)
 	ProvisionDevice(ctx context.Context, in *ProvisionDeviceRequest, opts ...grpc.CallOption) (*ProvisionDeviceResponse, error)
+	// ProvisionDeviceByIP provisions an unprovisioned device using a published
+	// http-nvs-v1 manifest. The MQTT password is delivered directly to NVS and
+	// never appears in this API response.
+	ProvisionDeviceByIP(ctx context.Context, in *ProvisionDeviceByIPRequest, opts ...grpc.CallOption) (*ProvisionDeviceByIPResponse, error)
 	// ProvisionCYD delivers the MQTT identity to an unprovisioned CYD over its
 	// temporary LAN endpoint. Unlike ProvisionDevice, it never returns a
 	// password to the caller.
@@ -608,6 +613,16 @@ func (c *deviceAdminServiceClient) ProvisionDevice(ctx context.Context, in *Prov
 	return out, nil
 }
 
+func (c *deviceAdminServiceClient) ProvisionDeviceByIP(ctx context.Context, in *ProvisionDeviceByIPRequest, opts ...grpc.CallOption) (*ProvisionDeviceByIPResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ProvisionDeviceByIPResponse)
+	err := c.cc.Invoke(ctx, DeviceAdminService_ProvisionDeviceByIP_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *deviceAdminServiceClient) ProvisionCYD(ctx context.Context, in *ProvisionCYDRequest, opts ...grpc.CallOption) (*ProvisionCYDResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ProvisionCYDResponse)
@@ -696,6 +711,10 @@ type DeviceAdminServiceServer interface {
 	CreateDeviceManifestRevisionDraft(context.Context, *CreateDeviceManifestRevisionDraftRequest) (*CreateDeviceManifestRevisionDraftResponse, error)
 	PublishDeviceManifest(context.Context, *PublishDeviceManifestRequest) (*PublishDeviceManifestResponse, error)
 	ProvisionDevice(context.Context, *ProvisionDeviceRequest) (*ProvisionDeviceResponse, error)
+	// ProvisionDeviceByIP provisions an unprovisioned device using a published
+	// http-nvs-v1 manifest. The MQTT password is delivered directly to NVS and
+	// never appears in this API response.
+	ProvisionDeviceByIP(context.Context, *ProvisionDeviceByIPRequest) (*ProvisionDeviceByIPResponse, error)
 	// ProvisionCYD delivers the MQTT identity to an unprovisioned CYD over its
 	// temporary LAN endpoint. Unlike ProvisionDevice, it never returns a
 	// password to the caller.
@@ -749,6 +768,9 @@ func (UnimplementedDeviceAdminServiceServer) PublishDeviceManifest(context.Conte
 }
 func (UnimplementedDeviceAdminServiceServer) ProvisionDevice(context.Context, *ProvisionDeviceRequest) (*ProvisionDeviceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ProvisionDevice not implemented")
+}
+func (UnimplementedDeviceAdminServiceServer) ProvisionDeviceByIP(context.Context, *ProvisionDeviceByIPRequest) (*ProvisionDeviceByIPResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ProvisionDeviceByIP not implemented")
 }
 func (UnimplementedDeviceAdminServiceServer) ProvisionCYD(context.Context, *ProvisionCYDRequest) (*ProvisionCYDResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ProvisionCYD not implemented")
@@ -968,6 +990,24 @@ func _DeviceAdminService_ProvisionDevice_Handler(srv interface{}, ctx context.Co
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DeviceAdminService_ProvisionDeviceByIP_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ProvisionDeviceByIPRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DeviceAdminServiceServer).ProvisionDeviceByIP(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DeviceAdminService_ProvisionDeviceByIP_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DeviceAdminServiceServer).ProvisionDeviceByIP(ctx, req.(*ProvisionDeviceByIPRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _DeviceAdminService_ProvisionCYD_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ProvisionCYDRequest)
 	if err := dec(in); err != nil {
@@ -1122,6 +1162,10 @@ var DeviceAdminService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ProvisionDevice",
 			Handler:    _DeviceAdminService_ProvisionDevice_Handler,
+		},
+		{
+			MethodName: "ProvisionDeviceByIP",
+			Handler:    _DeviceAdminService_ProvisionDeviceByIP_Handler,
 		},
 		{
 			MethodName: "ProvisionCYD",

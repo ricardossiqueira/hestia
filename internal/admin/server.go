@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/ricardossiqueira/iot-gateway/internal/config"
 	"github.com/ricardossiqueira/iot-gateway/internal/cydprovision"
+	"github.com/ricardossiqueira/iot-gateway/internal/devicemanifest"
 	"github.com/ricardossiqueira/iot-gateway/internal/registry"
 )
 
@@ -29,10 +30,14 @@ type Config struct {
 	// CYD and LED use the same in-band first-boot provisioning protocol. Their
 	// client and broker endpoint are deployment inputs, not YAML or SQLite
 	// state. DeviceBrokerHost must be LAN-reachable from the ESP (not 127.0.0.1).
-	CYD              cydprovision.Client
-	LED              cydprovision.Client
-	DeviceBrokerHost string
-	DeviceBrokerPort uint16
+	CYD cydprovision.Client
+	LED cydprovision.Client
+	// ProvisioningClient returns an HTTP client constrained to the model from
+	// a published manifest. Keeping the factory injectable makes the generic
+	// protocol transaction testable without a device on the LAN.
+	ProvisioningClient func(model string) cydprovision.Client
+	DeviceBrokerHost   string
+	DeviceBrokerPort   uint16
 	// RequestTimeout bounds how long a single provisioning request (which
 	// shells out to a script and restarts a systemd unit) may run.
 	RequestTimeout time.Duration
@@ -60,6 +65,11 @@ func New(cfg Config) (*Server, error) {
 	}
 	if cfg.RequestTimeout <= 0 {
 		cfg.RequestTimeout = 30 * time.Second
+	}
+	if cfg.ProvisioningClient == nil {
+		cfg.ProvisioningClient = func(model string) cydprovision.Client {
+			return cydprovision.NewHTTPClientForModel(cfg.RequestTimeout, model)
+		}
 	}
 	return &Server{cfg: cfg}, nil
 }
@@ -402,6 +412,112 @@ func (s *Server) ProvisionLED(ctx context.Context, id, address string) (config.D
 			s.recordInconsistency("provision_led", id, fmt.Errorf("registry activation failed: %w", err), fmt.Errorf("disable credential rollback also failed: %w", rollbackErr))
 		}
 		return config.Device{}, "", fmt.Errorf("LED stored its configuration but registry activation failed: %w", err)
+	}
+	return active, address, nil
+}
+
+// ProvisionDeviceByIP provisions any published http-nvs-v1 manifest. The
+// manifest is the durable source of the expected model and allowed MQTT
+// topics; no hardware-specific RPC or YAML entry is needed for a new family.
+// As with the legacy ESP methods, the DynSec password exists only while it is
+// delivered to the device and is never persisted or returned to a browser.
+func (s *Server) ProvisionDeviceByIP(ctx context.Context, id, manifestID, address string) (config.Device, string, error) {
+	ctx, cancel := context.WithTimeout(ctx, s.cfg.RequestTimeout)
+	defer cancel()
+	if s.cfg.Registry == nil {
+		return config.Device{}, "", errors.New("IP provisioning requires the SQLite registry")
+	}
+	if strings.TrimSpace(s.cfg.DeviceBrokerHost) == "" || s.cfg.DeviceBrokerPort == 0 {
+		return config.Device{}, "", errors.New("IP provisioning is not configured")
+	}
+	if err := config.ValidateDeviceID("device_id", id); err != nil {
+		return config.Device{}, "", fmt.Errorf("%w: %v", ErrInvalidDeviceID, err)
+	}
+	manifest, err := s.cfg.Registry.GetPublishedManifest(ctx, manifestID)
+	if err != nil {
+		return config.Device{}, "", err
+	}
+	document, _, err := devicemanifest.Parse(manifest.Document)
+	if err != nil {
+		return config.Device{}, "", fmt.Errorf("published manifest %q is invalid: %w", manifestID, err)
+	}
+	if document.Provisioning.Protocol != "http-nvs-v1" {
+		return config.Device{}, "", fmt.Errorf("%w: manifest %q does not support IP provisioning", ErrDeviceNotProvisionable, manifestID)
+	}
+	client := s.cfg.ProvisioningClient(document.Provisioning.Model)
+	if client == nil {
+		return config.Device{}, "", errors.New("IP provisioning client is not configured")
+	}
+	info, err := client.Inspect(ctx, address)
+	if err != nil {
+		if errors.Is(err, cydprovision.ErrInvalidIPAddress) {
+			return config.Device{}, "", fmt.Errorf("%w: %v", ErrInvalidDeviceAddress, err)
+		}
+		if errors.Is(err, cydprovision.ErrUnexpectedDevice) {
+			return config.Device{}, "", fmt.Errorf("%w: %v", ErrDeviceNotProvisionable, err)
+		}
+		return config.Device{}, "", fmt.Errorf("inspect device: %w", err)
+	}
+	if info.ProtocolVersion < document.Provisioning.RequiredProtocolVersion ||
+		strings.TrimSpace(info.DeviceUID) == "" || strings.TrimSpace(info.FirmwareVersion) == "" {
+		return config.Device{}, "", fmt.Errorf("%w: device firmware does not satisfy manifest %q", ErrDeviceNotProvisionable, manifestID)
+	}
+
+	// The record and broker credential deliberately begin disabled. Once NVS
+	// receives a password, a later enable operation is recovery-safe and does
+	// not rotate the password that the device already holds.
+	device := buildDevice(id, document.Provisioning.Model, "", document.MQTT.Topics)
+	disabled := false
+	device.Enabled = &disabled
+	if _, err := s.cfg.Registry.AddDevice(ctx, device, uuid.NewString()); err != nil {
+		if errors.Is(err, registry.ErrDeviceAlreadyExists) {
+			return config.Device{}, "", fmt.Errorf("%w: %q", ErrDeviceAlreadyExists, id)
+		}
+		return config.Device{}, "", fmt.Errorf("add device to registry: %w", err)
+	}
+	if err := s.cfg.Registry.BindDeviceManifest(ctx, id, manifest.ID, manifest.Revision); err != nil {
+		if removeErr := s.cfg.Registry.RemoveDevice(ctx, id, uuid.NewString()); removeErr != nil {
+			s.recordInconsistency("provision_device_by_ip", id, fmt.Errorf("bind manifest: %w", err), fmt.Errorf("remove pending registry entry also failed: %w", removeErr))
+			return config.Device{}, "", fmt.Errorf("bind manifest: %v; remove pending registry entry also failed: %w", err, removeErr)
+		}
+		return config.Device{}, "", fmt.Errorf("bind manifest: %w", err)
+	}
+	cleanupBeforeDelivery := func(cause error) (config.Device, string, error) {
+		if revokeErr := s.cfg.Credentials.Revoke(ctx, id); revokeErr != nil {
+			s.recordInconsistency("provision_device_by_ip", id, cause, fmt.Errorf("revoke device credential also failed: %w", revokeErr))
+			return config.Device{}, "", fmt.Errorf("%v; revoke device credential also failed: %w", cause, revokeErr)
+		}
+		if removeErr := s.cfg.Registry.RemoveDevice(ctx, id, uuid.NewString()); removeErr != nil {
+			s.recordInconsistency("provision_device_by_ip", id, cause, fmt.Errorf("remove pending registry entry also failed: %w", removeErr))
+			return config.Device{}, "", fmt.Errorf("%v; remove pending registry entry also failed: %w", cause, removeErr)
+		}
+		return config.Device{}, "", cause
+	}
+	password, err := s.cfg.Credentials.Provision(ctx, id, document.MQTT.Topics)
+	if err != nil {
+		if removeErr := s.cfg.Registry.RemoveDevice(ctx, id, uuid.NewString()); removeErr != nil {
+			s.recordInconsistency("provision_device_by_ip", id, fmt.Errorf("create device credential: %w", err), fmt.Errorf("remove pending registry entry also failed: %w", removeErr))
+			return config.Device{}, "", fmt.Errorf("create device credential: %v; remove pending registry entry also failed: %w", err, removeErr)
+		}
+		return config.Device{}, "", fmt.Errorf("create device credential: %w", err)
+	}
+	if err := s.cfg.Credentials.SetEnabled(ctx, id, false); err != nil {
+		return cleanupBeforeDelivery(fmt.Errorf("disable new device credential: %w", err))
+	}
+	settings := cydprovision.Settings{DeviceID: id, BrokerHost: s.cfg.DeviceBrokerHost, BrokerPort: s.cfg.DeviceBrokerPort, Username: id, Password: password}
+	if err := client.Provision(ctx, address, settings); err != nil {
+		return cleanupBeforeDelivery(fmt.Errorf("deliver device configuration: %w", err))
+	}
+	if err := s.cfg.Credentials.SetEnabled(ctx, id, true); err != nil {
+		s.recordInconsistency("provision_device_by_ip", id, errors.New("device already stored its configuration"), fmt.Errorf("enable broker credential failed: %w", err))
+		return config.Device{}, "", fmt.Errorf("device stored its configuration but its broker credential remains disabled: %w", err)
+	}
+	active, err := s.cfg.Registry.SetDeviceEnabled(ctx, id, true, uuid.NewString())
+	if err != nil {
+		if rollbackErr := s.cfg.Credentials.SetEnabled(context.Background(), id, false); rollbackErr != nil {
+			s.recordInconsistency("provision_device_by_ip", id, fmt.Errorf("registry activation failed: %w", err), fmt.Errorf("disable credential rollback also failed: %w", rollbackErr))
+		}
+		return config.Device{}, "", fmt.Errorf("device stored its configuration but registry activation failed: %w", err)
 	}
 	return active, address, nil
 }

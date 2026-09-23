@@ -57,6 +57,10 @@ service DeviceAdminService {
   rpc CreateDeviceManifestRevisionDraft(CreateDeviceManifestRevisionDraftRequest) returns (CreateDeviceManifestRevisionDraftResponse);
   rpc PublishDeviceManifest(PublishDeviceManifestRequest) returns (PublishDeviceManifestResponse);
   rpc ProvisionDevice(ProvisionDeviceRequest) returns (ProvisionDeviceResponse);
+  // ProvisionDeviceByIP provisions an unprovisioned device using a published
+  // http-nvs-v1 manifest. The MQTT password is delivered directly to NVS and
+  // never appears in this API response.
+  rpc ProvisionDeviceByIP(ProvisionDeviceByIPRequest) returns (ProvisionDeviceByIPResponse);
   // ProvisionCYD delivers the MQTT identity to an unprovisioned CYD over its
   // temporary LAN endpoint. Unlike ProvisionDevice, it never returns a
   // password to the caller.
@@ -186,6 +190,20 @@ message ProvisionDeviceResponse {
   string mqtt_password = 3;
   // applied_at records when the registry mutation was durably committed.
   // It does not imply a process or broker restart.
+  google.protobuf.Timestamp applied_at = 4;
+}
+
+message ProvisionDeviceByIPRequest {
+  string device_id = 1;
+  string manifest_id = 2;
+  // Private IPv4 printed by the firmware before its first MQTT connection.
+  string device_ip = 3;
+}
+
+message ProvisionDeviceByIPResponse {
+  Device device = 1;
+  string device_ip = 2;
+  string manifest_id = 3;
   google.protobuf.Timestamp applied_at = 4;
 }
 

@@ -294,7 +294,7 @@ func buildDevice(id, deviceType, profile string, topicSuffixes []string) config.
 			device.Topics.Event = topic + "event"
 		case "command":
 			device.Topics.Command = topic + "command"
-		case "command_result":
+		case "command_result", "command-result":
 			device.Topics.CommandResult = topic + "command-result"
 		}
 	}

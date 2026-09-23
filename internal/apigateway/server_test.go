@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -68,6 +69,9 @@ type fakeDeviceAdmin struct {
 	ledProvisionErr     error
 	ledProvisioned      config.Device
 	ledAddress          string
+	ipProvisionErr      error
+	ipProvisioned       config.Device
+	ipAddress           string
 
 	setEnabledErr error
 	setEnabled    config.Device
@@ -163,6 +167,15 @@ func (f *fakeDeviceAdmin) ProvisionDevice(ctx context.Context, id, template stri
 		return config.Device{}, "", f.provisionErr
 	}
 	return f.provisioned, f.password, nil
+}
+
+func (f *fakeDeviceAdmin) ProvisionDeviceByIP(ctx context.Context, id, manifestID, address string) (config.Device, string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.ipProvisionErr != nil {
+		return config.Device{}, "", f.ipProvisionErr
+	}
+	return f.ipProvisioned, f.ipAddress, nil
 }
 
 func (f *fakeDeviceAdmin) ProvisionCYD(ctx context.Context, id, address string) (config.Device, string, error) {
@@ -572,6 +585,48 @@ func TestDeviceAdminService_ProvisionLED_DoesNotExposeMQTTPassword(t *testing.T)
 	}
 	if response.Msg.GetDevice().GetId() != "led-sala" || response.Msg.GetDeviceIp() != "192.168.15.43" || response.Msg.GetAppliedAt() == nil {
 		t.Fatalf("response = %#v", response.Msg)
+	}
+}
+
+func TestDeviceAdminService_ProvisionDeviceByIP_DoesNotExposeMQTTPassword(t *testing.T) {
+	backend, _ := newFakeInternalAPI(t)
+	enabled := true
+	fake := &fakeDeviceAdmin{
+		ipProvisioned: config.Device{ID: "led-sala", Type: "esp32c3-led", Enabled: &enabled},
+		ipAddress:     "192.168.15.43",
+	}
+	ts := newTestGatewayWithAdmin(t, backend.URL, nil, fake)
+	response, err := connectClient(ts).ProvisionDeviceByIP(context.Background(), authedRequest(&apiv1.ProvisionDeviceByIPRequest{
+		DeviceId: "led-sala", ManifestId: "esp32-c3-led", DeviceIp: "192.168.15.43",
+	}))
+	if err != nil {
+		t.Fatalf("ProvisionDeviceByIP() error = %v", err)
+	}
+	if response.Msg.GetDevice().GetId() != "led-sala" || response.Msg.GetDeviceIp() != "192.168.15.43" ||
+		response.Msg.GetManifestId() != "esp32-c3-led" || response.Msg.GetAppliedAt() == nil {
+		t.Fatalf("response = %#v", response.Msg)
+	}
+}
+
+func TestDeviceAdminService_ProvisionDeviceByIPMapsManifestAndReadinessErrors(t *testing.T) {
+	backend, _ := newFakeInternalAPI(t)
+	for name, testCase := range map[string]struct {
+		provisionErr error
+		wantCode     connect.Code
+	}{
+		"missing manifest":  {fmt.Errorf("%w: missing", registry.ErrManifestNotFound), connect.CodeNotFound},
+		"firmware rejected": {admin.ErrDeviceNotProvisionable, connect.CodeFailedPrecondition},
+	} {
+		t.Run(name, func(t *testing.T) {
+			fake := &fakeDeviceAdmin{ipProvisionErr: testCase.provisionErr}
+			ts := newTestGatewayWithAdmin(t, backend.URL, nil, fake)
+			_, err := connectClient(ts).ProvisionDeviceByIP(context.Background(), authedRequest(&apiv1.ProvisionDeviceByIPRequest{
+				DeviceId: "led-sala", ManifestId: "esp32-c3-led", DeviceIp: "192.168.15.43",
+			}))
+			if connect.CodeOf(err) != testCase.wantCode {
+				t.Errorf("code = %v, want %v", connect.CodeOf(err), testCase.wantCode)
+			}
+		})
 	}
 }
 

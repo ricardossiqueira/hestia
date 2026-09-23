@@ -248,6 +248,29 @@ func (s *Server) ProvisionCYD(ctx context.Context, req *connect.Request[apiv1.Pr
 	}), nil
 }
 
+// ProvisionDeviceByIP is the manifest-driven successor to ProvisionCYD and
+// ProvisionLED. It never exposes the one-time MQTT password to its caller.
+func (s *Server) ProvisionDeviceByIP(ctx context.Context, req *connect.Request[apiv1.ProvisionDeviceByIPRequest]) (*connect.Response[apiv1.ProvisionDeviceByIPResponse], error) {
+	device, address, err := s.cfg.Admin.ProvisionDeviceByIP(ctx, req.Msg.GetDeviceId(), req.Msg.GetManifestId(), req.Msg.GetDeviceIp())
+	if err != nil {
+		switch {
+		case errors.Is(err, registry.ErrManifestNotFound):
+			return nil, connect.NewError(connect.CodeNotFound, err)
+		case errors.Is(err, admin.ErrDeviceAlreadyExists):
+			return nil, connect.NewError(connect.CodeAlreadyExists, err)
+		case errors.Is(err, admin.ErrInvalidDeviceID), errors.Is(err, admin.ErrInvalidDeviceAddress):
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		case errors.Is(err, admin.ErrDeviceNotProvisionable):
+			return nil, connect.NewError(connect.CodeFailedPrecondition, err)
+		default:
+			return nil, connect.NewError(connect.CodeInternal, err)
+		}
+	}
+	return connect.NewResponse(&apiv1.ProvisionDeviceByIPResponse{
+		Device: deviceToProto(device), DeviceIp: address, ManifestId: req.Msg.GetManifestId(), AppliedAt: timestamppb.Now(),
+	}), nil
+}
+
 // ProvisionLED uses the same direct-to-NVS first-boot protocol as the CYD.
 // Keeping the generated password out of this response ensures gateway-web
 // never handles an MQTT secret for either ESP family.
