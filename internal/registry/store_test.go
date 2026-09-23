@@ -234,6 +234,58 @@ func TestDeviceManifestBindingRequiresExistingPublishedRevisionAndDevice(t *test
 	}
 }
 
+func TestDeviceManifestDraftPublicationIsExplicitAndAudited(t *testing.T) {
+	store := openTestStore(t)
+	ctx := context.Background()
+	draft, err := store.CreateDeviceManifestDraft(ctx, manifestDocument("lab-led", "Lab LED", "command"), "ricardo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if draft.Revision != 1 || draft.CreatedBy != "ricardo" {
+		t.Fatalf("draft = %#v", draft)
+	}
+	list, err := store.ListPublishedManifests(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 3 {
+		t.Fatalf("draft leaked into published list: %#v", list)
+	}
+	published, err := store.PublishDeviceManifest(ctx, "lab-led", 1, "ricardo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if published.Revision != 1 || published.DisplayName != "Lab LED" {
+		t.Fatalf("published = %#v", published)
+	}
+	updated, err := store.CreateDeviceManifestRevisionDraft(ctx, "lab-led", manifestDocument("lab-led", "Lab LED v2", "state", "command"), "ana")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.PublishDeviceManifest(ctx, "lab-led", updated.Revision, "ana"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.GetPublishedManifest(ctx, "lab-led")
+	if err != nil || got.Revision != 2 || got.DisplayName != "Lab LED v2" {
+		t.Fatalf("GetPublishedManifest() = %#v, %v", got, err)
+	}
+	var auditCount int
+	if err := store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM registry_device_manifest_audit WHERE manifest_id = 'lab-led'`).Scan(&auditCount); err != nil || auditCount != 4 {
+		t.Fatalf("audit count = %d, %v", auditCount, err)
+	}
+}
+
+func manifestDocument(id, displayName string, topics ...string) string {
+	topicsJSON := ""
+	for i, topic := range topics {
+		if i > 0 {
+			topicsJSON += ","
+		}
+		topicsJSON += `"` + topic + `"`
+	}
+	return `{"schema_version":1,"id":"` + id + `","display_name":"` + displayName + `","provisioning":{"protocol":"http-nvs-v1","model":"` + id + `","required_protocol_version":1},"mqtt":{"topics":[` + topicsJSON + `]},"capabilities":{"commands":[],"events":[]}}`
+}
+
 func openTestStore(t *testing.T) *Store {
 	t.Helper()
 	store, err := Open(context.Background(), filepath.Join(t.TempDir(), "gateway.db"))

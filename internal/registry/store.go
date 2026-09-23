@@ -23,12 +23,15 @@ import (
 var migrationFiles embed.FS
 
 var (
-	ErrDeviceAlreadyExists   = errors.New("registry device already exists")
-	ErrDeviceNotFound        = errors.New("registry device not found")
-	ErrRouteAlreadyExists    = errors.New("registry route already exists")
-	ErrRouteNotFound         = errors.New("registry route not found")
-	ErrInconsistencyNotFound = errors.New("registry inconsistency not found")
-	ErrManifestNotFound      = errors.New("registry device manifest not found")
+	ErrDeviceAlreadyExists      = errors.New("registry device already exists")
+	ErrDeviceNotFound           = errors.New("registry device not found")
+	ErrRouteAlreadyExists       = errors.New("registry route already exists")
+	ErrRouteNotFound            = errors.New("registry route not found")
+	ErrInconsistencyNotFound    = errors.New("registry inconsistency not found")
+	ErrManifestNotFound         = errors.New("registry device manifest not found")
+	ErrManifestAlreadyExists    = errors.New("registry device manifest already exists")
+	ErrManifestRevisionNotFound = errors.New("registry device manifest revision not found")
+	ErrManifestRevisionNotDraft = errors.New("registry device manifest revision is not a draft")
 )
 
 // Snapshot is one coherent, revisioned routing policy.

@@ -1,0 +1,1 @@
+ALTER TABLE registry_device_manifest_audit ADD COLUMN previous_revision INTEGER;

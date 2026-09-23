@@ -13,6 +13,147 @@ import (
 
 const manifestSeedActor = "system:bootstrap"
 
+// CreateDeviceManifestDraft validates and creates the first editable revision
+// of a new manifest. A draft never affects provisioning until Publish is
+// called explicitly.
+func (s *Store) CreateDeviceManifestDraft(ctx context.Context, document, actor string) (DeviceManifest, error) {
+	parsed, canonical, err := devicemanifest.Parse(document)
+	if err != nil {
+		return DeviceManifest{}, err
+	}
+	actor, err = validateManifestActor(actor)
+	if err != nil {
+		return DeviceManifest{}, err
+	}
+	tx, err := s.begin(ctx)
+	if err != nil {
+		return DeviceManifest{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `INSERT INTO registry_device_manifests
+		(id, display_name, published_revision, created_at_ns, updated_at_ns) VALUES (?, ?, 0, ?, ?)`,
+		parsed.ID, parsed.DisplayName, s.now().UnixNano(), s.now().UnixNano()); err != nil {
+		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
+			return DeviceManifest{}, fmt.Errorf("%w: %q", ErrManifestAlreadyExists, parsed.ID)
+		}
+		return DeviceManifest{}, fmt.Errorf("create device manifest %q: %w", parsed.ID, err)
+	}
+	if err := insertManifestRevision(ctx, tx, parsed.ID, 1, "draft", canonical, actor, s.now().UnixNano()); err != nil {
+		return DeviceManifest{}, err
+	}
+	if err := insertManifestAudit(ctx, tx, parsed.ID, 1, "create_draft", actor, canonical, nil, s.now().UnixNano()); err != nil {
+		return DeviceManifest{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return DeviceManifest{}, fmt.Errorf("commit device manifest draft: %w", err)
+	}
+	return DeviceManifest{ID: parsed.ID, DisplayName: parsed.DisplayName, Revision: 1, Document: canonical, CreatedBy: actor, CreatedAt: s.now()}, nil
+}
+
+// CreateDeviceManifestRevisionDraft adds a new draft to an existing manifest.
+// The document ID is immutable: changing it would make instances and audit
+// history point at two unrelated device families.
+func (s *Store) CreateDeviceManifestRevisionDraft(ctx context.Context, manifestID, document, actor string) (DeviceManifest, error) {
+	parsed, canonical, err := devicemanifest.Parse(document)
+	if err != nil {
+		return DeviceManifest{}, err
+	}
+	if parsed.ID != strings.TrimSpace(manifestID) {
+		return DeviceManifest{}, errors.New("manifest document id must match manifest_id")
+	}
+	actor, err = validateManifestActor(actor)
+	if err != nil {
+		return DeviceManifest{}, err
+	}
+	tx, err := s.begin(ctx)
+	if err != nil {
+		return DeviceManifest{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var previousRevision uint64
+	if err := tx.QueryRowContext(ctx, `SELECT MAX(revision) FROM registry_device_manifest_revisions WHERE manifest_id = ?`, manifestID).Scan(&previousRevision); err != nil {
+		return DeviceManifest{}, fmt.Errorf("read manifest revision: %w", err)
+	}
+	if previousRevision == 0 {
+		return DeviceManifest{}, fmt.Errorf("%w: %q", ErrManifestNotFound, manifestID)
+	}
+	revision := previousRevision + 1
+	if err := insertManifestRevision(ctx, tx, manifestID, revision, "draft", canonical, actor, s.now().UnixNano()); err != nil {
+		return DeviceManifest{}, err
+	}
+	previous := previousRevision
+	if err := insertManifestAudit(ctx, tx, manifestID, revision, "create_draft", actor, canonical, &previous, s.now().UnixNano()); err != nil {
+		return DeviceManifest{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return DeviceManifest{}, fmt.Errorf("commit device manifest draft: %w", err)
+	}
+	return DeviceManifest{ID: manifestID, DisplayName: parsed.DisplayName, Revision: revision, Document: canonical, CreatedBy: actor, CreatedAt: s.now()}, nil
+}
+
+// PublishDeviceManifest promotes exactly one validated draft. The old
+// published revision is archived in the same transaction; active device
+// bindings remain pinned to their historic revision.
+func (s *Store) PublishDeviceManifest(ctx context.Context, manifestID string, revision uint64, actor string) (DeviceManifest, error) {
+	actor, err := validateManifestActor(actor)
+	if err != nil {
+		return DeviceManifest{}, err
+	}
+	if revision == 0 {
+		return DeviceManifest{}, errors.New("manifest revision is required")
+	}
+	tx, err := s.begin(ctx)
+	if err != nil {
+		return DeviceManifest{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var state, document string
+	if err := tx.QueryRowContext(ctx, `SELECT state, document_json FROM registry_device_manifest_revisions
+		WHERE manifest_id = ? AND revision = ?`, manifestID, revision).Scan(&state, &document); errors.Is(err, sql.ErrNoRows) {
+		return DeviceManifest{}, fmt.Errorf("%w: %q revision %d", ErrManifestRevisionNotFound, manifestID, revision)
+	} else if err != nil {
+		return DeviceManifest{}, fmt.Errorf("read device manifest revision: %w", err)
+	}
+	if state != "draft" {
+		return DeviceManifest{}, fmt.Errorf("%w: %q revision %d", ErrManifestRevisionNotDraft, manifestID, revision)
+	}
+	parsed, _, err := devicemanifest.Parse(document)
+	if err != nil {
+		return DeviceManifest{}, fmt.Errorf("stored device manifest is invalid: %w", err)
+	}
+	var previousRevision uint64
+	if err := tx.QueryRowContext(ctx, `SELECT published_revision FROM registry_device_manifests WHERE id = ?`, manifestID).Scan(&previousRevision); errors.Is(err, sql.ErrNoRows) {
+		return DeviceManifest{}, fmt.Errorf("%w: %q", ErrManifestNotFound, manifestID)
+	} else if err != nil {
+		return DeviceManifest{}, fmt.Errorf("read device manifest: %w", err)
+	}
+	if previousRevision != 0 {
+		if _, err := tx.ExecContext(ctx, `UPDATE registry_device_manifest_revisions SET state = 'archived'
+			WHERE manifest_id = ? AND revision = ?`, manifestID, previousRevision); err != nil {
+			return DeviceManifest{}, fmt.Errorf("archive old device manifest revision: %w", err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE registry_device_manifest_revisions SET state = 'published'
+		WHERE manifest_id = ? AND revision = ?`, manifestID, revision); err != nil {
+		return DeviceManifest{}, fmt.Errorf("publish device manifest revision: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE registry_device_manifests
+		SET display_name = ?, published_revision = ?, updated_at_ns = ? WHERE id = ?`, parsed.DisplayName, revision, s.now().UnixNano(), manifestID); err != nil {
+		return DeviceManifest{}, fmt.Errorf("update published device manifest: %w", err)
+	}
+	var previous *uint64
+	if previousRevision != 0 {
+		previous = &previousRevision
+	}
+	if err := insertManifestAudit(ctx, tx, manifestID, revision, "publish", actor, document, previous, s.now().UnixNano()); err != nil {
+		return DeviceManifest{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return DeviceManifest{}, fmt.Errorf("commit device manifest publication: %w", err)
+	}
+	return DeviceManifest{ID: manifestID, DisplayName: parsed.DisplayName, Revision: revision, Document: document, CreatedBy: actor, CreatedAt: s.now()}, nil
+}
+
 // ListPublishedManifests returns the catalog available to provisioners and the
 // future text editor. Drafts are intentionally not visible here: a partially
 // edited document must never become a provisioning policy by accident.
@@ -160,4 +301,35 @@ func scanDeviceManifest(scanner manifestScanner) (DeviceManifest, error) {
 	item.Revision = revision
 	item.CreatedAt = time.Unix(0, createdAtNS).UTC()
 	return item, nil
+}
+
+func insertManifestRevision(ctx context.Context, tx *sql.Tx, manifestID string, revision uint64, state, document, actor string, createdAtNS int64) error {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO registry_device_manifest_revisions
+		(manifest_id, revision, state, document_json, created_by, created_at_ns)
+		VALUES (?, ?, ?, ?, ?, ?)`, manifestID, revision, state, document, actor, createdAtNS); err != nil {
+		return fmt.Errorf("insert device manifest revision: %w", err)
+	}
+	return nil
+}
+
+func insertManifestAudit(ctx context.Context, tx *sql.Tx, manifestID string, revision uint64, action, actor, document string, previous *uint64, createdAtNS int64) error {
+	var previousValue any
+	if previous != nil {
+		previousValue = *previous
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO registry_device_manifest_audit
+		(id, manifest_id, revision, action, actor, document_json, created_at_ns, previous_revision)
+		VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, ?, ?, ?)`,
+		manifestID, revision, action, actor, document, createdAtNS, previousValue); err != nil {
+		return fmt.Errorf("audit device manifest revision: %w", err)
+	}
+	return nil
+}
+
+func validateManifestActor(actor string) (string, error) {
+	actor = strings.TrimSpace(actor)
+	if actor == "" || len(actor) > 120 || strings.ContainsAny(actor, "\r\n") {
+		return "", errors.New("manifest actor must be between 1 and 120 printable characters")
+	}
+	return actor, nil
 }
