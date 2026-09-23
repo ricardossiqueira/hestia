@@ -3,6 +3,7 @@
 | Documento | Conteúdo |
 | --- | --- |
 | [runtime-registry.md](runtime-registry.md) | Proposta para substituir cadastro YAML por registry SQLite, aplicacao dinamica e provisionamento recuperavel. |
+| [device-manifests.md](device-manifests.md) | Proposta e checklist para manifests textuais no SQLite, provisionamento genérico por IP e base para automações. |
 | [architecture.md](architecture.md) | Componentes, fluxos e limites de responsabilidade. |
 | [configuration.md](configuration.md) | Cadastro declarativo de dispositivos e referência YAML. |
 | [mqtt.md](mqtt.md) | Convenções de tópicos, mensagens e entrega. |
