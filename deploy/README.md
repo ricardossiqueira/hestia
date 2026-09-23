@@ -231,8 +231,8 @@ IOT_GATEWAY_DEVICE_MQTT_HOST=192.168.15.195
 ```
 
 ```bash
-sudo chown root:root /etc/iot-gateway/admin-environment
-sudo chmod 600 /etc/iot-gateway/admin-environment
+sudo chown root:iot-gateway /etc/iot-gateway/admin-environment
+sudo chmod 640 /etc/iot-gateway/admin-environment
 ```
 
 Install and enable:
