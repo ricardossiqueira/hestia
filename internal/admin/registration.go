@@ -20,6 +20,8 @@ var (
 	ErrInvalidDeviceID        = errors.New("invalid device id")
 	ErrInvalidDeviceAddress   = errors.New("invalid device address")
 	ErrDeviceNotProvisionable = errors.New("device is not ready for provisioning")
+	ErrRouteAlreadyExists     = errors.New("route already exists")
+	ErrRouteNotFound          = errors.New("route not found")
 )
 
 // RegisterDevice provisions a Mosquitto credential/ACL for a new device

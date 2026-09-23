@@ -68,6 +68,33 @@ type fakeDeviceAdmin struct {
 	removeErr    error
 	removedID    string
 	removedCalls int
+
+	routes         []config.Route
+	listRoutesErr  error
+	createRouteErr error
+	createdRoute   config.Route
+	removeRouteErr error
+	removedRouteID string
+}
+
+func (f *fakeDeviceAdmin) ListRoutes(ctx context.Context) ([]config.Route, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.routes, f.listRoutesErr
+}
+
+func (f *fakeDeviceAdmin) CreateRoute(ctx context.Context, route config.Route) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.createdRoute = route
+	return f.createRouteErr
+}
+
+func (f *fakeDeviceAdmin) RemoveRoute(ctx context.Context, id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.removedRouteID = id
+	return f.removeRouteErr
 }
 
 func (f *fakeDeviceAdmin) ProvisionDevice(ctx context.Context, id, template string) (config.Device, string, error) {
@@ -445,6 +472,43 @@ func TestDeviceAdminService_ProvisionCYD_MapsInvalidAddress(t *testing.T) {
 	}))
 	if connect.CodeOf(err) != connect.CodeInvalidArgument {
 		t.Errorf("code = %v, want InvalidArgument", connect.CodeOf(err))
+	}
+}
+
+func TestDeviceAdminService_CreateAndListRoutes(t *testing.T) {
+	backend, _ := newFakeInternalAPI(t)
+	route := config.Route{
+		ID: "orangepi-to-monitor", SourceTopic: "devices/orangepi-monitor/telemetry", DestinationTopic: "devices/monitor/command",
+		Transform: config.RouteTransform{Type: "json_command", CommandType: "render_system_status"}, QoS: 1,
+	}
+	fake := &fakeDeviceAdmin{routes: []config.Route{route}}
+	ts := newTestGatewayWithAdmin(t, backend.URL, nil, fake)
+
+	list, err := connectClient(ts).ListRoutes(context.Background(), authedRequest(&apiv1.ListRoutesRequest{}))
+	if err != nil {
+		t.Fatalf("ListRoutes() error = %v", err)
+	}
+	if len(list.Msg.GetRoutes()) != 1 || list.Msg.GetRoutes()[0].GetDestinationTopic() != route.DestinationTopic {
+		t.Fatalf("routes = %#v", list.Msg.GetRoutes())
+	}
+	created, err := connectClient(ts).CreateRoute(context.Background(), authedRequest(&apiv1.CreateRouteRequest{Route: &apiv1.Route{
+		Id: route.ID, SourceTopic: route.SourceTopic, DestinationTopic: route.DestinationTopic,
+		CommandType: route.Transform.CommandType, Qos: uint32(route.QoS), Retain: route.Retain,
+	}}))
+	if err != nil {
+		t.Fatalf("CreateRoute() error = %v", err)
+	}
+	if created.Msg.GetAppliedAt() == nil || fake.createdRoute != route {
+		t.Fatalf("response = %#v, route = %#v", created.Msg, fake.createdRoute)
+	}
+}
+
+func TestDeviceAdminService_RemoveRouteNotFound(t *testing.T) {
+	backend, _ := newFakeInternalAPI(t)
+	ts := newTestGatewayWithAdmin(t, backend.URL, nil, &fakeDeviceAdmin{removeRouteErr: admin.ErrRouteNotFound})
+	_, err := connectClient(ts).RemoveRoute(context.Background(), authedRequest(&apiv1.RemoveRouteRequest{RouteId: "missing"}))
+	if connect.CodeOf(err) != connect.CodeNotFound {
+		t.Errorf("code = %v, want NotFound", connect.CodeOf(err))
 	}
 }
 

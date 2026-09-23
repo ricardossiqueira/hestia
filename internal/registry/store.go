@@ -25,6 +25,8 @@ var migrationFiles embed.FS
 var (
 	ErrDeviceAlreadyExists = errors.New("registry device already exists")
 	ErrDeviceNotFound      = errors.New("registry device not found")
+	ErrRouteAlreadyExists  = errors.New("registry route already exists")
+	ErrRouteNotFound       = errors.New("registry route not found")
 )
 
 // Snapshot is one coherent, revisioned routing policy.
@@ -219,6 +221,19 @@ func (s *Store) RemoveDevice(ctx context.Context, id, idempotencyKey string) err
 	if err != nil {
 		return err
 	}
+	// A route cannot remain after either endpoint goes away. Removing it in
+	// the same revision prevents the long-lived gateway from ever observing
+	// a dangling source or destination topic.
+	if _, err := tx.ExecContext(ctx, `DELETE FROM registry_routes
+		WHERE source_topic IN (
+			SELECT topic FROM registry_device_topics
+			WHERE device_id = ? AND kind IN ('telemetry', 'state', 'event', 'command_result')
+		) OR destination_topic IN (
+			SELECT topic FROM registry_device_topics
+			WHERE device_id = ? AND kind = 'command'
+		)`, id, id); err != nil {
+		return fmt.Errorf("remove routes for registry device: %w", err)
+	}
 	result, err := tx.ExecContext(ctx, `DELETE FROM registry_devices WHERE id = ?`, id)
 	if err != nil {
 		return fmt.Errorf("remove registry device: %w", err)
@@ -235,6 +250,69 @@ func (s *Store) RemoveDevice(ctx context.Context, id, idempotencyKey string) err
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit registry removal: %w", err)
+	}
+	return nil
+}
+
+// AddRoute persists one local MQTT route and advances the policy revision.
+// Its endpoints must be enabled device topics at the instant it is created;
+// the gateway's registry watcher applies the resulting snapshot without a
+// process restart.
+func (s *Store) AddRoute(ctx context.Context, route config.Route) error {
+	tx, err := s.begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := validateRoute(ctx, tx, route); err != nil {
+		return err
+	}
+	var exists int
+	if err := tx.QueryRowContext(ctx, `SELECT 1 FROM registry_routes WHERE id = ?`, route.ID).Scan(&exists); err == nil {
+		return fmt.Errorf("%w: %q", ErrRouteAlreadyExists, route.ID)
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("check registry route: %w", err)
+	}
+	revision, err := nextRevision(ctx, tx)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO registry_routes
+		(id, source_topic, destination_topic, transform_type, command_type, qos, retain, revision)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, route.ID, route.SourceTopic, route.DestinationTopic,
+		route.Transform.Type, route.Transform.CommandType, route.QoS, boolInt(route.Retain), revision); err != nil {
+		return fmt.Errorf("insert registry route %q: %w", route.ID, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit registry route: %w", err)
+	}
+	return nil
+}
+
+// RemoveRoute deletes a local route and advances the policy revision.
+func (s *Store) RemoveRoute(ctx context.Context, id string) error {
+	tx, err := s.begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	_, err = nextRevision(ctx, tx)
+	if err != nil {
+		return err
+	}
+	result, err := tx.ExecContext(ctx, `DELETE FROM registry_routes WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("remove registry route: %w", err)
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		return fmt.Errorf("%w: %q", ErrRouteNotFound, id)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit registry route removal: %w", err)
 	}
 	return nil
 }
@@ -367,6 +445,40 @@ func validateDevice(d config.Device) error {
 	}
 	if count == 0 {
 		return errors.New("device must define at least one topic")
+	}
+	return nil
+}
+
+func validateRoute(ctx context.Context, tx *sql.Tx, route config.Route) error {
+	if err := config.ValidateDeviceID("route.id", route.ID); err != nil {
+		return err
+	}
+	if route.QoS > 2 {
+		return errors.New("route.qos must be between 0 and 2")
+	}
+	if route.Transform.Type != "json_command" {
+		return errors.New("route.transform.type must be json_command")
+	}
+	if strings.TrimSpace(route.Transform.CommandType) == "" {
+		return errors.New("route.transform.command_type is required")
+	}
+	var sourceCount int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM registry_device_topics t
+		JOIN registry_devices d ON d.id = t.device_id
+		WHERE d.enabled = 1 AND t.topic = ? AND t.kind IN ('telemetry', 'state', 'event', 'command_result')`, route.SourceTopic).Scan(&sourceCount); err != nil {
+		return fmt.Errorf("validate route source: %w", err)
+	}
+	if sourceCount == 0 {
+		return errors.New("route.source_topic must reference an enabled inbound device topic")
+	}
+	var destinationCount int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM registry_device_topics t
+		JOIN registry_devices d ON d.id = t.device_id
+		WHERE d.enabled = 1 AND t.topic = ? AND t.kind = 'command'`, route.DestinationTopic).Scan(&destinationCount); err != nil {
+		return fmt.Errorf("validate route destination: %w", err)
+	}
+	if destinationCount == 0 {
+		return errors.New("route.destination_topic must reference an enabled command topic")
 	}
 	return nil
 }

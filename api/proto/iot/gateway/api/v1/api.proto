@@ -28,6 +28,11 @@ service GatewayService {
 // answered directly by the admin (root) process instead of being proxied
 // like DeviceService/GatewayService are.
 service DeviceAdminService {
+  // Routes belong to the same versioned SQLite policy as devices. They are
+  // applied by the live gateway without restarting either systemd service.
+  rpc ListRoutes(ListRoutesRequest) returns (ListRoutesResponse);
+  rpc CreateRoute(CreateRouteRequest) returns (CreateRouteResponse);
+  rpc RemoveRoute(RemoveRouteRequest) returns (RemoveRouteResponse);
   rpc ProvisionDevice(ProvisionDeviceRequest) returns (ProvisionDeviceResponse);
   // ProvisionCYD delivers the MQTT identity to an unprovisioned CYD over its
   // temporary LAN endpoint. Unlike ProvisionDevice, it never returns a
@@ -35,6 +40,38 @@ service DeviceAdminService {
   rpc ProvisionCYD(ProvisionCYDRequest) returns (ProvisionCYDResponse);
   rpc SetDeviceEnabled(SetDeviceEnabledRequest) returns (SetDeviceEnabledResponse);
   rpc RemoveDevice(RemoveDeviceRequest) returns (RemoveDeviceResponse);
+}
+
+message Route {
+  string id = 1;
+  string source_topic = 2;
+  string destination_topic = 3;
+  string command_type = 4;
+  uint32 qos = 5;
+  bool retain = 6;
+}
+
+message ListRoutesRequest {}
+
+message ListRoutesResponse {
+  repeated Route routes = 1;
+}
+
+message CreateRouteRequest {
+  Route route = 1;
+}
+
+message CreateRouteResponse {
+  Route route = 1;
+  google.protobuf.Timestamp applied_at = 2;
+}
+
+message RemoveRouteRequest {
+  string route_id = 1;
+}
+
+message RemoveRouteResponse {
+  google.protobuf.Timestamp applied_at = 1;
 }
 
 message ProvisionDeviceRequest {

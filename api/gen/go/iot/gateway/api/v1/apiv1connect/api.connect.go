@@ -49,6 +49,15 @@ const (
 	// GatewayServiceGetStatusProcedure is the fully-qualified name of the GatewayService's GetStatus
 	// RPC.
 	GatewayServiceGetStatusProcedure = "/iot.gateway.api.v1.GatewayService/GetStatus"
+	// DeviceAdminServiceListRoutesProcedure is the fully-qualified name of the DeviceAdminService's
+	// ListRoutes RPC.
+	DeviceAdminServiceListRoutesProcedure = "/iot.gateway.api.v1.DeviceAdminService/ListRoutes"
+	// DeviceAdminServiceCreateRouteProcedure is the fully-qualified name of the DeviceAdminService's
+	// CreateRoute RPC.
+	DeviceAdminServiceCreateRouteProcedure = "/iot.gateway.api.v1.DeviceAdminService/CreateRoute"
+	// DeviceAdminServiceRemoveRouteProcedure is the fully-qualified name of the DeviceAdminService's
+	// RemoveRoute RPC.
+	DeviceAdminServiceRemoveRouteProcedure = "/iot.gateway.api.v1.DeviceAdminService/RemoveRoute"
 	// DeviceAdminServiceProvisionDeviceProcedure is the fully-qualified name of the
 	// DeviceAdminService's ProvisionDevice RPC.
 	DeviceAdminServiceProvisionDeviceProcedure = "/iot.gateway.api.v1.DeviceAdminService/ProvisionDevice"
@@ -257,6 +266,11 @@ func (UnimplementedGatewayServiceHandler) GetStatus(context.Context, *connect.Re
 
 // DeviceAdminServiceClient is a client for the iot.gateway.api.v1.DeviceAdminService service.
 type DeviceAdminServiceClient interface {
+	// Routes belong to the same versioned SQLite policy as devices. They are
+	// applied by the live gateway without restarting either systemd service.
+	ListRoutes(context.Context, *connect.Request[v1.ListRoutesRequest]) (*connect.Response[v1.ListRoutesResponse], error)
+	CreateRoute(context.Context, *connect.Request[v1.CreateRouteRequest]) (*connect.Response[v1.CreateRouteResponse], error)
+	RemoveRoute(context.Context, *connect.Request[v1.RemoveRouteRequest]) (*connect.Response[v1.RemoveRouteResponse], error)
 	ProvisionDevice(context.Context, *connect.Request[v1.ProvisionDeviceRequest]) (*connect.Response[v1.ProvisionDeviceResponse], error)
 	// ProvisionCYD delivers the MQTT identity to an unprovisioned CYD over its
 	// temporary LAN endpoint. Unlike ProvisionDevice, it never returns a
@@ -277,6 +291,24 @@ func NewDeviceAdminServiceClient(httpClient connect.HTTPClient, baseURL string, 
 	baseURL = strings.TrimRight(baseURL, "/")
 	deviceAdminServiceMethods := v1.File_iot_gateway_api_v1_api_proto.Services().ByName("DeviceAdminService").Methods()
 	return &deviceAdminServiceClient{
+		listRoutes: connect.NewClient[v1.ListRoutesRequest, v1.ListRoutesResponse](
+			httpClient,
+			baseURL+DeviceAdminServiceListRoutesProcedure,
+			connect.WithSchema(deviceAdminServiceMethods.ByName("ListRoutes")),
+			connect.WithClientOptions(opts...),
+		),
+		createRoute: connect.NewClient[v1.CreateRouteRequest, v1.CreateRouteResponse](
+			httpClient,
+			baseURL+DeviceAdminServiceCreateRouteProcedure,
+			connect.WithSchema(deviceAdminServiceMethods.ByName("CreateRoute")),
+			connect.WithClientOptions(opts...),
+		),
+		removeRoute: connect.NewClient[v1.RemoveRouteRequest, v1.RemoveRouteResponse](
+			httpClient,
+			baseURL+DeviceAdminServiceRemoveRouteProcedure,
+			connect.WithSchema(deviceAdminServiceMethods.ByName("RemoveRoute")),
+			connect.WithClientOptions(opts...),
+		),
 		provisionDevice: connect.NewClient[v1.ProvisionDeviceRequest, v1.ProvisionDeviceResponse](
 			httpClient,
 			baseURL+DeviceAdminServiceProvisionDeviceProcedure,
@@ -306,10 +338,28 @@ func NewDeviceAdminServiceClient(httpClient connect.HTTPClient, baseURL string, 
 
 // deviceAdminServiceClient implements DeviceAdminServiceClient.
 type deviceAdminServiceClient struct {
+	listRoutes       *connect.Client[v1.ListRoutesRequest, v1.ListRoutesResponse]
+	createRoute      *connect.Client[v1.CreateRouteRequest, v1.CreateRouteResponse]
+	removeRoute      *connect.Client[v1.RemoveRouteRequest, v1.RemoveRouteResponse]
 	provisionDevice  *connect.Client[v1.ProvisionDeviceRequest, v1.ProvisionDeviceResponse]
 	provisionCYD     *connect.Client[v1.ProvisionCYDRequest, v1.ProvisionCYDResponse]
 	setDeviceEnabled *connect.Client[v1.SetDeviceEnabledRequest, v1.SetDeviceEnabledResponse]
 	removeDevice     *connect.Client[v1.RemoveDeviceRequest, v1.RemoveDeviceResponse]
+}
+
+// ListRoutes calls iot.gateway.api.v1.DeviceAdminService.ListRoutes.
+func (c *deviceAdminServiceClient) ListRoutes(ctx context.Context, req *connect.Request[v1.ListRoutesRequest]) (*connect.Response[v1.ListRoutesResponse], error) {
+	return c.listRoutes.CallUnary(ctx, req)
+}
+
+// CreateRoute calls iot.gateway.api.v1.DeviceAdminService.CreateRoute.
+func (c *deviceAdminServiceClient) CreateRoute(ctx context.Context, req *connect.Request[v1.CreateRouteRequest]) (*connect.Response[v1.CreateRouteResponse], error) {
+	return c.createRoute.CallUnary(ctx, req)
+}
+
+// RemoveRoute calls iot.gateway.api.v1.DeviceAdminService.RemoveRoute.
+func (c *deviceAdminServiceClient) RemoveRoute(ctx context.Context, req *connect.Request[v1.RemoveRouteRequest]) (*connect.Response[v1.RemoveRouteResponse], error) {
+	return c.removeRoute.CallUnary(ctx, req)
 }
 
 // ProvisionDevice calls iot.gateway.api.v1.DeviceAdminService.ProvisionDevice.
@@ -335,6 +385,11 @@ func (c *deviceAdminServiceClient) RemoveDevice(ctx context.Context, req *connec
 // DeviceAdminServiceHandler is an implementation of the iot.gateway.api.v1.DeviceAdminService
 // service.
 type DeviceAdminServiceHandler interface {
+	// Routes belong to the same versioned SQLite policy as devices. They are
+	// applied by the live gateway without restarting either systemd service.
+	ListRoutes(context.Context, *connect.Request[v1.ListRoutesRequest]) (*connect.Response[v1.ListRoutesResponse], error)
+	CreateRoute(context.Context, *connect.Request[v1.CreateRouteRequest]) (*connect.Response[v1.CreateRouteResponse], error)
+	RemoveRoute(context.Context, *connect.Request[v1.RemoveRouteRequest]) (*connect.Response[v1.RemoveRouteResponse], error)
 	ProvisionDevice(context.Context, *connect.Request[v1.ProvisionDeviceRequest]) (*connect.Response[v1.ProvisionDeviceResponse], error)
 	// ProvisionCYD delivers the MQTT identity to an unprovisioned CYD over its
 	// temporary LAN endpoint. Unlike ProvisionDevice, it never returns a
@@ -351,6 +406,24 @@ type DeviceAdminServiceHandler interface {
 // and JSON codecs. They also support gzip compression.
 func NewDeviceAdminServiceHandler(svc DeviceAdminServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
 	deviceAdminServiceMethods := v1.File_iot_gateway_api_v1_api_proto.Services().ByName("DeviceAdminService").Methods()
+	deviceAdminServiceListRoutesHandler := connect.NewUnaryHandler(
+		DeviceAdminServiceListRoutesProcedure,
+		svc.ListRoutes,
+		connect.WithSchema(deviceAdminServiceMethods.ByName("ListRoutes")),
+		connect.WithHandlerOptions(opts...),
+	)
+	deviceAdminServiceCreateRouteHandler := connect.NewUnaryHandler(
+		DeviceAdminServiceCreateRouteProcedure,
+		svc.CreateRoute,
+		connect.WithSchema(deviceAdminServiceMethods.ByName("CreateRoute")),
+		connect.WithHandlerOptions(opts...),
+	)
+	deviceAdminServiceRemoveRouteHandler := connect.NewUnaryHandler(
+		DeviceAdminServiceRemoveRouteProcedure,
+		svc.RemoveRoute,
+		connect.WithSchema(deviceAdminServiceMethods.ByName("RemoveRoute")),
+		connect.WithHandlerOptions(opts...),
+	)
 	deviceAdminServiceProvisionDeviceHandler := connect.NewUnaryHandler(
 		DeviceAdminServiceProvisionDeviceProcedure,
 		svc.ProvisionDevice,
@@ -377,6 +450,12 @@ func NewDeviceAdminServiceHandler(svc DeviceAdminServiceHandler, opts ...connect
 	)
 	return "/iot.gateway.api.v1.DeviceAdminService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case DeviceAdminServiceListRoutesProcedure:
+			deviceAdminServiceListRoutesHandler.ServeHTTP(w, r)
+		case DeviceAdminServiceCreateRouteProcedure:
+			deviceAdminServiceCreateRouteHandler.ServeHTTP(w, r)
+		case DeviceAdminServiceRemoveRouteProcedure:
+			deviceAdminServiceRemoveRouteHandler.ServeHTTP(w, r)
 		case DeviceAdminServiceProvisionDeviceProcedure:
 			deviceAdminServiceProvisionDeviceHandler.ServeHTTP(w, r)
 		case DeviceAdminServiceProvisionCYDProcedure:
@@ -393,6 +472,18 @@ func NewDeviceAdminServiceHandler(svc DeviceAdminServiceHandler, opts ...connect
 
 // UnimplementedDeviceAdminServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedDeviceAdminServiceHandler struct{}
+
+func (UnimplementedDeviceAdminServiceHandler) ListRoutes(context.Context, *connect.Request[v1.ListRoutesRequest]) (*connect.Response[v1.ListRoutesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("iot.gateway.api.v1.DeviceAdminService.ListRoutes is not implemented"))
+}
+
+func (UnimplementedDeviceAdminServiceHandler) CreateRoute(context.Context, *connect.Request[v1.CreateRouteRequest]) (*connect.Response[v1.CreateRouteResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("iot.gateway.api.v1.DeviceAdminService.CreateRoute is not implemented"))
+}
+
+func (UnimplementedDeviceAdminServiceHandler) RemoveRoute(context.Context, *connect.Request[v1.RemoveRouteRequest]) (*connect.Response[v1.RemoveRouteResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("iot.gateway.api.v1.DeviceAdminService.RemoveRoute is not implemented"))
+}
 
 func (UnimplementedDeviceAdminServiceHandler) ProvisionDevice(context.Context, *connect.Request[v1.ProvisionDeviceRequest]) (*connect.Response[v1.ProvisionDeviceResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("iot.gateway.api.v1.DeviceAdminService.ProvisionDevice is not implemented"))

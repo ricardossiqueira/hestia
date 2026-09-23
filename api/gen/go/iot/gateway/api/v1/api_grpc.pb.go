@@ -305,6 +305,9 @@ var GatewayService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
+	DeviceAdminService_ListRoutes_FullMethodName       = "/iot.gateway.api.v1.DeviceAdminService/ListRoutes"
+	DeviceAdminService_CreateRoute_FullMethodName      = "/iot.gateway.api.v1.DeviceAdminService/CreateRoute"
+	DeviceAdminService_RemoveRoute_FullMethodName      = "/iot.gateway.api.v1.DeviceAdminService/RemoveRoute"
 	DeviceAdminService_ProvisionDevice_FullMethodName  = "/iot.gateway.api.v1.DeviceAdminService/ProvisionDevice"
 	DeviceAdminService_ProvisionCYD_FullMethodName     = "/iot.gateway.api.v1.DeviceAdminService/ProvisionCYD"
 	DeviceAdminService_SetDeviceEnabled_FullMethodName = "/iot.gateway.api.v1.DeviceAdminService/SetDeviceEnabled"
@@ -322,6 +325,11 @@ const (
 // answered directly by the admin (root) process instead of being proxied
 // like DeviceService/GatewayService are.
 type DeviceAdminServiceClient interface {
+	// Routes belong to the same versioned SQLite policy as devices. They are
+	// applied by the live gateway without restarting either systemd service.
+	ListRoutes(ctx context.Context, in *ListRoutesRequest, opts ...grpc.CallOption) (*ListRoutesResponse, error)
+	CreateRoute(ctx context.Context, in *CreateRouteRequest, opts ...grpc.CallOption) (*CreateRouteResponse, error)
+	RemoveRoute(ctx context.Context, in *RemoveRouteRequest, opts ...grpc.CallOption) (*RemoveRouteResponse, error)
 	ProvisionDevice(ctx context.Context, in *ProvisionDeviceRequest, opts ...grpc.CallOption) (*ProvisionDeviceResponse, error)
 	// ProvisionCYD delivers the MQTT identity to an unprovisioned CYD over its
 	// temporary LAN endpoint. Unlike ProvisionDevice, it never returns a
@@ -337,6 +345,36 @@ type deviceAdminServiceClient struct {
 
 func NewDeviceAdminServiceClient(cc grpc.ClientConnInterface) DeviceAdminServiceClient {
 	return &deviceAdminServiceClient{cc}
+}
+
+func (c *deviceAdminServiceClient) ListRoutes(ctx context.Context, in *ListRoutesRequest, opts ...grpc.CallOption) (*ListRoutesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListRoutesResponse)
+	err := c.cc.Invoke(ctx, DeviceAdminService_ListRoutes_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *deviceAdminServiceClient) CreateRoute(ctx context.Context, in *CreateRouteRequest, opts ...grpc.CallOption) (*CreateRouteResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateRouteResponse)
+	err := c.cc.Invoke(ctx, DeviceAdminService_CreateRoute_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *deviceAdminServiceClient) RemoveRoute(ctx context.Context, in *RemoveRouteRequest, opts ...grpc.CallOption) (*RemoveRouteResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RemoveRouteResponse)
+	err := c.cc.Invoke(ctx, DeviceAdminService_RemoveRoute_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *deviceAdminServiceClient) ProvisionDevice(ctx context.Context, in *ProvisionDeviceRequest, opts ...grpc.CallOption) (*ProvisionDeviceResponse, error) {
@@ -390,6 +428,11 @@ func (c *deviceAdminServiceClient) RemoveDevice(ctx context.Context, in *RemoveD
 // answered directly by the admin (root) process instead of being proxied
 // like DeviceService/GatewayService are.
 type DeviceAdminServiceServer interface {
+	// Routes belong to the same versioned SQLite policy as devices. They are
+	// applied by the live gateway without restarting either systemd service.
+	ListRoutes(context.Context, *ListRoutesRequest) (*ListRoutesResponse, error)
+	CreateRoute(context.Context, *CreateRouteRequest) (*CreateRouteResponse, error)
+	RemoveRoute(context.Context, *RemoveRouteRequest) (*RemoveRouteResponse, error)
 	ProvisionDevice(context.Context, *ProvisionDeviceRequest) (*ProvisionDeviceResponse, error)
 	// ProvisionCYD delivers the MQTT identity to an unprovisioned CYD over its
 	// temporary LAN endpoint. Unlike ProvisionDevice, it never returns a
@@ -406,6 +449,15 @@ type DeviceAdminServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedDeviceAdminServiceServer struct{}
 
+func (UnimplementedDeviceAdminServiceServer) ListRoutes(context.Context, *ListRoutesRequest) (*ListRoutesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListRoutes not implemented")
+}
+func (UnimplementedDeviceAdminServiceServer) CreateRoute(context.Context, *CreateRouteRequest) (*CreateRouteResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CreateRoute not implemented")
+}
+func (UnimplementedDeviceAdminServiceServer) RemoveRoute(context.Context, *RemoveRouteRequest) (*RemoveRouteResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RemoveRoute not implemented")
+}
 func (UnimplementedDeviceAdminServiceServer) ProvisionDevice(context.Context, *ProvisionDeviceRequest) (*ProvisionDeviceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ProvisionDevice not implemented")
 }
@@ -436,6 +488,60 @@ func RegisterDeviceAdminServiceServer(s grpc.ServiceRegistrar, srv DeviceAdminSe
 		t.testEmbeddedByValue()
 	}
 	s.RegisterService(&DeviceAdminService_ServiceDesc, srv)
+}
+
+func _DeviceAdminService_ListRoutes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListRoutesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DeviceAdminServiceServer).ListRoutes(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DeviceAdminService_ListRoutes_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DeviceAdminServiceServer).ListRoutes(ctx, req.(*ListRoutesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DeviceAdminService_CreateRoute_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateRouteRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DeviceAdminServiceServer).CreateRoute(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DeviceAdminService_CreateRoute_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DeviceAdminServiceServer).CreateRoute(ctx, req.(*CreateRouteRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DeviceAdminService_RemoveRoute_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RemoveRouteRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DeviceAdminServiceServer).RemoveRoute(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DeviceAdminService_RemoveRoute_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DeviceAdminServiceServer).RemoveRoute(ctx, req.(*RemoveRouteRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _DeviceAdminService_ProvisionDevice_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -517,6 +623,18 @@ var DeviceAdminService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "iot.gateway.api.v1.DeviceAdminService",
 	HandlerType: (*DeviceAdminServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "ListRoutes",
+			Handler:    _DeviceAdminService_ListRoutes_Handler,
+		},
+		{
+			MethodName: "CreateRoute",
+			Handler:    _DeviceAdminService_CreateRoute_Handler,
+		},
+		{
+			MethodName: "RemoveRoute",
+			Handler:    _DeviceAdminService_RemoveRoute_Handler,
+		},
 		{
 			MethodName: "ProvisionDevice",
 			Handler:    _DeviceAdminService_ProvisionDevice_Handler,

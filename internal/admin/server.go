@@ -84,6 +84,60 @@ func (s *Server) ProvisionDevice(ctx context.Context, id, template string) (conf
 	return RegisterDevice(ctx, s.cfg.ConfigPath, s.cfg.ProvisionScript, id, template)
 }
 
+// ListRoutes returns the current durable local routing policy. The registry
+// is the authority in normal deployments; YAML remains read-only migration
+// fallback only.
+func (s *Server) ListRoutes(ctx context.Context) ([]config.Route, error) {
+	ctx, cancel := context.WithTimeout(ctx, s.cfg.RequestTimeout)
+	defer cancel()
+	if s.cfg.Registry != nil {
+		snapshot, err := s.cfg.Registry.Snapshot(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return snapshot.Routes, nil
+	}
+	cfg, err := config.Load(s.cfg.ConfigPath)
+	if err != nil {
+		return nil, err
+	}
+	return cfg.Routes, nil
+}
+
+// CreateRoute records a route in SQLite. It deliberately has no broker or
+// systemd side effect: the long-lived gateway sees the new revision itself.
+func (s *Server) CreateRoute(ctx context.Context, route config.Route) error {
+	ctx, cancel := context.WithTimeout(ctx, s.cfg.RequestTimeout)
+	defer cancel()
+	if s.cfg.Registry == nil {
+		return errors.New("route administration requires the SQLite registry")
+	}
+	if err := s.cfg.Registry.AddRoute(ctx, route); err != nil {
+		if errors.Is(err, registry.ErrRouteAlreadyExists) {
+			return fmt.Errorf("%w: %s", ErrRouteAlreadyExists, route.ID)
+		}
+		return err
+	}
+	return nil
+}
+
+// RemoveRoute removes a route from SQLite. As with CreateRoute, no restart
+// is needed because the running gateway watches policy revisions.
+func (s *Server) RemoveRoute(ctx context.Context, id string) error {
+	ctx, cancel := context.WithTimeout(ctx, s.cfg.RequestTimeout)
+	defer cancel()
+	if s.cfg.Registry == nil {
+		return errors.New("route administration requires the SQLite registry")
+	}
+	if err := s.cfg.Registry.RemoveRoute(ctx, id); err != nil {
+		if errors.Is(err, registry.ErrRouteNotFound) {
+			return fmt.Errorf("%w: %s", ErrRouteNotFound, id)
+		}
+		return err
+	}
+	return nil
+}
+
 // ProvisionCYD supplies a new, Wi-Fi-connected CYD with its broker identity
 // over its one-time local HTTP endpoint. The password is kept in memory only:
 // it is sent directly to the CYD and never returned to gateway-web.

@@ -2,8 +2,9 @@
 
 > **Status: migracao em andamento.** O registry SQLite e a aplicacao dinamica
 > da politica MQTT ja existem. O adaptador DynSec esta no gateway; a ativacao
-> no Orange Pi e o cutover dos devices seguem `dynsec-migration.md`. NVS nos
-> ESP32 continua etapa futura.
+> no Orange Pi e o cutover dos devices seguem `dynsec-migration.md`. O
+> `cyd-monitor` ja recebe a configuracao MQTT no NVS durante o provisionamento;
+> os demais firmwares seguem como proxima etapa.
 
 ## Objetivo
 
@@ -33,8 +34,12 @@ control plane ----> registry SQLite <---- runtime manager do gateway
   `systemctl restart`; novos topicos sao assinados antes de a nova politica ser
   exposta e topicos removidos deixam de ser aceitos imediatamente.
 - A API de administracao usa o registry para cadastrar, habilitar, desabilitar
-  e remover devices; a listagem e a publicacao de comandos leem a politica MQTT
-  atualmente aplicada, nao o YAML de bootstrap.
+  e remover devices, alem de criar, listar e remover rotas; a listagem e a
+  publicacao de comandos leem a politica MQTT atualmente aplicada, nao o YAML
+  de bootstrap.
+- Uma rota so pode ligar um topico inbound de device habilitado a um topico
+  `command` de device habilitado. A remocao de um device remove no mesmo
+  commit as rotas que o referenciam, sem deixar encaminhamentos pendentes.
 - Quando `IOT_GATEWAY_DYNSEC_URL` esta configurada, a administracao usa a API
   DynSec do broker e nao edita arquivos nem recarrega servicos. O script legado
   fica somente como compatibilidade durante a migracao.

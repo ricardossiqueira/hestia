@@ -44,6 +44,65 @@ func deviceToProto(d config.Device) *apiv1.Device {
 	}
 }
 
+func routeToProto(route config.Route) *apiv1.Route {
+	return &apiv1.Route{
+		Id: route.ID, SourceTopic: route.SourceTopic, DestinationTopic: route.DestinationTopic,
+		CommandType: route.Transform.CommandType, Qos: uint32(route.QoS), Retain: route.Retain,
+	}
+}
+
+func routeFromProto(route *apiv1.Route) (config.Route, error) {
+	if route == nil {
+		return config.Route{}, errors.New("route is required")
+	}
+	if route.GetQos() > 2 {
+		return config.Route{}, errors.New("route.qos must be between 0 and 2")
+	}
+	return config.Route{
+		ID: route.GetId(), SourceTopic: route.GetSourceTopic(), DestinationTopic: route.GetDestinationTopic(),
+		Transform: config.RouteTransform{Type: "json_command", CommandType: route.GetCommandType()},
+		QoS:       byte(route.GetQos()), Retain: route.GetRetain(),
+	}, nil
+}
+
+func (s *Server) ListRoutes(ctx context.Context, _ *connect.Request[apiv1.ListRoutesRequest]) (*connect.Response[apiv1.ListRoutesResponse], error) {
+	routes, err := s.cfg.Admin.ListRoutes(ctx)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	response := &apiv1.ListRoutesResponse{Routes: make([]*apiv1.Route, 0, len(routes))}
+	for _, route := range routes {
+		response.Routes = append(response.Routes, routeToProto(route))
+	}
+	return connect.NewResponse(response), nil
+}
+
+// CreateRoute changes only the revisioned SQLite routing policy. The running
+// gateway converges on it itself; this RPC must never restart a service.
+func (s *Server) CreateRoute(ctx context.Context, req *connect.Request[apiv1.CreateRouteRequest]) (*connect.Response[apiv1.CreateRouteResponse], error) {
+	route, err := routeFromProto(req.Msg.GetRoute())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	if err := s.cfg.Admin.CreateRoute(ctx, route); err != nil {
+		if errors.Is(err, admin.ErrRouteAlreadyExists) {
+			return nil, connect.NewError(connect.CodeAlreadyExists, err)
+		}
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	return connect.NewResponse(&apiv1.CreateRouteResponse{Route: routeToProto(route), AppliedAt: timestamppb.Now()}), nil
+}
+
+func (s *Server) RemoveRoute(ctx context.Context, req *connect.Request[apiv1.RemoveRouteRequest]) (*connect.Response[apiv1.RemoveRouteResponse], error) {
+	if err := s.cfg.Admin.RemoveRoute(ctx, req.Msg.GetRouteId()); err != nil {
+		if errors.Is(err, admin.ErrRouteNotFound) {
+			return nil, connect.NewError(connect.CodeNotFound, err)
+		}
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	return connect.NewResponse(&apiv1.RemoveRouteResponse{AppliedAt: timestamppb.Now()}), nil
+}
+
 // ProvisionDevice creates a new device from a template, returning its
 // one-time-display Mosquitto password. Error codes are more granular here
 // than DeviceService's (which collapses most failures to InvalidArgument

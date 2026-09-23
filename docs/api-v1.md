@@ -126,6 +126,9 @@ Regras:
 | `ListDeviceCommands` | `DeviceService` | Descreve os comandos que um dispositivo aceita (schema Protobuf). |
 | `PublishCommand` | `DeviceService` | Publica um comando, validado por schema quando o dispositivo tem profile. |
 | `GetStatus` | `GatewayService` | Espelha `internal/mqtt.Snapshot`: sessão MQTT, contadores, sem payloads. |
+| `ListRoutes` | `DeviceAdminService` | Lista as rotas locais persistidas no SQLite. |
+| `CreateRoute` | `DeviceAdminService` | Cria uma rota entre um tópico inbound e um `command` habilitados. |
+| `RemoveRoute` | `DeviceAdminService` | Remove uma rota local pelo ID. |
 | `ProvisionDevice` | `DeviceAdminService` | Cadastra um device novo a partir de um template. Devolve a senha MQTT uma única vez. |
 | `ProvisionCYD` | `DeviceAdminService` | Entrega a credencial MQTT diretamente ao CYD nao provisionado pelo IP; a resposta nunca contem senha. |
 | `SetDeviceEnabled` | `DeviceAdminService` | Habilita/desabilita um device e aplica a politica sem reiniciar o gateway. |
@@ -133,8 +136,30 @@ Regras:
 
 `DeviceAdminService` é atendido **diretamente** pelo processo `iot-gateway
 admin` — não passa pelo reverse proxy que `DeviceService`/`GatewayService`
-usam, porque a lógica em si (escrever `gateway.yaml`, credencial Mosquitto,
-`systemctl restart`) só pode rodar ali (ADR-008).
+usam, porque provisionamento e revogação de credenciais do Mosquitto ainda são
+operações privilegiadas. As mudanças normais de policy — devices e rotas no
+SQLite — não escrevem YAML nem chamam `systemctl`.
+
+### Rotas locais
+
+`CreateRoute` recebe `route` com `id`, `source_topic`, `destination_topic`,
+`command_type`, `qos` e `retain`. A transformação é sempre
+`json_command`: o payload JSON de origem passa a ser `parameters` e o gateway
+gera um `command_id` novo. A origem deve ser `telemetry`, `state`, `event` ou
+`command_result` de um device habilitado; o destino deve ser `command` de um
+device habilitado. A mutação só atualiza a revisão do SQLite: o processo MQTT
+já em execução aplica o snapshot, sem restart de `iot-gateway`, Mosquitto ou
+dos devices.
+
+Exemplo que envia a telemetria do Orange Pi para o CYD provisionado como
+`monitor`:
+
+```bash
+curl -u <usuario>:<senha> \
+  -H 'Content-Type: application/json' \
+  -d '{"route":{"id":"orangepi-monitor-to-monitor","sourceTopic":"devices/orangepi-monitor/telemetry","destinationTopic":"devices/monitor/command","commandType":"render_system_status","qos":1,"retain":false}}' \
+  http://<orange-pi>:<porta>/iot.gateway.api.v1.DeviceAdminService/CreateRoute
+```
 
 ## Profile, validação e fallback opaco
 
@@ -203,23 +228,14 @@ Um device criado por esse template já sai com `profile: led.v1`, então
 `PublishCommand`/`ListDeviceCommands` já validam `set_led` nele sem
 nenhum passo extra.
 
-### Operação atômica e reinício
+### Operação atômica sem reinício
 
-As três RPCs reiniciam o `iot-gateway.service` sandboxed como parte do
-sucesso — é assim que a mudança em `gateway.yaml` passa a valer. Uma
-falha *só* no restart (`gateway.yaml` e a credencial Mosquitto já
-consistentes entre si) não desfaz nada: a resposta volta como erro
-pedindo um restart manual, mas o device fica registrado.
-
-`ProvisionDevice` tem rollback automático num caso específico: se a
-credencial Mosquitto for criada mas a escrita em `gateway.yaml` falhar, a
-credencial é revogada automaticamente, evitando um `secrets.h` recém
-gerado sem device correspondente no gateway. `RemoveDevice` **não**
-desfaz uma remoção parcial: uma falha ao revogar a credencial Mosquitto
-depois do `gateway.yaml` já ter sido atualizado retorna erro pedindo para
-rodar `deploy/mosquitto-provision-device.sh --remove` à mão — recriar
-automaticamente um device que acabou de ser removido é mais arriscado do
-que desfazer uma criação recém-feita.
+As alterações de devices e rotas são commits curtos no SQLite. O processo
+`iot-gateway run` observa a revisão e troca sua policy em memória; não há
+restart de serviço como parte de um sucesso. `ProvisionDevice` continua com
+rollback da credencial DynSec quando o registro no SQLite falha. A remoção
+não recria automaticamente uma credencial cuja revogação já tenha sido
+solicitada: uma falha parcial retorna erro para investigação do operador.
 
 ### Códigos de erro
 

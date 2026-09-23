@@ -87,6 +87,57 @@ func TestAddDeviceRejectsTopicOutsideDeviceNamespace(t *testing.T) {
 	}
 }
 
+func TestAddAndRemoveRouteAdvanceRevision(t *testing.T) {
+	store := openTestStore(t)
+	if _, err := store.AddDevice(context.Background(), config.Device{
+		ID: "orangepi-monitor", Type: "linux", Enabled: boolPtr(true),
+		Topics: config.Topics{Telemetry: "devices/orangepi-monitor/telemetry"},
+	}, "source"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AddDevice(context.Background(), testDevice("monitor", true), "destination"); err != nil {
+		t.Fatal(err)
+	}
+	route := config.Route{
+		ID: "orangepi-to-monitor", SourceTopic: "devices/orangepi-monitor/telemetry", DestinationTopic: "devices/monitor/command",
+		Transform: config.RouteTransform{Type: "json_command", CommandType: "render_system_status"}, QoS: 1,
+	}
+	if err := store.AddRoute(context.Background(), route); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := store.Snapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Revision != 3 || len(snapshot.Routes) != 1 || snapshot.Routes[0] != route {
+		t.Fatalf("snapshot = %#v", snapshot)
+	}
+	if err := store.RemoveRoute(context.Background(), route.ID); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err = store.Snapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Revision != 4 || len(snapshot.Routes) != 0 {
+		t.Fatalf("snapshot = %#v", snapshot)
+	}
+}
+
+func TestAddRouteRejectsDisabledOrUnknownEndpoints(t *testing.T) {
+	store := openTestStore(t)
+	if _, err := store.AddDevice(context.Background(), testDevice("monitor", false), "destination"); err != nil {
+		t.Fatal(err)
+	}
+	err := store.AddRoute(context.Background(), config.Route{
+		ID: "invalid-route", SourceTopic: "devices/unknown/telemetry", DestinationTopic: "devices/monitor/command",
+		Transform: config.RouteTransform{Type: "json_command", CommandType: "render_system_status"},
+	})
+	if err == nil {
+		t.Fatal("AddRoute() error = nil")
+	}
+}
+
 func openTestStore(t *testing.T) *Store {
 	t.Helper()
 	store, err := Open(context.Background(), filepath.Join(t.TempDir(), "gateway.db"))
@@ -100,3 +151,5 @@ func openTestStore(t *testing.T) *Store {
 func testDevice(id string, enabled bool) config.Device {
 	return config.Device{ID: id, Type: "esp32", Enabled: &enabled, Profile: "led.v1", Topics: config.Topics{Command: "devices/" + id + "/command"}}
 }
+
+func boolPtr(value bool) *bool { return &value }
