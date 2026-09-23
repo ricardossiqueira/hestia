@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -20,6 +21,24 @@ import (
 // that Deprovision really was called).
 func writeFakeProvisionScript(t *testing.T, callLog string, failDeprovision bool) string {
 	t.Helper()
+	if runtime.GOOS != "windows" {
+		scriptPath := filepath.Join(t.TempDir(), "provision.sh")
+		deprovisionExit := "0"
+		if failDeprovision {
+			deprovisionExit = "1"
+		}
+		script := "#!/bin/sh\n" +
+			"if [ \"$1\" = \"--remove\" ]; then\n" +
+			"  echo \"REMOVE $2\" >> \"" + callLog + "\"\n" +
+			"  exit " + deprovisionExit + "\n" +
+			"fi\n" +
+			"echo \"PROVISION $1\" >> \"" + callLog + "\"\n" +
+			"echo '  #define MQTT_PASSWORD \"fake-password-123\"'\n"
+		if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return scriptPath
+	}
 	scriptPath := filepath.Join(t.TempDir(), "provision.bat")
 	deprovisionBody := `echo REMOVE %2>>"` + callLog + `"` + "\r\n\texit /b 0"
 	if failDeprovision {
