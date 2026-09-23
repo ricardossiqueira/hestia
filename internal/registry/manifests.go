@@ -245,6 +245,33 @@ func (s *Store) BindDeviceManifest(ctx context.Context, deviceID, manifestID str
 	return nil
 }
 
+// ListDeviceManifestBindings returns the immutable manifest revision attached
+// to each provisioned instance. Devices created by legacy flows intentionally
+// have no row and are therefore absent from this result.
+func (s *Store) ListDeviceManifestBindings(ctx context.Context) ([]DeviceManifestBinding, error) {
+	if s == nil || s.db == nil {
+		return nil, errors.New("registry store is closed")
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT device_id, manifest_id, manifest_revision
+		FROM registry_device_manifest_bindings ORDER BY device_id`)
+	if err != nil {
+		return nil, fmt.Errorf("list device manifest bindings: %w", err)
+	}
+	defer rows.Close()
+	bindings := make([]DeviceManifestBinding, 0)
+	for rows.Next() {
+		var binding DeviceManifestBinding
+		if err := rows.Scan(&binding.DeviceID, &binding.ManifestID, &binding.ManifestRevision); err != nil {
+			return nil, fmt.Errorf("scan device manifest binding: %w", err)
+		}
+		bindings = append(bindings, binding)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate device manifest bindings: %w", err)
+	}
+	return bindings, nil
+}
+
 func (s *Store) seedDefaultManifests(ctx context.Context) error {
 	tx, err := s.begin(ctx)
 	if err != nil {

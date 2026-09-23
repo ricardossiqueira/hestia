@@ -731,6 +731,148 @@ func (x *GetDeviceManifestResponse) GetManifest() *DeviceManifest {
 	return nil
 }
 
+// DeviceManifestBinding identifies exactly the published definition used
+// when a device was provisioned. Legacy devices have no binding.
+type DeviceManifestBinding struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	DeviceId         string                 `protobuf:"bytes,1,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
+	ManifestId       string                 `protobuf:"bytes,2,opt,name=manifest_id,json=manifestId,proto3" json:"manifest_id,omitempty"`
+	ManifestRevision uint64                 `protobuf:"varint,3,opt,name=manifest_revision,json=manifestRevision,proto3" json:"manifest_revision,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *DeviceManifestBinding) Reset() {
+	*x = DeviceManifestBinding{}
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeviceManifestBinding) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeviceManifestBinding) ProtoMessage() {}
+
+func (x *DeviceManifestBinding) ProtoReflect() protoreflect.Message {
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeviceManifestBinding.ProtoReflect.Descriptor instead.
+func (*DeviceManifestBinding) Descriptor() ([]byte, []int) {
+	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *DeviceManifestBinding) GetDeviceId() string {
+	if x != nil {
+		return x.DeviceId
+	}
+	return ""
+}
+
+func (x *DeviceManifestBinding) GetManifestId() string {
+	if x != nil {
+		return x.ManifestId
+	}
+	return ""
+}
+
+func (x *DeviceManifestBinding) GetManifestRevision() uint64 {
+	if x != nil {
+		return x.ManifestRevision
+	}
+	return 0
+}
+
+type ListDeviceManifestBindingsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListDeviceManifestBindingsRequest) Reset() {
+	*x = ListDeviceManifestBindingsRequest{}
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListDeviceManifestBindingsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListDeviceManifestBindingsRequest) ProtoMessage() {}
+
+func (x *ListDeviceManifestBindingsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListDeviceManifestBindingsRequest.ProtoReflect.Descriptor instead.
+func (*ListDeviceManifestBindingsRequest) Descriptor() ([]byte, []int) {
+	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{15}
+}
+
+type ListDeviceManifestBindingsResponse struct {
+	state         protoimpl.MessageState   `protogen:"open.v1"`
+	Bindings      []*DeviceManifestBinding `protobuf:"bytes,1,rep,name=bindings,proto3" json:"bindings,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListDeviceManifestBindingsResponse) Reset() {
+	*x = ListDeviceManifestBindingsResponse{}
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListDeviceManifestBindingsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListDeviceManifestBindingsResponse) ProtoMessage() {}
+
+func (x *ListDeviceManifestBindingsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListDeviceManifestBindingsResponse.ProtoReflect.Descriptor instead.
+func (*ListDeviceManifestBindingsResponse) Descriptor() ([]byte, []int) {
+	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *ListDeviceManifestBindingsResponse) GetBindings() []*DeviceManifestBinding {
+	if x != nil {
+		return x.Bindings
+	}
+	return nil
+}
+
 type CreateDeviceManifestDraftRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	DocumentJson  string                 `protobuf:"bytes,1,opt,name=document_json,json=documentJson,proto3" json:"document_json,omitempty"`
@@ -740,7 +882,7 @@ type CreateDeviceManifestDraftRequest struct {
 
 func (x *CreateDeviceManifestDraftRequest) Reset() {
 	*x = CreateDeviceManifestDraftRequest{}
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[14]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -752,7 +894,7 @@ func (x *CreateDeviceManifestDraftRequest) String() string {
 func (*CreateDeviceManifestDraftRequest) ProtoMessage() {}
 
 func (x *CreateDeviceManifestDraftRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[14]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -765,7 +907,7 @@ func (x *CreateDeviceManifestDraftRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateDeviceManifestDraftRequest.ProtoReflect.Descriptor instead.
 func (*CreateDeviceManifestDraftRequest) Descriptor() ([]byte, []int) {
-	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{14}
+	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *CreateDeviceManifestDraftRequest) GetDocumentJson() string {
@@ -784,7 +926,7 @@ type CreateDeviceManifestDraftResponse struct {
 
 func (x *CreateDeviceManifestDraftResponse) Reset() {
 	*x = CreateDeviceManifestDraftResponse{}
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[15]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -796,7 +938,7 @@ func (x *CreateDeviceManifestDraftResponse) String() string {
 func (*CreateDeviceManifestDraftResponse) ProtoMessage() {}
 
 func (x *CreateDeviceManifestDraftResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[15]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -809,7 +951,7 @@ func (x *CreateDeviceManifestDraftResponse) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use CreateDeviceManifestDraftResponse.ProtoReflect.Descriptor instead.
 func (*CreateDeviceManifestDraftResponse) Descriptor() ([]byte, []int) {
-	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{15}
+	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *CreateDeviceManifestDraftResponse) GetManifest() *DeviceManifest {
@@ -829,7 +971,7 @@ type CreateDeviceManifestRevisionDraftRequest struct {
 
 func (x *CreateDeviceManifestRevisionDraftRequest) Reset() {
 	*x = CreateDeviceManifestRevisionDraftRequest{}
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[16]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -841,7 +983,7 @@ func (x *CreateDeviceManifestRevisionDraftRequest) String() string {
 func (*CreateDeviceManifestRevisionDraftRequest) ProtoMessage() {}
 
 func (x *CreateDeviceManifestRevisionDraftRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[16]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -854,7 +996,7 @@ func (x *CreateDeviceManifestRevisionDraftRequest) ProtoReflect() protoreflect.M
 
 // Deprecated: Use CreateDeviceManifestRevisionDraftRequest.ProtoReflect.Descriptor instead.
 func (*CreateDeviceManifestRevisionDraftRequest) Descriptor() ([]byte, []int) {
-	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{16}
+	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *CreateDeviceManifestRevisionDraftRequest) GetManifestId() string {
@@ -880,7 +1022,7 @@ type CreateDeviceManifestRevisionDraftResponse struct {
 
 func (x *CreateDeviceManifestRevisionDraftResponse) Reset() {
 	*x = CreateDeviceManifestRevisionDraftResponse{}
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[17]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -892,7 +1034,7 @@ func (x *CreateDeviceManifestRevisionDraftResponse) String() string {
 func (*CreateDeviceManifestRevisionDraftResponse) ProtoMessage() {}
 
 func (x *CreateDeviceManifestRevisionDraftResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[17]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -905,7 +1047,7 @@ func (x *CreateDeviceManifestRevisionDraftResponse) ProtoReflect() protoreflect.
 
 // Deprecated: Use CreateDeviceManifestRevisionDraftResponse.ProtoReflect.Descriptor instead.
 func (*CreateDeviceManifestRevisionDraftResponse) Descriptor() ([]byte, []int) {
-	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{17}
+	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *CreateDeviceManifestRevisionDraftResponse) GetManifest() *DeviceManifest {
@@ -925,7 +1067,7 @@ type PublishDeviceManifestRequest struct {
 
 func (x *PublishDeviceManifestRequest) Reset() {
 	*x = PublishDeviceManifestRequest{}
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[18]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -937,7 +1079,7 @@ func (x *PublishDeviceManifestRequest) String() string {
 func (*PublishDeviceManifestRequest) ProtoMessage() {}
 
 func (x *PublishDeviceManifestRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[18]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -950,7 +1092,7 @@ func (x *PublishDeviceManifestRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PublishDeviceManifestRequest.ProtoReflect.Descriptor instead.
 func (*PublishDeviceManifestRequest) Descriptor() ([]byte, []int) {
-	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{18}
+	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *PublishDeviceManifestRequest) GetManifestId() string {
@@ -976,7 +1118,7 @@ type PublishDeviceManifestResponse struct {
 
 func (x *PublishDeviceManifestResponse) Reset() {
 	*x = PublishDeviceManifestResponse{}
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[19]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -988,7 +1130,7 @@ func (x *PublishDeviceManifestResponse) String() string {
 func (*PublishDeviceManifestResponse) ProtoMessage() {}
 
 func (x *PublishDeviceManifestResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[19]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1001,7 +1143,7 @@ func (x *PublishDeviceManifestResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PublishDeviceManifestResponse.ProtoReflect.Descriptor instead.
 func (*PublishDeviceManifestResponse) Descriptor() ([]byte, []int) {
-	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{19}
+	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *PublishDeviceManifestResponse) GetManifest() *DeviceManifest {
@@ -1023,7 +1165,7 @@ type ProvisionDeviceRequest struct {
 
 func (x *ProvisionDeviceRequest) Reset() {
 	*x = ProvisionDeviceRequest{}
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[20]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1035,7 +1177,7 @@ func (x *ProvisionDeviceRequest) String() string {
 func (*ProvisionDeviceRequest) ProtoMessage() {}
 
 func (x *ProvisionDeviceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[20]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1048,7 +1190,7 @@ func (x *ProvisionDeviceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProvisionDeviceRequest.ProtoReflect.Descriptor instead.
 func (*ProvisionDeviceRequest) Descriptor() ([]byte, []int) {
-	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{20}
+	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *ProvisionDeviceRequest) GetDeviceId() string {
@@ -1084,7 +1226,7 @@ type ProvisionDeviceResponse struct {
 
 func (x *ProvisionDeviceResponse) Reset() {
 	*x = ProvisionDeviceResponse{}
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[21]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1096,7 +1238,7 @@ func (x *ProvisionDeviceResponse) String() string {
 func (*ProvisionDeviceResponse) ProtoMessage() {}
 
 func (x *ProvisionDeviceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[21]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1109,7 +1251,7 @@ func (x *ProvisionDeviceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProvisionDeviceResponse.ProtoReflect.Descriptor instead.
 func (*ProvisionDeviceResponse) Descriptor() ([]byte, []int) {
-	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{21}
+	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *ProvisionDeviceResponse) GetDevice() *Device {
@@ -1152,7 +1294,7 @@ type ProvisionDeviceByIPRequest struct {
 
 func (x *ProvisionDeviceByIPRequest) Reset() {
 	*x = ProvisionDeviceByIPRequest{}
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[22]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1164,7 +1306,7 @@ func (x *ProvisionDeviceByIPRequest) String() string {
 func (*ProvisionDeviceByIPRequest) ProtoMessage() {}
 
 func (x *ProvisionDeviceByIPRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[22]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1177,7 +1319,7 @@ func (x *ProvisionDeviceByIPRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProvisionDeviceByIPRequest.ProtoReflect.Descriptor instead.
 func (*ProvisionDeviceByIPRequest) Descriptor() ([]byte, []int) {
-	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{22}
+	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *ProvisionDeviceByIPRequest) GetDeviceId() string {
@@ -1213,7 +1355,7 @@ type ProvisionDeviceByIPResponse struct {
 
 func (x *ProvisionDeviceByIPResponse) Reset() {
 	*x = ProvisionDeviceByIPResponse{}
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[23]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1225,7 +1367,7 @@ func (x *ProvisionDeviceByIPResponse) String() string {
 func (*ProvisionDeviceByIPResponse) ProtoMessage() {}
 
 func (x *ProvisionDeviceByIPResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[23]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1238,7 +1380,7 @@ func (x *ProvisionDeviceByIPResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProvisionDeviceByIPResponse.ProtoReflect.Descriptor instead.
 func (*ProvisionDeviceByIPResponse) Descriptor() ([]byte, []int) {
-	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{23}
+	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *ProvisionDeviceByIPResponse) GetDevice() *Device {
@@ -1280,7 +1422,7 @@ type ProvisionCYDRequest struct {
 
 func (x *ProvisionCYDRequest) Reset() {
 	*x = ProvisionCYDRequest{}
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[24]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1292,7 +1434,7 @@ func (x *ProvisionCYDRequest) String() string {
 func (*ProvisionCYDRequest) ProtoMessage() {}
 
 func (x *ProvisionCYDRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[24]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1305,7 +1447,7 @@ func (x *ProvisionCYDRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProvisionCYDRequest.ProtoReflect.Descriptor instead.
 func (*ProvisionCYDRequest) Descriptor() ([]byte, []int) {
-	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{24}
+	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *ProvisionCYDRequest) GetDeviceId() string {
@@ -1333,7 +1475,7 @@ type ProvisionCYDResponse struct {
 
 func (x *ProvisionCYDResponse) Reset() {
 	*x = ProvisionCYDResponse{}
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[25]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1345,7 +1487,7 @@ func (x *ProvisionCYDResponse) String() string {
 func (*ProvisionCYDResponse) ProtoMessage() {}
 
 func (x *ProvisionCYDResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[25]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1358,7 +1500,7 @@ func (x *ProvisionCYDResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProvisionCYDResponse.ProtoReflect.Descriptor instead.
 func (*ProvisionCYDResponse) Descriptor() ([]byte, []int) {
-	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{25}
+	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *ProvisionCYDResponse) GetDevice() *Device {
@@ -1393,7 +1535,7 @@ type ProvisionLEDRequest struct {
 
 func (x *ProvisionLEDRequest) Reset() {
 	*x = ProvisionLEDRequest{}
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[26]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1405,7 +1547,7 @@ func (x *ProvisionLEDRequest) String() string {
 func (*ProvisionLEDRequest) ProtoMessage() {}
 
 func (x *ProvisionLEDRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[26]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1418,7 +1560,7 @@ func (x *ProvisionLEDRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProvisionLEDRequest.ProtoReflect.Descriptor instead.
 func (*ProvisionLEDRequest) Descriptor() ([]byte, []int) {
-	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{26}
+	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *ProvisionLEDRequest) GetDeviceId() string {
@@ -1446,7 +1588,7 @@ type ProvisionLEDResponse struct {
 
 func (x *ProvisionLEDResponse) Reset() {
 	*x = ProvisionLEDResponse{}
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[27]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1458,7 +1600,7 @@ func (x *ProvisionLEDResponse) String() string {
 func (*ProvisionLEDResponse) ProtoMessage() {}
 
 func (x *ProvisionLEDResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[27]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1471,7 +1613,7 @@ func (x *ProvisionLEDResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProvisionLEDResponse.ProtoReflect.Descriptor instead.
 func (*ProvisionLEDResponse) Descriptor() ([]byte, []int) {
-	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{27}
+	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *ProvisionLEDResponse) GetDevice() *Device {
@@ -1505,7 +1647,7 @@ type SetDeviceEnabledRequest struct {
 
 func (x *SetDeviceEnabledRequest) Reset() {
 	*x = SetDeviceEnabledRequest{}
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[28]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1517,7 +1659,7 @@ func (x *SetDeviceEnabledRequest) String() string {
 func (*SetDeviceEnabledRequest) ProtoMessage() {}
 
 func (x *SetDeviceEnabledRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[28]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1530,7 +1672,7 @@ func (x *SetDeviceEnabledRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetDeviceEnabledRequest.ProtoReflect.Descriptor instead.
 func (*SetDeviceEnabledRequest) Descriptor() ([]byte, []int) {
-	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{28}
+	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *SetDeviceEnabledRequest) GetDeviceId() string {
@@ -1557,7 +1699,7 @@ type SetDeviceEnabledResponse struct {
 
 func (x *SetDeviceEnabledResponse) Reset() {
 	*x = SetDeviceEnabledResponse{}
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[29]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1569,7 +1711,7 @@ func (x *SetDeviceEnabledResponse) String() string {
 func (*SetDeviceEnabledResponse) ProtoMessage() {}
 
 func (x *SetDeviceEnabledResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[29]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1582,7 +1724,7 @@ func (x *SetDeviceEnabledResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetDeviceEnabledResponse.ProtoReflect.Descriptor instead.
 func (*SetDeviceEnabledResponse) Descriptor() ([]byte, []int) {
-	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{29}
+	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *SetDeviceEnabledResponse) GetDevice() *Device {
@@ -1608,7 +1750,7 @@ type RemoveDeviceRequest struct {
 
 func (x *RemoveDeviceRequest) Reset() {
 	*x = RemoveDeviceRequest{}
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[30]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1620,7 +1762,7 @@ func (x *RemoveDeviceRequest) String() string {
 func (*RemoveDeviceRequest) ProtoMessage() {}
 
 func (x *RemoveDeviceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[30]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1633,7 +1775,7 @@ func (x *RemoveDeviceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoveDeviceRequest.ProtoReflect.Descriptor instead.
 func (*RemoveDeviceRequest) Descriptor() ([]byte, []int) {
-	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{30}
+	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *RemoveDeviceRequest) GetDeviceId() string {
@@ -1652,7 +1794,7 @@ type RemoveDeviceResponse struct {
 
 func (x *RemoveDeviceResponse) Reset() {
 	*x = RemoveDeviceResponse{}
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[31]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1664,7 +1806,7 @@ func (x *RemoveDeviceResponse) String() string {
 func (*RemoveDeviceResponse) ProtoMessage() {}
 
 func (x *RemoveDeviceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[31]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1677,7 +1819,7 @@ func (x *RemoveDeviceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoveDeviceResponse.ProtoReflect.Descriptor instead.
 func (*RemoveDeviceResponse) Descriptor() ([]byte, []int) {
-	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{31}
+	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *RemoveDeviceResponse) GetAppliedAt() *timestamppb.Timestamp {
@@ -1708,7 +1850,7 @@ type Inconsistency struct {
 
 func (x *Inconsistency) Reset() {
 	*x = Inconsistency{}
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[32]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1720,7 +1862,7 @@ func (x *Inconsistency) String() string {
 func (*Inconsistency) ProtoMessage() {}
 
 func (x *Inconsistency) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[32]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1733,7 +1875,7 @@ func (x *Inconsistency) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Inconsistency.ProtoReflect.Descriptor instead.
 func (*Inconsistency) Descriptor() ([]byte, []int) {
-	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{32}
+	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *Inconsistency) GetId() string {
@@ -1786,7 +1928,7 @@ type ListInconsistenciesRequest struct {
 
 func (x *ListInconsistenciesRequest) Reset() {
 	*x = ListInconsistenciesRequest{}
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[33]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1798,7 +1940,7 @@ func (x *ListInconsistenciesRequest) String() string {
 func (*ListInconsistenciesRequest) ProtoMessage() {}
 
 func (x *ListInconsistenciesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[33]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1811,7 +1953,7 @@ func (x *ListInconsistenciesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListInconsistenciesRequest.ProtoReflect.Descriptor instead.
 func (*ListInconsistenciesRequest) Descriptor() ([]byte, []int) {
-	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{33}
+	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{36}
 }
 
 type ListInconsistenciesResponse struct {
@@ -1823,7 +1965,7 @@ type ListInconsistenciesResponse struct {
 
 func (x *ListInconsistenciesResponse) Reset() {
 	*x = ListInconsistenciesResponse{}
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[34]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1835,7 +1977,7 @@ func (x *ListInconsistenciesResponse) String() string {
 func (*ListInconsistenciesResponse) ProtoMessage() {}
 
 func (x *ListInconsistenciesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[34]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1848,7 +1990,7 @@ func (x *ListInconsistenciesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListInconsistenciesResponse.ProtoReflect.Descriptor instead.
 func (*ListInconsistenciesResponse) Descriptor() ([]byte, []int) {
-	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{34}
+	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *ListInconsistenciesResponse) GetInconsistencies() []*Inconsistency {
@@ -1867,7 +2009,7 @@ type ResolveInconsistencyRequest struct {
 
 func (x *ResolveInconsistencyRequest) Reset() {
 	*x = ResolveInconsistencyRequest{}
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[35]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1879,7 +2021,7 @@ func (x *ResolveInconsistencyRequest) String() string {
 func (*ResolveInconsistencyRequest) ProtoMessage() {}
 
 func (x *ResolveInconsistencyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[35]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1892,7 +2034,7 @@ func (x *ResolveInconsistencyRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResolveInconsistencyRequest.ProtoReflect.Descriptor instead.
 func (*ResolveInconsistencyRequest) Descriptor() ([]byte, []int) {
-	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{35}
+	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *ResolveInconsistencyRequest) GetId() string {
@@ -1910,7 +2052,7 @@ type ResolveInconsistencyResponse struct {
 
 func (x *ResolveInconsistencyResponse) Reset() {
 	*x = ResolveInconsistencyResponse{}
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[36]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1922,7 +2064,7 @@ func (x *ResolveInconsistencyResponse) String() string {
 func (*ResolveInconsistencyResponse) ProtoMessage() {}
 
 func (x *ResolveInconsistencyResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[36]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1935,7 +2077,7 @@ func (x *ResolveInconsistencyResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResolveInconsistencyResponse.ProtoReflect.Descriptor instead.
 func (*ResolveInconsistencyResponse) Descriptor() ([]byte, []int) {
-	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{36}
+	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{39}
 }
 
 type ListDevicesRequest struct {
@@ -1946,7 +2088,7 @@ type ListDevicesRequest struct {
 
 func (x *ListDevicesRequest) Reset() {
 	*x = ListDevicesRequest{}
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[37]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1958,7 +2100,7 @@ func (x *ListDevicesRequest) String() string {
 func (*ListDevicesRequest) ProtoMessage() {}
 
 func (x *ListDevicesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[37]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1971,7 +2113,7 @@ func (x *ListDevicesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListDevicesRequest.ProtoReflect.Descriptor instead.
 func (*ListDevicesRequest) Descriptor() ([]byte, []int) {
-	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{37}
+	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{40}
 }
 
 type ListDevicesResponse struct {
@@ -1983,7 +2125,7 @@ type ListDevicesResponse struct {
 
 func (x *ListDevicesResponse) Reset() {
 	*x = ListDevicesResponse{}
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[38]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1995,7 +2137,7 @@ func (x *ListDevicesResponse) String() string {
 func (*ListDevicesResponse) ProtoMessage() {}
 
 func (x *ListDevicesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[38]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2008,7 +2150,7 @@ func (x *ListDevicesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListDevicesResponse.ProtoReflect.Descriptor instead.
 func (*ListDevicesResponse) Descriptor() ([]byte, []int) {
-	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{38}
+	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *ListDevicesResponse) GetDevices() []*Device {
@@ -2034,7 +2176,7 @@ type Device struct {
 
 func (x *Device) Reset() {
 	*x = Device{}
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[39]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2046,7 +2188,7 @@ func (x *Device) String() string {
 func (*Device) ProtoMessage() {}
 
 func (x *Device) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[39]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2059,7 +2201,7 @@ func (x *Device) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Device.ProtoReflect.Descriptor instead.
 func (*Device) Descriptor() ([]byte, []int) {
-	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{39}
+	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *Device) GetId() string {
@@ -2110,7 +2252,7 @@ type DeviceTopics struct {
 
 func (x *DeviceTopics) Reset() {
 	*x = DeviceTopics{}
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[40]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2122,7 +2264,7 @@ func (x *DeviceTopics) String() string {
 func (*DeviceTopics) ProtoMessage() {}
 
 func (x *DeviceTopics) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[40]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2135,7 +2277,7 @@ func (x *DeviceTopics) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeviceTopics.ProtoReflect.Descriptor instead.
 func (*DeviceTopics) Descriptor() ([]byte, []int) {
-	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{40}
+	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *DeviceTopics) GetTelemetry() string {
@@ -2182,7 +2324,7 @@ type ListDeviceCommandsRequest struct {
 
 func (x *ListDeviceCommandsRequest) Reset() {
 	*x = ListDeviceCommandsRequest{}
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[41]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2194,7 +2336,7 @@ func (x *ListDeviceCommandsRequest) String() string {
 func (*ListDeviceCommandsRequest) ProtoMessage() {}
 
 func (x *ListDeviceCommandsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[41]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2207,7 +2349,7 @@ func (x *ListDeviceCommandsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListDeviceCommandsRequest.ProtoReflect.Descriptor instead.
 func (*ListDeviceCommandsRequest) Descriptor() ([]byte, []int) {
-	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{41}
+	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *ListDeviceCommandsRequest) GetDeviceId() string {
@@ -2231,7 +2373,7 @@ type ListDeviceCommandsResponse struct {
 
 func (x *ListDeviceCommandsResponse) Reset() {
 	*x = ListDeviceCommandsResponse{}
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[42]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2243,7 +2385,7 @@ func (x *ListDeviceCommandsResponse) String() string {
 func (*ListDeviceCommandsResponse) ProtoMessage() {}
 
 func (x *ListDeviceCommandsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[42]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2256,7 +2398,7 @@ func (x *ListDeviceCommandsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListDeviceCommandsResponse.ProtoReflect.Descriptor instead.
 func (*ListDeviceCommandsResponse) Descriptor() ([]byte, []int) {
-	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{42}
+	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *ListDeviceCommandsResponse) GetDeviceId() string {
@@ -2296,7 +2438,7 @@ type CommandDescriptor struct {
 
 func (x *CommandDescriptor) Reset() {
 	*x = CommandDescriptor{}
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[43]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2308,7 +2450,7 @@ func (x *CommandDescriptor) String() string {
 func (*CommandDescriptor) ProtoMessage() {}
 
 func (x *CommandDescriptor) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[43]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2321,7 +2463,7 @@ func (x *CommandDescriptor) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CommandDescriptor.ProtoReflect.Descriptor instead.
 func (*CommandDescriptor) Descriptor() ([]byte, []int) {
-	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{43}
+	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *CommandDescriptor) GetType() string {
@@ -2364,7 +2506,7 @@ type PublishCommandRequest struct {
 
 func (x *PublishCommandRequest) Reset() {
 	*x = PublishCommandRequest{}
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[44]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2376,7 +2518,7 @@ func (x *PublishCommandRequest) String() string {
 func (*PublishCommandRequest) ProtoMessage() {}
 
 func (x *PublishCommandRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[44]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2389,7 +2531,7 @@ func (x *PublishCommandRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PublishCommandRequest.ProtoReflect.Descriptor instead.
 func (*PublishCommandRequest) Descriptor() ([]byte, []int) {
-	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{44}
+	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *PublishCommandRequest) GetDeviceId() string {
@@ -2427,7 +2569,7 @@ type PublishCommandResponse struct {
 
 func (x *PublishCommandResponse) Reset() {
 	*x = PublishCommandResponse{}
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[45]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2439,7 +2581,7 @@ func (x *PublishCommandResponse) String() string {
 func (*PublishCommandResponse) ProtoMessage() {}
 
 func (x *PublishCommandResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[45]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2452,7 +2594,7 @@ func (x *PublishCommandResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PublishCommandResponse.ProtoReflect.Descriptor instead.
 func (*PublishCommandResponse) Descriptor() ([]byte, []int) {
-	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{45}
+	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *PublishCommandResponse) GetCommandId() string {
@@ -2492,7 +2634,7 @@ type GetDeviceTelemetryRequest struct {
 
 func (x *GetDeviceTelemetryRequest) Reset() {
 	*x = GetDeviceTelemetryRequest{}
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[46]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2504,7 +2646,7 @@ func (x *GetDeviceTelemetryRequest) String() string {
 func (*GetDeviceTelemetryRequest) ProtoMessage() {}
 
 func (x *GetDeviceTelemetryRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[46]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2517,7 +2659,7 @@ func (x *GetDeviceTelemetryRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetDeviceTelemetryRequest.ProtoReflect.Descriptor instead.
 func (*GetDeviceTelemetryRequest) Descriptor() ([]byte, []int) {
-	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{46}
+	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{49}
 }
 
 func (x *GetDeviceTelemetryRequest) GetDeviceId() string {
@@ -2547,7 +2689,7 @@ type GetDeviceTelemetryResponse struct {
 
 func (x *GetDeviceTelemetryResponse) Reset() {
 	*x = GetDeviceTelemetryResponse{}
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[47]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2559,7 +2701,7 @@ func (x *GetDeviceTelemetryResponse) String() string {
 func (*GetDeviceTelemetryResponse) ProtoMessage() {}
 
 func (x *GetDeviceTelemetryResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[47]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2572,7 +2714,7 @@ func (x *GetDeviceTelemetryResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetDeviceTelemetryResponse.ProtoReflect.Descriptor instead.
 func (*GetDeviceTelemetryResponse) Descriptor() ([]byte, []int) {
-	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{47}
+	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *GetDeviceTelemetryResponse) GetDeviceId() string {
@@ -2611,7 +2753,7 @@ type GetStatusRequest struct {
 
 func (x *GetStatusRequest) Reset() {
 	*x = GetStatusRequest{}
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[48]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[51]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2623,7 +2765,7 @@ func (x *GetStatusRequest) String() string {
 func (*GetStatusRequest) ProtoMessage() {}
 
 func (x *GetStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[48]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[51]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2636,7 +2778,7 @@ func (x *GetStatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetStatusRequest.ProtoReflect.Descriptor instead.
 func (*GetStatusRequest) Descriptor() ([]byte, []int) {
-	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{48}
+	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{51}
 }
 
 // GetStatusResponse mirrors internal/mqtt.Snapshot field for field.
@@ -2659,7 +2801,7 @@ type GetStatusResponse struct {
 
 func (x *GetStatusResponse) Reset() {
 	*x = GetStatusResponse{}
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[49]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[52]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2671,7 +2813,7 @@ func (x *GetStatusResponse) String() string {
 func (*GetStatusResponse) ProtoMessage() {}
 
 func (x *GetStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[49]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[52]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2684,7 +2826,7 @@ func (x *GetStatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetStatusResponse.ProtoReflect.Descriptor instead.
 func (*GetStatusResponse) Descriptor() ([]byte, []int) {
-	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{49}
+	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{52}
 }
 
 func (x *GetStatusResponse) GetStartedAt() *timestamppb.Timestamp {
@@ -2772,7 +2914,7 @@ type GetQueueSummaryRequest struct {
 
 func (x *GetQueueSummaryRequest) Reset() {
 	*x = GetQueueSummaryRequest{}
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[50]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[53]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2784,7 +2926,7 @@ func (x *GetQueueSummaryRequest) String() string {
 func (*GetQueueSummaryRequest) ProtoMessage() {}
 
 func (x *GetQueueSummaryRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[50]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[53]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2797,7 +2939,7 @@ func (x *GetQueueSummaryRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetQueueSummaryRequest.ProtoReflect.Descriptor instead.
 func (*GetQueueSummaryRequest) Descriptor() ([]byte, []int) {
-	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{50}
+	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{53}
 }
 
 // GetQueueSummaryResponse mirrors internal/outbox.Snapshot field for field -
@@ -2815,7 +2957,7 @@ type GetQueueSummaryResponse struct {
 
 func (x *GetQueueSummaryResponse) Reset() {
 	*x = GetQueueSummaryResponse{}
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[51]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[54]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2827,7 +2969,7 @@ func (x *GetQueueSummaryResponse) String() string {
 func (*GetQueueSummaryResponse) ProtoMessage() {}
 
 func (x *GetQueueSummaryResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[51]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[54]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2840,7 +2982,7 @@ func (x *GetQueueSummaryResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetQueueSummaryResponse.ProtoReflect.Descriptor instead.
 func (*GetQueueSummaryResponse) Descriptor() ([]byte, []int) {
-	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{51}
+	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{54}
 }
 
 func (x *GetQueueSummaryResponse) GetPendingMessages() uint64 {
@@ -2888,7 +3030,7 @@ type ActivityEvent struct {
 
 func (x *ActivityEvent) Reset() {
 	*x = ActivityEvent{}
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[52]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[55]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2900,7 +3042,7 @@ func (x *ActivityEvent) String() string {
 func (*ActivityEvent) ProtoMessage() {}
 
 func (x *ActivityEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[52]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[55]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2913,7 +3055,7 @@ func (x *ActivityEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ActivityEvent.ProtoReflect.Descriptor instead.
 func (*ActivityEvent) Descriptor() ([]byte, []int) {
-	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{52}
+	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{55}
 }
 
 func (x *ActivityEvent) GetSequence() uint64 {
@@ -2984,7 +3126,7 @@ type GetRecentEventsRequest struct {
 
 func (x *GetRecentEventsRequest) Reset() {
 	*x = GetRecentEventsRequest{}
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[53]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[56]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2996,7 +3138,7 @@ func (x *GetRecentEventsRequest) String() string {
 func (*GetRecentEventsRequest) ProtoMessage() {}
 
 func (x *GetRecentEventsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[53]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[56]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3009,7 +3151,7 @@ func (x *GetRecentEventsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetRecentEventsRequest.ProtoReflect.Descriptor instead.
 func (*GetRecentEventsRequest) Descriptor() ([]byte, []int) {
-	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{53}
+	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{56}
 }
 
 func (x *GetRecentEventsRequest) GetDeviceId() string {
@@ -3052,7 +3194,7 @@ type GetRecentEventsResponse struct {
 
 func (x *GetRecentEventsResponse) Reset() {
 	*x = GetRecentEventsResponse{}
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[54]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[57]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3064,7 +3206,7 @@ func (x *GetRecentEventsResponse) String() string {
 func (*GetRecentEventsResponse) ProtoMessage() {}
 
 func (x *GetRecentEventsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[54]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[57]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3077,7 +3219,7 @@ func (x *GetRecentEventsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetRecentEventsResponse.ProtoReflect.Descriptor instead.
 func (*GetRecentEventsResponse) Descriptor() ([]byte, []int) {
-	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{54}
+	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{57}
 }
 
 func (x *GetRecentEventsResponse) GetEvents() []*ActivityEvent {
@@ -3143,7 +3285,15 @@ const file_iot_gateway_api_v1_api_proto_rawDesc = "" +
 	"\vmanifest_id\x18\x01 \x01(\tR\n" +
 	"manifestId\"[\n" +
 	"\x19GetDeviceManifestResponse\x12>\n" +
-	"\bmanifest\x18\x01 \x01(\v2\".iot.gateway.api.v1.DeviceManifestR\bmanifest\"G\n" +
+	"\bmanifest\x18\x01 \x01(\v2\".iot.gateway.api.v1.DeviceManifestR\bmanifest\"\x82\x01\n" +
+	"\x15DeviceManifestBinding\x12\x1b\n" +
+	"\tdevice_id\x18\x01 \x01(\tR\bdeviceId\x12\x1f\n" +
+	"\vmanifest_id\x18\x02 \x01(\tR\n" +
+	"manifestId\x12+\n" +
+	"\x11manifest_revision\x18\x03 \x01(\x04R\x10manifestRevision\"#\n" +
+	"!ListDeviceManifestBindingsRequest\"k\n" +
+	"\"ListDeviceManifestBindingsResponse\x12E\n" +
+	"\bbindings\x18\x01 \x03(\v2).iot.gateway.api.v1.DeviceManifestBindingR\bbindings\"G\n" +
 	" CreateDeviceManifestDraftRequest\x12#\n" +
 	"\rdocument_json\x18\x01 \x01(\tR\fdocumentJson\"c\n" +
 	"!CreateDeviceManifestDraftResponse\x12>\n" +
@@ -3312,7 +3462,7 @@ const file_iot_gateway_api_v1_api_proto_rawDesc = "" +
 	"\x0eGatewayService\x12X\n" +
 	"\tGetStatus\x12$.iot.gateway.api.v1.GetStatusRequest\x1a%.iot.gateway.api.v1.GetStatusResponse\x12j\n" +
 	"\x0fGetQueueSummary\x12*.iot.gateway.api.v1.GetQueueSummaryRequest\x1a+.iot.gateway.api.v1.GetQueueSummaryResponse\x12j\n" +
-	"\x0fGetRecentEvents\x12*.iot.gateway.api.v1.GetRecentEventsRequest\x1a+.iot.gateway.api.v1.GetRecentEventsResponse2\xb7\x0f\n" +
+	"\x0fGetRecentEvents\x12*.iot.gateway.api.v1.GetRecentEventsRequest\x1a+.iot.gateway.api.v1.GetRecentEventsResponse2\xc5\x10\n" +
 	"\x12DeviceAdminService\x12\x7f\n" +
 	"\x16RegisterExistingDevice\x121.iot.gateway.api.v1.RegisterExistingDeviceRequest\x1a2.iot.gateway.api.v1.RegisterExistingDeviceResponse\x12[\n" +
 	"\n" +
@@ -3320,7 +3470,8 @@ const file_iot_gateway_api_v1_api_proto_rawDesc = "" +
 	"\vCreateRoute\x12&.iot.gateway.api.v1.CreateRouteRequest\x1a'.iot.gateway.api.v1.CreateRouteResponse\x12^\n" +
 	"\vRemoveRoute\x12&.iot.gateway.api.v1.RemoveRouteRequest\x1a'.iot.gateway.api.v1.RemoveRouteResponse\x12v\n" +
 	"\x13ListDeviceManifests\x12..iot.gateway.api.v1.ListDeviceManifestsRequest\x1a/.iot.gateway.api.v1.ListDeviceManifestsResponse\x12p\n" +
-	"\x11GetDeviceManifest\x12,.iot.gateway.api.v1.GetDeviceManifestRequest\x1a-.iot.gateway.api.v1.GetDeviceManifestResponse\x12\x88\x01\n" +
+	"\x11GetDeviceManifest\x12,.iot.gateway.api.v1.GetDeviceManifestRequest\x1a-.iot.gateway.api.v1.GetDeviceManifestResponse\x12\x8b\x01\n" +
+	"\x1aListDeviceManifestBindings\x125.iot.gateway.api.v1.ListDeviceManifestBindingsRequest\x1a6.iot.gateway.api.v1.ListDeviceManifestBindingsResponse\x12\x88\x01\n" +
 	"\x19CreateDeviceManifestDraft\x124.iot.gateway.api.v1.CreateDeviceManifestDraftRequest\x1a5.iot.gateway.api.v1.CreateDeviceManifestDraftResponse\x12\xa0\x01\n" +
 	"!CreateDeviceManifestRevisionDraft\x12<.iot.gateway.api.v1.CreateDeviceManifestRevisionDraftRequest\x1a=.iot.gateway.api.v1.CreateDeviceManifestRevisionDraftResponse\x12|\n" +
 	"\x15PublishDeviceManifest\x120.iot.gateway.api.v1.PublishDeviceManifestRequest\x1a1.iot.gateway.api.v1.PublishDeviceManifestResponse\x12j\n" +
@@ -3345,7 +3496,7 @@ func file_iot_gateway_api_v1_api_proto_rawDescGZIP() []byte {
 	return file_iot_gateway_api_v1_api_proto_rawDescData
 }
 
-var file_iot_gateway_api_v1_api_proto_msgTypes = make([]protoimpl.MessageInfo, 55)
+var file_iot_gateway_api_v1_api_proto_msgTypes = make([]protoimpl.MessageInfo, 58)
 var file_iot_gateway_api_v1_api_proto_goTypes = []any{
 	(*RegisterExistingDeviceRequest)(nil),             // 0: iot.gateway.api.v1.RegisterExistingDeviceRequest
 	(*RegisterExistingDeviceResponse)(nil),            // 1: iot.gateway.api.v1.RegisterExistingDeviceResponse
@@ -3361,144 +3512,150 @@ var file_iot_gateway_api_v1_api_proto_goTypes = []any{
 	(*ListDeviceManifestsResponse)(nil),               // 11: iot.gateway.api.v1.ListDeviceManifestsResponse
 	(*GetDeviceManifestRequest)(nil),                  // 12: iot.gateway.api.v1.GetDeviceManifestRequest
 	(*GetDeviceManifestResponse)(nil),                 // 13: iot.gateway.api.v1.GetDeviceManifestResponse
-	(*CreateDeviceManifestDraftRequest)(nil),          // 14: iot.gateway.api.v1.CreateDeviceManifestDraftRequest
-	(*CreateDeviceManifestDraftResponse)(nil),         // 15: iot.gateway.api.v1.CreateDeviceManifestDraftResponse
-	(*CreateDeviceManifestRevisionDraftRequest)(nil),  // 16: iot.gateway.api.v1.CreateDeviceManifestRevisionDraftRequest
-	(*CreateDeviceManifestRevisionDraftResponse)(nil), // 17: iot.gateway.api.v1.CreateDeviceManifestRevisionDraftResponse
-	(*PublishDeviceManifestRequest)(nil),              // 18: iot.gateway.api.v1.PublishDeviceManifestRequest
-	(*PublishDeviceManifestResponse)(nil),             // 19: iot.gateway.api.v1.PublishDeviceManifestResponse
-	(*ProvisionDeviceRequest)(nil),                    // 20: iot.gateway.api.v1.ProvisionDeviceRequest
-	(*ProvisionDeviceResponse)(nil),                   // 21: iot.gateway.api.v1.ProvisionDeviceResponse
-	(*ProvisionDeviceByIPRequest)(nil),                // 22: iot.gateway.api.v1.ProvisionDeviceByIPRequest
-	(*ProvisionDeviceByIPResponse)(nil),               // 23: iot.gateway.api.v1.ProvisionDeviceByIPResponse
-	(*ProvisionCYDRequest)(nil),                       // 24: iot.gateway.api.v1.ProvisionCYDRequest
-	(*ProvisionCYDResponse)(nil),                      // 25: iot.gateway.api.v1.ProvisionCYDResponse
-	(*ProvisionLEDRequest)(nil),                       // 26: iot.gateway.api.v1.ProvisionLEDRequest
-	(*ProvisionLEDResponse)(nil),                      // 27: iot.gateway.api.v1.ProvisionLEDResponse
-	(*SetDeviceEnabledRequest)(nil),                   // 28: iot.gateway.api.v1.SetDeviceEnabledRequest
-	(*SetDeviceEnabledResponse)(nil),                  // 29: iot.gateway.api.v1.SetDeviceEnabledResponse
-	(*RemoveDeviceRequest)(nil),                       // 30: iot.gateway.api.v1.RemoveDeviceRequest
-	(*RemoveDeviceResponse)(nil),                      // 31: iot.gateway.api.v1.RemoveDeviceResponse
-	(*Inconsistency)(nil),                             // 32: iot.gateway.api.v1.Inconsistency
-	(*ListInconsistenciesRequest)(nil),                // 33: iot.gateway.api.v1.ListInconsistenciesRequest
-	(*ListInconsistenciesResponse)(nil),               // 34: iot.gateway.api.v1.ListInconsistenciesResponse
-	(*ResolveInconsistencyRequest)(nil),               // 35: iot.gateway.api.v1.ResolveInconsistencyRequest
-	(*ResolveInconsistencyResponse)(nil),              // 36: iot.gateway.api.v1.ResolveInconsistencyResponse
-	(*ListDevicesRequest)(nil),                        // 37: iot.gateway.api.v1.ListDevicesRequest
-	(*ListDevicesResponse)(nil),                       // 38: iot.gateway.api.v1.ListDevicesResponse
-	(*Device)(nil),                                    // 39: iot.gateway.api.v1.Device
-	(*DeviceTopics)(nil),                              // 40: iot.gateway.api.v1.DeviceTopics
-	(*ListDeviceCommandsRequest)(nil),                 // 41: iot.gateway.api.v1.ListDeviceCommandsRequest
-	(*ListDeviceCommandsResponse)(nil),                // 42: iot.gateway.api.v1.ListDeviceCommandsResponse
-	(*CommandDescriptor)(nil),                         // 43: iot.gateway.api.v1.CommandDescriptor
-	(*PublishCommandRequest)(nil),                     // 44: iot.gateway.api.v1.PublishCommandRequest
-	(*PublishCommandResponse)(nil),                    // 45: iot.gateway.api.v1.PublishCommandResponse
-	(*GetDeviceTelemetryRequest)(nil),                 // 46: iot.gateway.api.v1.GetDeviceTelemetryRequest
-	(*GetDeviceTelemetryResponse)(nil),                // 47: iot.gateway.api.v1.GetDeviceTelemetryResponse
-	(*GetStatusRequest)(nil),                          // 48: iot.gateway.api.v1.GetStatusRequest
-	(*GetStatusResponse)(nil),                         // 49: iot.gateway.api.v1.GetStatusResponse
-	(*GetQueueSummaryRequest)(nil),                    // 50: iot.gateway.api.v1.GetQueueSummaryRequest
-	(*GetQueueSummaryResponse)(nil),                   // 51: iot.gateway.api.v1.GetQueueSummaryResponse
-	(*ActivityEvent)(nil),                             // 52: iot.gateway.api.v1.ActivityEvent
-	(*GetRecentEventsRequest)(nil),                    // 53: iot.gateway.api.v1.GetRecentEventsRequest
-	(*GetRecentEventsResponse)(nil),                   // 54: iot.gateway.api.v1.GetRecentEventsResponse
-	(*timestamppb.Timestamp)(nil),                     // 55: google.protobuf.Timestamp
-	(*descriptorpb.DescriptorProto)(nil),              // 56: google.protobuf.DescriptorProto
-	(*structpb.Struct)(nil),                           // 57: google.protobuf.Struct
+	(*DeviceManifestBinding)(nil),                     // 14: iot.gateway.api.v1.DeviceManifestBinding
+	(*ListDeviceManifestBindingsRequest)(nil),         // 15: iot.gateway.api.v1.ListDeviceManifestBindingsRequest
+	(*ListDeviceManifestBindingsResponse)(nil),        // 16: iot.gateway.api.v1.ListDeviceManifestBindingsResponse
+	(*CreateDeviceManifestDraftRequest)(nil),          // 17: iot.gateway.api.v1.CreateDeviceManifestDraftRequest
+	(*CreateDeviceManifestDraftResponse)(nil),         // 18: iot.gateway.api.v1.CreateDeviceManifestDraftResponse
+	(*CreateDeviceManifestRevisionDraftRequest)(nil),  // 19: iot.gateway.api.v1.CreateDeviceManifestRevisionDraftRequest
+	(*CreateDeviceManifestRevisionDraftResponse)(nil), // 20: iot.gateway.api.v1.CreateDeviceManifestRevisionDraftResponse
+	(*PublishDeviceManifestRequest)(nil),              // 21: iot.gateway.api.v1.PublishDeviceManifestRequest
+	(*PublishDeviceManifestResponse)(nil),             // 22: iot.gateway.api.v1.PublishDeviceManifestResponse
+	(*ProvisionDeviceRequest)(nil),                    // 23: iot.gateway.api.v1.ProvisionDeviceRequest
+	(*ProvisionDeviceResponse)(nil),                   // 24: iot.gateway.api.v1.ProvisionDeviceResponse
+	(*ProvisionDeviceByIPRequest)(nil),                // 25: iot.gateway.api.v1.ProvisionDeviceByIPRequest
+	(*ProvisionDeviceByIPResponse)(nil),               // 26: iot.gateway.api.v1.ProvisionDeviceByIPResponse
+	(*ProvisionCYDRequest)(nil),                       // 27: iot.gateway.api.v1.ProvisionCYDRequest
+	(*ProvisionCYDResponse)(nil),                      // 28: iot.gateway.api.v1.ProvisionCYDResponse
+	(*ProvisionLEDRequest)(nil),                       // 29: iot.gateway.api.v1.ProvisionLEDRequest
+	(*ProvisionLEDResponse)(nil),                      // 30: iot.gateway.api.v1.ProvisionLEDResponse
+	(*SetDeviceEnabledRequest)(nil),                   // 31: iot.gateway.api.v1.SetDeviceEnabledRequest
+	(*SetDeviceEnabledResponse)(nil),                  // 32: iot.gateway.api.v1.SetDeviceEnabledResponse
+	(*RemoveDeviceRequest)(nil),                       // 33: iot.gateway.api.v1.RemoveDeviceRequest
+	(*RemoveDeviceResponse)(nil),                      // 34: iot.gateway.api.v1.RemoveDeviceResponse
+	(*Inconsistency)(nil),                             // 35: iot.gateway.api.v1.Inconsistency
+	(*ListInconsistenciesRequest)(nil),                // 36: iot.gateway.api.v1.ListInconsistenciesRequest
+	(*ListInconsistenciesResponse)(nil),               // 37: iot.gateway.api.v1.ListInconsistenciesResponse
+	(*ResolveInconsistencyRequest)(nil),               // 38: iot.gateway.api.v1.ResolveInconsistencyRequest
+	(*ResolveInconsistencyResponse)(nil),              // 39: iot.gateway.api.v1.ResolveInconsistencyResponse
+	(*ListDevicesRequest)(nil),                        // 40: iot.gateway.api.v1.ListDevicesRequest
+	(*ListDevicesResponse)(nil),                       // 41: iot.gateway.api.v1.ListDevicesResponse
+	(*Device)(nil),                                    // 42: iot.gateway.api.v1.Device
+	(*DeviceTopics)(nil),                              // 43: iot.gateway.api.v1.DeviceTopics
+	(*ListDeviceCommandsRequest)(nil),                 // 44: iot.gateway.api.v1.ListDeviceCommandsRequest
+	(*ListDeviceCommandsResponse)(nil),                // 45: iot.gateway.api.v1.ListDeviceCommandsResponse
+	(*CommandDescriptor)(nil),                         // 46: iot.gateway.api.v1.CommandDescriptor
+	(*PublishCommandRequest)(nil),                     // 47: iot.gateway.api.v1.PublishCommandRequest
+	(*PublishCommandResponse)(nil),                    // 48: iot.gateway.api.v1.PublishCommandResponse
+	(*GetDeviceTelemetryRequest)(nil),                 // 49: iot.gateway.api.v1.GetDeviceTelemetryRequest
+	(*GetDeviceTelemetryResponse)(nil),                // 50: iot.gateway.api.v1.GetDeviceTelemetryResponse
+	(*GetStatusRequest)(nil),                          // 51: iot.gateway.api.v1.GetStatusRequest
+	(*GetStatusResponse)(nil),                         // 52: iot.gateway.api.v1.GetStatusResponse
+	(*GetQueueSummaryRequest)(nil),                    // 53: iot.gateway.api.v1.GetQueueSummaryRequest
+	(*GetQueueSummaryResponse)(nil),                   // 54: iot.gateway.api.v1.GetQueueSummaryResponse
+	(*ActivityEvent)(nil),                             // 55: iot.gateway.api.v1.ActivityEvent
+	(*GetRecentEventsRequest)(nil),                    // 56: iot.gateway.api.v1.GetRecentEventsRequest
+	(*GetRecentEventsResponse)(nil),                   // 57: iot.gateway.api.v1.GetRecentEventsResponse
+	(*timestamppb.Timestamp)(nil),                     // 58: google.protobuf.Timestamp
+	(*descriptorpb.DescriptorProto)(nil),              // 59: google.protobuf.DescriptorProto
+	(*structpb.Struct)(nil),                           // 60: google.protobuf.Struct
 }
 var file_iot_gateway_api_v1_api_proto_depIdxs = []int32{
-	39, // 0: iot.gateway.api.v1.RegisterExistingDeviceResponse.device:type_name -> iot.gateway.api.v1.Device
-	55, // 1: iot.gateway.api.v1.RegisterExistingDeviceResponse.applied_at:type_name -> google.protobuf.Timestamp
+	42, // 0: iot.gateway.api.v1.RegisterExistingDeviceResponse.device:type_name -> iot.gateway.api.v1.Device
+	58, // 1: iot.gateway.api.v1.RegisterExistingDeviceResponse.applied_at:type_name -> google.protobuf.Timestamp
 	2,  // 2: iot.gateway.api.v1.ListRoutesResponse.routes:type_name -> iot.gateway.api.v1.Route
 	2,  // 3: iot.gateway.api.v1.CreateRouteRequest.route:type_name -> iot.gateway.api.v1.Route
 	2,  // 4: iot.gateway.api.v1.CreateRouteResponse.route:type_name -> iot.gateway.api.v1.Route
-	55, // 5: iot.gateway.api.v1.CreateRouteResponse.applied_at:type_name -> google.protobuf.Timestamp
-	55, // 6: iot.gateway.api.v1.RemoveRouteResponse.applied_at:type_name -> google.protobuf.Timestamp
-	55, // 7: iot.gateway.api.v1.DeviceManifest.created_at:type_name -> google.protobuf.Timestamp
+	58, // 5: iot.gateway.api.v1.CreateRouteResponse.applied_at:type_name -> google.protobuf.Timestamp
+	58, // 6: iot.gateway.api.v1.RemoveRouteResponse.applied_at:type_name -> google.protobuf.Timestamp
+	58, // 7: iot.gateway.api.v1.DeviceManifest.created_at:type_name -> google.protobuf.Timestamp
 	9,  // 8: iot.gateway.api.v1.ListDeviceManifestsResponse.manifests:type_name -> iot.gateway.api.v1.DeviceManifest
 	9,  // 9: iot.gateway.api.v1.GetDeviceManifestResponse.manifest:type_name -> iot.gateway.api.v1.DeviceManifest
-	9,  // 10: iot.gateway.api.v1.CreateDeviceManifestDraftResponse.manifest:type_name -> iot.gateway.api.v1.DeviceManifest
-	9,  // 11: iot.gateway.api.v1.CreateDeviceManifestRevisionDraftResponse.manifest:type_name -> iot.gateway.api.v1.DeviceManifest
-	9,  // 12: iot.gateway.api.v1.PublishDeviceManifestResponse.manifest:type_name -> iot.gateway.api.v1.DeviceManifest
-	39, // 13: iot.gateway.api.v1.ProvisionDeviceResponse.device:type_name -> iot.gateway.api.v1.Device
-	55, // 14: iot.gateway.api.v1.ProvisionDeviceResponse.applied_at:type_name -> google.protobuf.Timestamp
-	39, // 15: iot.gateway.api.v1.ProvisionDeviceByIPResponse.device:type_name -> iot.gateway.api.v1.Device
-	55, // 16: iot.gateway.api.v1.ProvisionDeviceByIPResponse.applied_at:type_name -> google.protobuf.Timestamp
-	39, // 17: iot.gateway.api.v1.ProvisionCYDResponse.device:type_name -> iot.gateway.api.v1.Device
-	55, // 18: iot.gateway.api.v1.ProvisionCYDResponse.applied_at:type_name -> google.protobuf.Timestamp
-	39, // 19: iot.gateway.api.v1.ProvisionLEDResponse.device:type_name -> iot.gateway.api.v1.Device
-	55, // 20: iot.gateway.api.v1.ProvisionLEDResponse.applied_at:type_name -> google.protobuf.Timestamp
-	39, // 21: iot.gateway.api.v1.SetDeviceEnabledResponse.device:type_name -> iot.gateway.api.v1.Device
-	55, // 22: iot.gateway.api.v1.SetDeviceEnabledResponse.applied_at:type_name -> google.protobuf.Timestamp
-	55, // 23: iot.gateway.api.v1.RemoveDeviceResponse.applied_at:type_name -> google.protobuf.Timestamp
-	55, // 24: iot.gateway.api.v1.Inconsistency.created_at:type_name -> google.protobuf.Timestamp
-	32, // 25: iot.gateway.api.v1.ListInconsistenciesResponse.inconsistencies:type_name -> iot.gateway.api.v1.Inconsistency
-	39, // 26: iot.gateway.api.v1.ListDevicesResponse.devices:type_name -> iot.gateway.api.v1.Device
-	40, // 27: iot.gateway.api.v1.Device.topics:type_name -> iot.gateway.api.v1.DeviceTopics
-	43, // 28: iot.gateway.api.v1.ListDeviceCommandsResponse.commands:type_name -> iot.gateway.api.v1.CommandDescriptor
-	56, // 29: iot.gateway.api.v1.CommandDescriptor.parameters_schema:type_name -> google.protobuf.DescriptorProto
-	57, // 30: iot.gateway.api.v1.PublishCommandRequest.parameters:type_name -> google.protobuf.Struct
-	55, // 31: iot.gateway.api.v1.PublishCommandResponse.published_at:type_name -> google.protobuf.Timestamp
-	57, // 32: iot.gateway.api.v1.GetDeviceTelemetryResponse.payload:type_name -> google.protobuf.Struct
-	55, // 33: iot.gateway.api.v1.GetDeviceTelemetryResponse.observed_at:type_name -> google.protobuf.Timestamp
-	55, // 34: iot.gateway.api.v1.GetStatusResponse.started_at:type_name -> google.protobuf.Timestamp
-	55, // 35: iot.gateway.api.v1.GetQueueSummaryResponse.oldest_enqueued_at:type_name -> google.protobuf.Timestamp
-	55, // 36: iot.gateway.api.v1.ActivityEvent.timestamp:type_name -> google.protobuf.Timestamp
-	55, // 37: iot.gateway.api.v1.GetRecentEventsRequest.since:type_name -> google.protobuf.Timestamp
-	52, // 38: iot.gateway.api.v1.GetRecentEventsResponse.events:type_name -> iot.gateway.api.v1.ActivityEvent
-	37, // 39: iot.gateway.api.v1.DeviceService.ListDevices:input_type -> iot.gateway.api.v1.ListDevicesRequest
-	41, // 40: iot.gateway.api.v1.DeviceService.ListDeviceCommands:input_type -> iot.gateway.api.v1.ListDeviceCommandsRequest
-	44, // 41: iot.gateway.api.v1.DeviceService.PublishCommand:input_type -> iot.gateway.api.v1.PublishCommandRequest
-	46, // 42: iot.gateway.api.v1.DeviceService.GetDeviceTelemetry:input_type -> iot.gateway.api.v1.GetDeviceTelemetryRequest
-	48, // 43: iot.gateway.api.v1.GatewayService.GetStatus:input_type -> iot.gateway.api.v1.GetStatusRequest
-	50, // 44: iot.gateway.api.v1.GatewayService.GetQueueSummary:input_type -> iot.gateway.api.v1.GetQueueSummaryRequest
-	53, // 45: iot.gateway.api.v1.GatewayService.GetRecentEvents:input_type -> iot.gateway.api.v1.GetRecentEventsRequest
-	0,  // 46: iot.gateway.api.v1.DeviceAdminService.RegisterExistingDevice:input_type -> iot.gateway.api.v1.RegisterExistingDeviceRequest
-	3,  // 47: iot.gateway.api.v1.DeviceAdminService.ListRoutes:input_type -> iot.gateway.api.v1.ListRoutesRequest
-	5,  // 48: iot.gateway.api.v1.DeviceAdminService.CreateRoute:input_type -> iot.gateway.api.v1.CreateRouteRequest
-	7,  // 49: iot.gateway.api.v1.DeviceAdminService.RemoveRoute:input_type -> iot.gateway.api.v1.RemoveRouteRequest
-	10, // 50: iot.gateway.api.v1.DeviceAdminService.ListDeviceManifests:input_type -> iot.gateway.api.v1.ListDeviceManifestsRequest
-	12, // 51: iot.gateway.api.v1.DeviceAdminService.GetDeviceManifest:input_type -> iot.gateway.api.v1.GetDeviceManifestRequest
-	14, // 52: iot.gateway.api.v1.DeviceAdminService.CreateDeviceManifestDraft:input_type -> iot.gateway.api.v1.CreateDeviceManifestDraftRequest
-	16, // 53: iot.gateway.api.v1.DeviceAdminService.CreateDeviceManifestRevisionDraft:input_type -> iot.gateway.api.v1.CreateDeviceManifestRevisionDraftRequest
-	18, // 54: iot.gateway.api.v1.DeviceAdminService.PublishDeviceManifest:input_type -> iot.gateway.api.v1.PublishDeviceManifestRequest
-	20, // 55: iot.gateway.api.v1.DeviceAdminService.ProvisionDevice:input_type -> iot.gateway.api.v1.ProvisionDeviceRequest
-	22, // 56: iot.gateway.api.v1.DeviceAdminService.ProvisionDeviceByIP:input_type -> iot.gateway.api.v1.ProvisionDeviceByIPRequest
-	24, // 57: iot.gateway.api.v1.DeviceAdminService.ProvisionCYD:input_type -> iot.gateway.api.v1.ProvisionCYDRequest
-	26, // 58: iot.gateway.api.v1.DeviceAdminService.ProvisionLED:input_type -> iot.gateway.api.v1.ProvisionLEDRequest
-	28, // 59: iot.gateway.api.v1.DeviceAdminService.SetDeviceEnabled:input_type -> iot.gateway.api.v1.SetDeviceEnabledRequest
-	30, // 60: iot.gateway.api.v1.DeviceAdminService.RemoveDevice:input_type -> iot.gateway.api.v1.RemoveDeviceRequest
-	33, // 61: iot.gateway.api.v1.DeviceAdminService.ListInconsistencies:input_type -> iot.gateway.api.v1.ListInconsistenciesRequest
-	35, // 62: iot.gateway.api.v1.DeviceAdminService.ResolveInconsistency:input_type -> iot.gateway.api.v1.ResolveInconsistencyRequest
-	38, // 63: iot.gateway.api.v1.DeviceService.ListDevices:output_type -> iot.gateway.api.v1.ListDevicesResponse
-	42, // 64: iot.gateway.api.v1.DeviceService.ListDeviceCommands:output_type -> iot.gateway.api.v1.ListDeviceCommandsResponse
-	45, // 65: iot.gateway.api.v1.DeviceService.PublishCommand:output_type -> iot.gateway.api.v1.PublishCommandResponse
-	47, // 66: iot.gateway.api.v1.DeviceService.GetDeviceTelemetry:output_type -> iot.gateway.api.v1.GetDeviceTelemetryResponse
-	49, // 67: iot.gateway.api.v1.GatewayService.GetStatus:output_type -> iot.gateway.api.v1.GetStatusResponse
-	51, // 68: iot.gateway.api.v1.GatewayService.GetQueueSummary:output_type -> iot.gateway.api.v1.GetQueueSummaryResponse
-	54, // 69: iot.gateway.api.v1.GatewayService.GetRecentEvents:output_type -> iot.gateway.api.v1.GetRecentEventsResponse
-	1,  // 70: iot.gateway.api.v1.DeviceAdminService.RegisterExistingDevice:output_type -> iot.gateway.api.v1.RegisterExistingDeviceResponse
-	4,  // 71: iot.gateway.api.v1.DeviceAdminService.ListRoutes:output_type -> iot.gateway.api.v1.ListRoutesResponse
-	6,  // 72: iot.gateway.api.v1.DeviceAdminService.CreateRoute:output_type -> iot.gateway.api.v1.CreateRouteResponse
-	8,  // 73: iot.gateway.api.v1.DeviceAdminService.RemoveRoute:output_type -> iot.gateway.api.v1.RemoveRouteResponse
-	11, // 74: iot.gateway.api.v1.DeviceAdminService.ListDeviceManifests:output_type -> iot.gateway.api.v1.ListDeviceManifestsResponse
-	13, // 75: iot.gateway.api.v1.DeviceAdminService.GetDeviceManifest:output_type -> iot.gateway.api.v1.GetDeviceManifestResponse
-	15, // 76: iot.gateway.api.v1.DeviceAdminService.CreateDeviceManifestDraft:output_type -> iot.gateway.api.v1.CreateDeviceManifestDraftResponse
-	17, // 77: iot.gateway.api.v1.DeviceAdminService.CreateDeviceManifestRevisionDraft:output_type -> iot.gateway.api.v1.CreateDeviceManifestRevisionDraftResponse
-	19, // 78: iot.gateway.api.v1.DeviceAdminService.PublishDeviceManifest:output_type -> iot.gateway.api.v1.PublishDeviceManifestResponse
-	21, // 79: iot.gateway.api.v1.DeviceAdminService.ProvisionDevice:output_type -> iot.gateway.api.v1.ProvisionDeviceResponse
-	23, // 80: iot.gateway.api.v1.DeviceAdminService.ProvisionDeviceByIP:output_type -> iot.gateway.api.v1.ProvisionDeviceByIPResponse
-	25, // 81: iot.gateway.api.v1.DeviceAdminService.ProvisionCYD:output_type -> iot.gateway.api.v1.ProvisionCYDResponse
-	27, // 82: iot.gateway.api.v1.DeviceAdminService.ProvisionLED:output_type -> iot.gateway.api.v1.ProvisionLEDResponse
-	29, // 83: iot.gateway.api.v1.DeviceAdminService.SetDeviceEnabled:output_type -> iot.gateway.api.v1.SetDeviceEnabledResponse
-	31, // 84: iot.gateway.api.v1.DeviceAdminService.RemoveDevice:output_type -> iot.gateway.api.v1.RemoveDeviceResponse
-	34, // 85: iot.gateway.api.v1.DeviceAdminService.ListInconsistencies:output_type -> iot.gateway.api.v1.ListInconsistenciesResponse
-	36, // 86: iot.gateway.api.v1.DeviceAdminService.ResolveInconsistency:output_type -> iot.gateway.api.v1.ResolveInconsistencyResponse
-	63, // [63:87] is the sub-list for method output_type
-	39, // [39:63] is the sub-list for method input_type
-	39, // [39:39] is the sub-list for extension type_name
-	39, // [39:39] is the sub-list for extension extendee
-	0,  // [0:39] is the sub-list for field type_name
+	14, // 10: iot.gateway.api.v1.ListDeviceManifestBindingsResponse.bindings:type_name -> iot.gateway.api.v1.DeviceManifestBinding
+	9,  // 11: iot.gateway.api.v1.CreateDeviceManifestDraftResponse.manifest:type_name -> iot.gateway.api.v1.DeviceManifest
+	9,  // 12: iot.gateway.api.v1.CreateDeviceManifestRevisionDraftResponse.manifest:type_name -> iot.gateway.api.v1.DeviceManifest
+	9,  // 13: iot.gateway.api.v1.PublishDeviceManifestResponse.manifest:type_name -> iot.gateway.api.v1.DeviceManifest
+	42, // 14: iot.gateway.api.v1.ProvisionDeviceResponse.device:type_name -> iot.gateway.api.v1.Device
+	58, // 15: iot.gateway.api.v1.ProvisionDeviceResponse.applied_at:type_name -> google.protobuf.Timestamp
+	42, // 16: iot.gateway.api.v1.ProvisionDeviceByIPResponse.device:type_name -> iot.gateway.api.v1.Device
+	58, // 17: iot.gateway.api.v1.ProvisionDeviceByIPResponse.applied_at:type_name -> google.protobuf.Timestamp
+	42, // 18: iot.gateway.api.v1.ProvisionCYDResponse.device:type_name -> iot.gateway.api.v1.Device
+	58, // 19: iot.gateway.api.v1.ProvisionCYDResponse.applied_at:type_name -> google.protobuf.Timestamp
+	42, // 20: iot.gateway.api.v1.ProvisionLEDResponse.device:type_name -> iot.gateway.api.v1.Device
+	58, // 21: iot.gateway.api.v1.ProvisionLEDResponse.applied_at:type_name -> google.protobuf.Timestamp
+	42, // 22: iot.gateway.api.v1.SetDeviceEnabledResponse.device:type_name -> iot.gateway.api.v1.Device
+	58, // 23: iot.gateway.api.v1.SetDeviceEnabledResponse.applied_at:type_name -> google.protobuf.Timestamp
+	58, // 24: iot.gateway.api.v1.RemoveDeviceResponse.applied_at:type_name -> google.protobuf.Timestamp
+	58, // 25: iot.gateway.api.v1.Inconsistency.created_at:type_name -> google.protobuf.Timestamp
+	35, // 26: iot.gateway.api.v1.ListInconsistenciesResponse.inconsistencies:type_name -> iot.gateway.api.v1.Inconsistency
+	42, // 27: iot.gateway.api.v1.ListDevicesResponse.devices:type_name -> iot.gateway.api.v1.Device
+	43, // 28: iot.gateway.api.v1.Device.topics:type_name -> iot.gateway.api.v1.DeviceTopics
+	46, // 29: iot.gateway.api.v1.ListDeviceCommandsResponse.commands:type_name -> iot.gateway.api.v1.CommandDescriptor
+	59, // 30: iot.gateway.api.v1.CommandDescriptor.parameters_schema:type_name -> google.protobuf.DescriptorProto
+	60, // 31: iot.gateway.api.v1.PublishCommandRequest.parameters:type_name -> google.protobuf.Struct
+	58, // 32: iot.gateway.api.v1.PublishCommandResponse.published_at:type_name -> google.protobuf.Timestamp
+	60, // 33: iot.gateway.api.v1.GetDeviceTelemetryResponse.payload:type_name -> google.protobuf.Struct
+	58, // 34: iot.gateway.api.v1.GetDeviceTelemetryResponse.observed_at:type_name -> google.protobuf.Timestamp
+	58, // 35: iot.gateway.api.v1.GetStatusResponse.started_at:type_name -> google.protobuf.Timestamp
+	58, // 36: iot.gateway.api.v1.GetQueueSummaryResponse.oldest_enqueued_at:type_name -> google.protobuf.Timestamp
+	58, // 37: iot.gateway.api.v1.ActivityEvent.timestamp:type_name -> google.protobuf.Timestamp
+	58, // 38: iot.gateway.api.v1.GetRecentEventsRequest.since:type_name -> google.protobuf.Timestamp
+	55, // 39: iot.gateway.api.v1.GetRecentEventsResponse.events:type_name -> iot.gateway.api.v1.ActivityEvent
+	40, // 40: iot.gateway.api.v1.DeviceService.ListDevices:input_type -> iot.gateway.api.v1.ListDevicesRequest
+	44, // 41: iot.gateway.api.v1.DeviceService.ListDeviceCommands:input_type -> iot.gateway.api.v1.ListDeviceCommandsRequest
+	47, // 42: iot.gateway.api.v1.DeviceService.PublishCommand:input_type -> iot.gateway.api.v1.PublishCommandRequest
+	49, // 43: iot.gateway.api.v1.DeviceService.GetDeviceTelemetry:input_type -> iot.gateway.api.v1.GetDeviceTelemetryRequest
+	51, // 44: iot.gateway.api.v1.GatewayService.GetStatus:input_type -> iot.gateway.api.v1.GetStatusRequest
+	53, // 45: iot.gateway.api.v1.GatewayService.GetQueueSummary:input_type -> iot.gateway.api.v1.GetQueueSummaryRequest
+	56, // 46: iot.gateway.api.v1.GatewayService.GetRecentEvents:input_type -> iot.gateway.api.v1.GetRecentEventsRequest
+	0,  // 47: iot.gateway.api.v1.DeviceAdminService.RegisterExistingDevice:input_type -> iot.gateway.api.v1.RegisterExistingDeviceRequest
+	3,  // 48: iot.gateway.api.v1.DeviceAdminService.ListRoutes:input_type -> iot.gateway.api.v1.ListRoutesRequest
+	5,  // 49: iot.gateway.api.v1.DeviceAdminService.CreateRoute:input_type -> iot.gateway.api.v1.CreateRouteRequest
+	7,  // 50: iot.gateway.api.v1.DeviceAdminService.RemoveRoute:input_type -> iot.gateway.api.v1.RemoveRouteRequest
+	10, // 51: iot.gateway.api.v1.DeviceAdminService.ListDeviceManifests:input_type -> iot.gateway.api.v1.ListDeviceManifestsRequest
+	12, // 52: iot.gateway.api.v1.DeviceAdminService.GetDeviceManifest:input_type -> iot.gateway.api.v1.GetDeviceManifestRequest
+	15, // 53: iot.gateway.api.v1.DeviceAdminService.ListDeviceManifestBindings:input_type -> iot.gateway.api.v1.ListDeviceManifestBindingsRequest
+	17, // 54: iot.gateway.api.v1.DeviceAdminService.CreateDeviceManifestDraft:input_type -> iot.gateway.api.v1.CreateDeviceManifestDraftRequest
+	19, // 55: iot.gateway.api.v1.DeviceAdminService.CreateDeviceManifestRevisionDraft:input_type -> iot.gateway.api.v1.CreateDeviceManifestRevisionDraftRequest
+	21, // 56: iot.gateway.api.v1.DeviceAdminService.PublishDeviceManifest:input_type -> iot.gateway.api.v1.PublishDeviceManifestRequest
+	23, // 57: iot.gateway.api.v1.DeviceAdminService.ProvisionDevice:input_type -> iot.gateway.api.v1.ProvisionDeviceRequest
+	25, // 58: iot.gateway.api.v1.DeviceAdminService.ProvisionDeviceByIP:input_type -> iot.gateway.api.v1.ProvisionDeviceByIPRequest
+	27, // 59: iot.gateway.api.v1.DeviceAdminService.ProvisionCYD:input_type -> iot.gateway.api.v1.ProvisionCYDRequest
+	29, // 60: iot.gateway.api.v1.DeviceAdminService.ProvisionLED:input_type -> iot.gateway.api.v1.ProvisionLEDRequest
+	31, // 61: iot.gateway.api.v1.DeviceAdminService.SetDeviceEnabled:input_type -> iot.gateway.api.v1.SetDeviceEnabledRequest
+	33, // 62: iot.gateway.api.v1.DeviceAdminService.RemoveDevice:input_type -> iot.gateway.api.v1.RemoveDeviceRequest
+	36, // 63: iot.gateway.api.v1.DeviceAdminService.ListInconsistencies:input_type -> iot.gateway.api.v1.ListInconsistenciesRequest
+	38, // 64: iot.gateway.api.v1.DeviceAdminService.ResolveInconsistency:input_type -> iot.gateway.api.v1.ResolveInconsistencyRequest
+	41, // 65: iot.gateway.api.v1.DeviceService.ListDevices:output_type -> iot.gateway.api.v1.ListDevicesResponse
+	45, // 66: iot.gateway.api.v1.DeviceService.ListDeviceCommands:output_type -> iot.gateway.api.v1.ListDeviceCommandsResponse
+	48, // 67: iot.gateway.api.v1.DeviceService.PublishCommand:output_type -> iot.gateway.api.v1.PublishCommandResponse
+	50, // 68: iot.gateway.api.v1.DeviceService.GetDeviceTelemetry:output_type -> iot.gateway.api.v1.GetDeviceTelemetryResponse
+	52, // 69: iot.gateway.api.v1.GatewayService.GetStatus:output_type -> iot.gateway.api.v1.GetStatusResponse
+	54, // 70: iot.gateway.api.v1.GatewayService.GetQueueSummary:output_type -> iot.gateway.api.v1.GetQueueSummaryResponse
+	57, // 71: iot.gateway.api.v1.GatewayService.GetRecentEvents:output_type -> iot.gateway.api.v1.GetRecentEventsResponse
+	1,  // 72: iot.gateway.api.v1.DeviceAdminService.RegisterExistingDevice:output_type -> iot.gateway.api.v1.RegisterExistingDeviceResponse
+	4,  // 73: iot.gateway.api.v1.DeviceAdminService.ListRoutes:output_type -> iot.gateway.api.v1.ListRoutesResponse
+	6,  // 74: iot.gateway.api.v1.DeviceAdminService.CreateRoute:output_type -> iot.gateway.api.v1.CreateRouteResponse
+	8,  // 75: iot.gateway.api.v1.DeviceAdminService.RemoveRoute:output_type -> iot.gateway.api.v1.RemoveRouteResponse
+	11, // 76: iot.gateway.api.v1.DeviceAdminService.ListDeviceManifests:output_type -> iot.gateway.api.v1.ListDeviceManifestsResponse
+	13, // 77: iot.gateway.api.v1.DeviceAdminService.GetDeviceManifest:output_type -> iot.gateway.api.v1.GetDeviceManifestResponse
+	16, // 78: iot.gateway.api.v1.DeviceAdminService.ListDeviceManifestBindings:output_type -> iot.gateway.api.v1.ListDeviceManifestBindingsResponse
+	18, // 79: iot.gateway.api.v1.DeviceAdminService.CreateDeviceManifestDraft:output_type -> iot.gateway.api.v1.CreateDeviceManifestDraftResponse
+	20, // 80: iot.gateway.api.v1.DeviceAdminService.CreateDeviceManifestRevisionDraft:output_type -> iot.gateway.api.v1.CreateDeviceManifestRevisionDraftResponse
+	22, // 81: iot.gateway.api.v1.DeviceAdminService.PublishDeviceManifest:output_type -> iot.gateway.api.v1.PublishDeviceManifestResponse
+	24, // 82: iot.gateway.api.v1.DeviceAdminService.ProvisionDevice:output_type -> iot.gateway.api.v1.ProvisionDeviceResponse
+	26, // 83: iot.gateway.api.v1.DeviceAdminService.ProvisionDeviceByIP:output_type -> iot.gateway.api.v1.ProvisionDeviceByIPResponse
+	28, // 84: iot.gateway.api.v1.DeviceAdminService.ProvisionCYD:output_type -> iot.gateway.api.v1.ProvisionCYDResponse
+	30, // 85: iot.gateway.api.v1.DeviceAdminService.ProvisionLED:output_type -> iot.gateway.api.v1.ProvisionLEDResponse
+	32, // 86: iot.gateway.api.v1.DeviceAdminService.SetDeviceEnabled:output_type -> iot.gateway.api.v1.SetDeviceEnabledResponse
+	34, // 87: iot.gateway.api.v1.DeviceAdminService.RemoveDevice:output_type -> iot.gateway.api.v1.RemoveDeviceResponse
+	37, // 88: iot.gateway.api.v1.DeviceAdminService.ListInconsistencies:output_type -> iot.gateway.api.v1.ListInconsistenciesResponse
+	39, // 89: iot.gateway.api.v1.DeviceAdminService.ResolveInconsistency:output_type -> iot.gateway.api.v1.ResolveInconsistencyResponse
+	65, // [65:90] is the sub-list for method output_type
+	40, // [40:65] is the sub-list for method input_type
+	40, // [40:40] is the sub-list for extension type_name
+	40, // [40:40] is the sub-list for extension extendee
+	0,  // [0:40] is the sub-list for field type_name
 }
 
 func init() { file_iot_gateway_api_v1_api_proto_init() }
@@ -3512,7 +3669,7 @@ func file_iot_gateway_api_v1_api_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_iot_gateway_api_v1_api_proto_rawDesc), len(file_iot_gateway_api_v1_api_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   55,
+			NumMessages:   58,
 			NumExtensions: 0,
 			NumServices:   3,
 		},

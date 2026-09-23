@@ -53,6 +53,7 @@ service DeviceAdminService {
   // editing/publishing is deliberately a later milestone.
   rpc ListDeviceManifests(ListDeviceManifestsRequest) returns (ListDeviceManifestsResponse);
   rpc GetDeviceManifest(GetDeviceManifestRequest) returns (GetDeviceManifestResponse);
+  rpc ListDeviceManifestBindings(ListDeviceManifestBindingsRequest) returns (ListDeviceManifestBindingsResponse);
   rpc CreateDeviceManifestDraft(CreateDeviceManifestDraftRequest) returns (CreateDeviceManifestDraftResponse);
   rpc CreateDeviceManifestRevisionDraft(CreateDeviceManifestRevisionDraftRequest) returns (CreateDeviceManifestRevisionDraftResponse);
   rpc PublishDeviceManifest(PublishDeviceManifestRequest) returns (PublishDeviceManifestResponse);
@@ -144,6 +145,20 @@ message GetDeviceManifestRequest {
 
 message GetDeviceManifestResponse {
   DeviceManifest manifest = 1;
+}
+
+// DeviceManifestBinding identifies exactly the published definition used
+// when a device was provisioned. Legacy devices have no binding.
+message DeviceManifestBinding {
+  string device_id = 1;
+  string manifest_id = 2;
+  uint64 manifest_revision = 3;
+}
+
+message ListDeviceManifestBindingsRequest {}
+
+message ListDeviceManifestBindingsResponse {
+  repeated DeviceManifestBinding bindings = 1;
 }
 
 message CreateDeviceManifestDraftRequest {

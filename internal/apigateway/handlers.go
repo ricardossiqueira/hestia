@@ -74,6 +74,12 @@ func manifestToProto(manifest registry.DeviceManifest) *apiv1.DeviceManifest {
 	}
 }
 
+func manifestBindingToProto(binding registry.DeviceManifestBinding) *apiv1.DeviceManifestBinding {
+	return &apiv1.DeviceManifestBinding{
+		DeviceId: binding.DeviceID, ManifestId: binding.ManifestID, ManifestRevision: binding.ManifestRevision,
+	}
+}
+
 // RegisterExistingDevice adopts a pre-existing broker identity without ever
 // returning or rotating its password. This keeps local collectors online while
 // making their inbound topics visible to the runtime registry.
@@ -154,6 +160,20 @@ func (s *Server) GetDeviceManifest(ctx context.Context, req *connect.Request[api
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	return connect.NewResponse(&apiv1.GetDeviceManifestResponse{Manifest: manifestToProto(manifest)}), nil
+}
+
+// ListDeviceManifestBindings lets the Web show the immutable source used for
+// each device, without exposing any provisioning secret or broker detail.
+func (s *Server) ListDeviceManifestBindings(ctx context.Context, _ *connect.Request[apiv1.ListDeviceManifestBindingsRequest]) (*connect.Response[apiv1.ListDeviceManifestBindingsResponse], error) {
+	bindings, err := s.cfg.Admin.ListDeviceManifestBindings(ctx)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	response := &apiv1.ListDeviceManifestBindingsResponse{Bindings: make([]*apiv1.DeviceManifestBinding, 0, len(bindings))}
+	for _, binding := range bindings {
+		response.Bindings = append(response.Bindings, manifestBindingToProto(binding))
+	}
+	return connect.NewResponse(response), nil
 }
 
 func (s *Server) CreateDeviceManifestDraft(ctx context.Context, req *connect.Request[apiv1.CreateDeviceManifestDraftRequest]) (*connect.Response[apiv1.CreateDeviceManifestDraftResponse], error) {

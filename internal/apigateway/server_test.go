@@ -91,6 +91,8 @@ type fakeDeviceAdmin struct {
 	listManifestsErr   error
 	manifest           registry.DeviceManifest
 	getManifestErr     error
+	bindings           []registry.DeviceManifestBinding
+	listBindingsErr    error
 	createdManifest    registry.DeviceManifest
 	createManifestErr  error
 	revisionDraft      registry.DeviceManifest
@@ -140,6 +142,12 @@ func (f *fakeDeviceAdmin) GetPublishedDeviceManifest(ctx context.Context, id str
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.manifest, f.getManifestErr
+}
+
+func (f *fakeDeviceAdmin) ListDeviceManifestBindings(ctx context.Context) ([]registry.DeviceManifestBinding, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.bindings, f.listBindingsErr
 }
 
 func (f *fakeDeviceAdmin) CreateDeviceManifestDraft(ctx context.Context, document, actor string) (registry.DeviceManifest, error) {
@@ -681,6 +689,22 @@ func TestDeviceAdminService_ListAndGetPublishedDeviceManifests(t *testing.T) {
 	}
 	if got.Msg.GetManifest().GetCreatedAt().AsTime() != createdAt || got.Msg.GetManifest().GetCreatedBy() != manifest.CreatedBy {
 		t.Fatalf("get = %#v", got.Msg)
+	}
+}
+
+func TestDeviceAdminService_ListDeviceManifestBindings(t *testing.T) {
+	backend, _ := newFakeInternalAPI(t)
+	fake := &fakeDeviceAdmin{bindings: []registry.DeviceManifestBinding{{
+		DeviceID: "led-sala", ManifestID: "esp32-c3-led", ManifestRevision: 2,
+	}}}
+	ts := newTestGatewayWithAdmin(t, backend.URL, nil, fake)
+	response, err := connectClient(ts).ListDeviceManifestBindings(context.Background(), authedRequest(&apiv1.ListDeviceManifestBindingsRequest{}))
+	if err != nil {
+		t.Fatalf("ListDeviceManifestBindings() error = %v", err)
+	}
+	bindings := response.Msg.GetBindings()
+	if len(bindings) != 1 || bindings[0].GetDeviceId() != "led-sala" || bindings[0].GetManifestId() != "esp32-c3-led" || bindings[0].GetManifestRevision() != 2 {
+		t.Fatalf("bindings = %#v", bindings)
 	}
 }
 

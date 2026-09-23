@@ -191,7 +191,7 @@ nunca receberão credenciais ou endereços uns dos outros.
 - [x] Criar editor JSON textual com validação no gateway e mensagens de erro.
 - [x] Permitir criar rascunho e publicar revisão (duplicar/arquivar seguem pendentes).
 - [x] Alterar “Novo dispositivo” para selecionar um manifest e informar ID/IP.
-- [ ] Exibir manifesto e revisão usados em cada dispositivo cadastrado.
+- [x] Exibir manifesto e revisão usados em cada dispositivo cadastrado.
 
 ### Marco 4 — comandos declarativos
 

@@ -443,6 +443,7 @@ const (
 	DeviceAdminService_RemoveRoute_FullMethodName                       = "/iot.gateway.api.v1.DeviceAdminService/RemoveRoute"
 	DeviceAdminService_ListDeviceManifests_FullMethodName               = "/iot.gateway.api.v1.DeviceAdminService/ListDeviceManifests"
 	DeviceAdminService_GetDeviceManifest_FullMethodName                 = "/iot.gateway.api.v1.DeviceAdminService/GetDeviceManifest"
+	DeviceAdminService_ListDeviceManifestBindings_FullMethodName        = "/iot.gateway.api.v1.DeviceAdminService/ListDeviceManifestBindings"
 	DeviceAdminService_CreateDeviceManifestDraft_FullMethodName         = "/iot.gateway.api.v1.DeviceAdminService/CreateDeviceManifestDraft"
 	DeviceAdminService_CreateDeviceManifestRevisionDraft_FullMethodName = "/iot.gateway.api.v1.DeviceAdminService/CreateDeviceManifestRevisionDraft"
 	DeviceAdminService_PublishDeviceManifest_FullMethodName             = "/iot.gateway.api.v1.DeviceAdminService/PublishDeviceManifest"
@@ -480,6 +481,7 @@ type DeviceAdminServiceClient interface {
 	// editing/publishing is deliberately a later milestone.
 	ListDeviceManifests(ctx context.Context, in *ListDeviceManifestsRequest, opts ...grpc.CallOption) (*ListDeviceManifestsResponse, error)
 	GetDeviceManifest(ctx context.Context, in *GetDeviceManifestRequest, opts ...grpc.CallOption) (*GetDeviceManifestResponse, error)
+	ListDeviceManifestBindings(ctx context.Context, in *ListDeviceManifestBindingsRequest, opts ...grpc.CallOption) (*ListDeviceManifestBindingsResponse, error)
 	CreateDeviceManifestDraft(ctx context.Context, in *CreateDeviceManifestDraftRequest, opts ...grpc.CallOption) (*CreateDeviceManifestDraftResponse, error)
 	CreateDeviceManifestRevisionDraft(ctx context.Context, in *CreateDeviceManifestRevisionDraftRequest, opts ...grpc.CallOption) (*CreateDeviceManifestRevisionDraftResponse, error)
 	PublishDeviceManifest(ctx context.Context, in *PublishDeviceManifestRequest, opts ...grpc.CallOption) (*PublishDeviceManifestResponse, error)
@@ -567,6 +569,16 @@ func (c *deviceAdminServiceClient) GetDeviceManifest(ctx context.Context, in *Ge
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetDeviceManifestResponse)
 	err := c.cc.Invoke(ctx, DeviceAdminService_GetDeviceManifest_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *deviceAdminServiceClient) ListDeviceManifestBindings(ctx context.Context, in *ListDeviceManifestBindingsRequest, opts ...grpc.CallOption) (*ListDeviceManifestBindingsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListDeviceManifestBindingsResponse)
+	err := c.cc.Invoke(ctx, DeviceAdminService_ListDeviceManifestBindings_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -707,6 +719,7 @@ type DeviceAdminServiceServer interface {
 	// editing/publishing is deliberately a later milestone.
 	ListDeviceManifests(context.Context, *ListDeviceManifestsRequest) (*ListDeviceManifestsResponse, error)
 	GetDeviceManifest(context.Context, *GetDeviceManifestRequest) (*GetDeviceManifestResponse, error)
+	ListDeviceManifestBindings(context.Context, *ListDeviceManifestBindingsRequest) (*ListDeviceManifestBindingsResponse, error)
 	CreateDeviceManifestDraft(context.Context, *CreateDeviceManifestDraftRequest) (*CreateDeviceManifestDraftResponse, error)
 	CreateDeviceManifestRevisionDraft(context.Context, *CreateDeviceManifestRevisionDraftRequest) (*CreateDeviceManifestRevisionDraftResponse, error)
 	PublishDeviceManifest(context.Context, *PublishDeviceManifestRequest) (*PublishDeviceManifestResponse, error)
@@ -756,6 +769,9 @@ func (UnimplementedDeviceAdminServiceServer) ListDeviceManifests(context.Context
 }
 func (UnimplementedDeviceAdminServiceServer) GetDeviceManifest(context.Context, *GetDeviceManifestRequest) (*GetDeviceManifestResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetDeviceManifest not implemented")
+}
+func (UnimplementedDeviceAdminServiceServer) ListDeviceManifestBindings(context.Context, *ListDeviceManifestBindingsRequest) (*ListDeviceManifestBindingsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListDeviceManifestBindings not implemented")
 }
 func (UnimplementedDeviceAdminServiceServer) CreateDeviceManifestDraft(context.Context, *CreateDeviceManifestDraftRequest) (*CreateDeviceManifestDraftResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreateDeviceManifestDraft not implemented")
@@ -914,6 +930,24 @@ func _DeviceAdminService_GetDeviceManifest_Handler(srv interface{}, ctx context.
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(DeviceAdminServiceServer).GetDeviceManifest(ctx, req.(*GetDeviceManifestRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DeviceAdminService_ListDeviceManifestBindings_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListDeviceManifestBindingsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DeviceAdminServiceServer).ListDeviceManifestBindings(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DeviceAdminService_ListDeviceManifestBindings_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DeviceAdminServiceServer).ListDeviceManifestBindings(ctx, req.(*ListDeviceManifestBindingsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1146,6 +1180,10 @@ var DeviceAdminService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetDeviceManifest",
 			Handler:    _DeviceAdminService_GetDeviceManifest_Handler,
+		},
+		{
+			MethodName: "ListDeviceManifestBindings",
+			Handler:    _DeviceAdminService_ListDeviceManifestBindings_Handler,
 		},
 		{
 			MethodName: "CreateDeviceManifestDraft",

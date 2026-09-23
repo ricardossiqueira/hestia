@@ -56,6 +56,7 @@ type DeviceAdmin interface {
 	RemoveRoute(ctx context.Context, id string) error
 	ListPublishedDeviceManifests(ctx context.Context) ([]registry.DeviceManifest, error)
 	GetPublishedDeviceManifest(ctx context.Context, id string) (registry.DeviceManifest, error)
+	ListDeviceManifestBindings(ctx context.Context) ([]registry.DeviceManifestBinding, error)
 	CreateDeviceManifestDraft(ctx context.Context, document, actor string) (registry.DeviceManifest, error)
 	CreateDeviceManifestRevisionDraft(ctx context.Context, id, document, actor string) (registry.DeviceManifest, error)
 	PublishDeviceManifest(ctx context.Context, id string, revision uint64, actor string) (registry.DeviceManifest, error)

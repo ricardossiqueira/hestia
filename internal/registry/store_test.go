@@ -232,6 +232,13 @@ func TestDeviceManifestBindingRequiresExistingPublishedRevisionAndDevice(t *test
 	if err := store.BindDeviceManifest(ctx, "led-1", "esp32-c3-led", 1); err != nil {
 		t.Fatal(err)
 	}
+	bindings, err := store.ListDeviceManifestBindings(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bindings) != 1 || bindings[0].DeviceID != "led-1" || bindings[0].ManifestID != "esp32-c3-led" || bindings[0].ManifestRevision != 1 {
+		t.Fatalf("ListDeviceManifestBindings() = %#v", bindings)
+	}
 }
 
 func TestDeviceManifestDraftPublicationIsExplicitAndAudited(t *testing.T) {

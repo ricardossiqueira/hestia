@@ -163,6 +163,16 @@ func (s *Server) GetPublishedDeviceManifest(ctx context.Context, id string) (reg
 	return s.cfg.Registry.GetPublishedManifest(ctx, id)
 }
 
+// ListDeviceManifestBindings provides the provision-time revision for each
+// manifest-managed device. It is an audit read only and never changes runtime
+// policy or broker state.
+func (s *Server) ListDeviceManifestBindings(ctx context.Context) ([]registry.DeviceManifestBinding, error) {
+	if s.cfg.Registry == nil {
+		return nil, errors.New("listing device manifest bindings requires the SQLite registry")
+	}
+	return s.cfg.Registry.ListDeviceManifestBindings(ctx)
+}
+
 func (s *Server) CreateDeviceManifestDraft(ctx context.Context, document, actor string) (registry.DeviceManifest, error) {
 	if s.cfg.Registry == nil {
 		return registry.DeviceManifest{}, errors.New("editing device manifests requires the SQLite registry")
