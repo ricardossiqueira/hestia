@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/ricardossiqueira/iot-gateway/internal/config"
 )
@@ -366,5 +367,110 @@ func TestUpdateAutomationRuleReplacesFields(t *testing.T) {
 
 	if _, err := store.UpdateAutomationRule(ctx, AutomationRule{ID: "missing", SourceDeviceID: "led-1", EventType: "x", ActionDeviceID: "led-2", ActionCommandType: "set_led", ActionParametersJSON: `{}`}); !errors.Is(err, ErrAutomationRuleNotFound) {
 		t.Errorf("UpdateAutomationRule() error = %v, want ErrAutomationRuleNotFound", err)
+	}
+}
+
+func TestMatchAutomationRulesFiltersByDeviceEventTypeAndEnabled(t *testing.T) {
+	store := openTestStore(t)
+	ctx := context.Background()
+	if _, err := store.AddDevice(ctx, eventDevice("led-1", true), "op-1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AddDevice(ctx, commandDevice("led-2", true), "op-2"); err != nil {
+		t.Fatal(err)
+	}
+	matching := baseRule()
+	if _, err := store.CreateAutomationRule(ctx, matching); err != nil {
+		t.Fatal(err)
+	}
+	wrongEvent := baseRule()
+	wrongEvent.ID = "wrong-event"
+	wrongEvent.EventType = "other_event"
+	if _, err := store.CreateAutomationRule(ctx, wrongEvent); err != nil {
+		t.Fatal(err)
+	}
+	disabled := baseRule()
+	disabled.ID = "disabled-rule"
+	if _, err := store.CreateAutomationRule(ctx, disabled); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SetAutomationRuleEnabled(ctx, disabled.ID, false); err != nil {
+		t.Fatal(err)
+	}
+
+	rules, err := store.MatchAutomationRules(ctx, "led-1", "button_pressed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rules) != 1 || rules[0].ID != matching.ID {
+		t.Errorf("MatchAutomationRules() = %#v, want only %q", rules, matching.ID)
+	}
+
+	if rules, err := store.MatchAutomationRules(ctx, "led-1", "no_such_event"); err != nil || len(rules) != 0 {
+		t.Errorf("MatchAutomationRules(no_such_event) = %#v, %v, want empty", rules, err)
+	}
+}
+
+func TestAutomationCommandExistsForRuleAndCausation(t *testing.T) {
+	store := openTestStore(t)
+	ctx := context.Background()
+	command := AutomationCommand{
+		CommandID: "a9f2290d-d1ee-4cbc-841d-03e29a7f028c", DeviceID: "led-2", Topic: "devices/led-2/command",
+		RuleID: "led1-to-led2", CausationMessageID: "b4a5bb31-1710-4f7b-a043-1b6a292d04ad", CausationKind: "event",
+		CausationDeviceID: "led-1", PublishedAt: time.Unix(0, 0).UTC(),
+	}
+	if err := store.RecordAutomationCommand(ctx, command); err != nil {
+		t.Fatal(err)
+	}
+
+	exists, err := store.AutomationCommandExistsForRuleAndCausation(ctx, command.RuleID, command.CausationMessageID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !exists {
+		t.Error("AutomationCommandExistsForRuleAndCausation() = false, want true")
+	}
+
+	if exists, err := store.AutomationCommandExistsForRuleAndCausation(ctx, command.RuleID, "e9f2290d-d1ee-4cbc-841d-03e29a7f028c"); err != nil || exists {
+		t.Errorf("AutomationCommandExistsForRuleAndCausation(different event) = %v, %v, want false", exists, err)
+	}
+	if exists, err := store.AutomationCommandExistsForRuleAndCausation(ctx, "other-rule", command.CausationMessageID); err != nil || exists {
+		t.Errorf("AutomationCommandExistsForRuleAndCausation(different rule) = %v, %v, want false", exists, err)
+	}
+}
+
+func TestCountAutomationCommandsForRuleSinceRespectsWindow(t *testing.T) {
+	store := openTestStore(t)
+	ctx := context.Background()
+	base := time.Unix(1_700_000_000, 0).UTC()
+	store.now = func() time.Time { return base }
+
+	for i, causationID := range []string{"11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"} {
+		if err := store.RecordAutomationCommand(ctx, AutomationCommand{
+			CommandID: causationID, DeviceID: "led-2", Topic: "devices/led-2/command", RuleID: "led1-to-led2",
+			CausationMessageID: causationID, CausationKind: "event", CausationDeviceID: "led-1",
+			PublishedAt: base.Add(time.Duration(i) * time.Second),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// One older firing, outside the window we are about to query.
+	if err := store.RecordAutomationCommand(ctx, AutomationCommand{
+		CommandID: "33333333-3333-4333-8333-333333333333", DeviceID: "led-2", Topic: "devices/led-2/command",
+		RuleID: "led1-to-led2", CausationMessageID: "33333333-3333-4333-8333-333333333333", CausationKind: "event",
+		CausationDeviceID: "led-1", PublishedAt: base.Add(-time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	count, err := store.CountAutomationCommandsForRuleSince(ctx, "led1-to-led2", base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 2 {
+		t.Errorf("CountAutomationCommandsForRuleSince() = %d, want 2", count)
+	}
+	if count, err := store.CountAutomationCommandsForRuleSince(ctx, "other-rule", base); err != nil || count != 0 {
+		t.Errorf("CountAutomationCommandsForRuleSince(other-rule) = %d, %v, want 0", count, err)
 	}
 }

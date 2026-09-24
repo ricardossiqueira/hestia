@@ -511,6 +511,183 @@ func TestGatewayKeepsAcceptingWhenAutomationRecordingFails(t *testing.T) {
 	}
 }
 
+func automationTestConfig() config.Config {
+	cfg := testConfig()
+	cfg.Devices = append(cfg.Devices, config.Device{
+		ID: "led-2", Enabled: boolPtr(true), Topics: config.Topics{Command: "devices/led-2/command"},
+	})
+	return cfg
+}
+
+func automationTestRule() registry.AutomationRule {
+	return registry.AutomationRule{
+		ID: "led1-to-led2", Enabled: true,
+		SourceDeviceID: "esp32-sala", EventType: "button_pressed",
+		ActionDeviceID: "led-2", ActionCommandType: "set_led", ActionParametersJSON: `{"on":true}`,
+	}
+}
+
+func TestFireAutomationRulesPublishesActionWhenConditionPasses(t *testing.T) {
+	client := &fakeClient{}
+	rule := automationTestRule()
+	rule.ConditionJSON = `{"==": [{"var": "pressed"}, true]}`
+	recorder := &fakeAutomationRecorder{rules: map[string][]registry.AutomationRule{"esp32-sala|button_pressed": {rule}}}
+	gateway, err := New(automationTestConfig(), client, &recordingLogger{}, nil, recorder)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := gateway.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	client.deliver("devices/esp32-sala/event", []byte(`{"message_id":"b4a5bb31-1710-4f7b-a043-1b6a292d04ad","timestamp":"2026-09-18T15:00:00Z","type":"button_pressed","pressed":true}`))
+
+	if len(client.published) != 1 {
+		t.Fatalf("published = %#v, want 1", client.published)
+	}
+	publication := client.published[0]
+	if publication.topic != "devices/led-2/command" || publication.qos != 1 || publication.retain {
+		t.Errorf("publication = %#v", publication)
+	}
+	commandID := mustCommandID(t, publication.payload)
+	if len(recorder.commands) != 1 {
+		t.Fatalf("recorded commands = %#v, want 1", recorder.commands)
+	}
+	got := recorder.commands[0]
+	if got.CommandID != commandID || got.DeviceID != "led-2" || got.Topic != "devices/led-2/command" ||
+		got.RuleID != "led1-to-led2" || got.CausationMessageID != "b4a5bb31-1710-4f7b-a043-1b6a292d04ad" ||
+		got.CausationKind != string(Event) || got.CausationDeviceID != "esp32-sala" {
+		t.Errorf("recorded command = %#v", got)
+	}
+	events, _ := gateway.RecentEvents(EventFilter{})
+	found := false
+	for _, event := range events {
+		if event.Outcome == "rule_fired" && event.Detail == "led1-to-led2" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("RecentEvents() = %#v, want a rule_fired entry", events)
+	}
+}
+
+func TestFireAutomationRulesSkipsWhenConditionFails(t *testing.T) {
+	client := &fakeClient{}
+	rule := automationTestRule()
+	rule.ConditionJSON = `{"==": [{"var": "pressed"}, false]}`
+	recorder := &fakeAutomationRecorder{rules: map[string][]registry.AutomationRule{"esp32-sala|button_pressed": {rule}}}
+	gateway, err := New(automationTestConfig(), client, &recordingLogger{}, nil, recorder)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := gateway.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	client.deliver("devices/esp32-sala/event", []byte(`{"message_id":"b4a5bb31-1710-4f7b-a043-1b6a292d04ad","timestamp":"2026-09-18T15:00:00Z","type":"button_pressed","pressed":true}`))
+
+	if len(client.published) != 0 {
+		t.Errorf("published = %#v, want none (condition false)", client.published)
+	}
+	if len(recorder.commands) != 0 {
+		t.Errorf("recorded commands = %#v, want none", recorder.commands)
+	}
+}
+
+func TestFireAutomationRulesSkipsOnDedup(t *testing.T) {
+	client := &fakeClient{}
+	recorder := &fakeAutomationRecorder{
+		rules:      map[string][]registry.AutomationRule{"esp32-sala|button_pressed": {automationTestRule()}},
+		dedupExist: true,
+	}
+	gateway, err := New(automationTestConfig(), client, &recordingLogger{}, nil, recorder)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := gateway.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	client.deliver("devices/esp32-sala/event", []byte(`{"message_id":"b4a5bb31-1710-4f7b-a043-1b6a292d04ad","timestamp":"2026-09-18T15:00:00Z","type":"button_pressed"}`))
+
+	if len(client.published) != 0 {
+		t.Errorf("published = %#v, want none (already fired for this event)", client.published)
+	}
+}
+
+func TestFireAutomationRulesSkipsWhenRateLimited(t *testing.T) {
+	client := &fakeClient{}
+	recorder := &fakeAutomationRecorder{
+		rules:      map[string][]registry.AutomationRule{"esp32-sala|button_pressed": {automationTestRule()}},
+		firedCount: maxRuleFiringsPerRule,
+	}
+	gateway, err := New(automationTestConfig(), client, &recordingLogger{}, nil, recorder)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := gateway.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	client.deliver("devices/esp32-sala/event", []byte(`{"message_id":"b4a5bb31-1710-4f7b-a043-1b6a292d04ad","timestamp":"2026-09-18T15:00:00Z","type":"button_pressed"}`))
+
+	if len(client.published) != 0 {
+		t.Errorf("published = %#v, want none (rate limited)", client.published)
+	}
+}
+
+func TestFireAutomationRulesRecordsFailureWhenActionDeviceMissing(t *testing.T) {
+	client := &fakeClient{}
+	rule := automationTestRule()
+	rule.ActionDeviceID = "no-such-device"
+	recorder := &fakeAutomationRecorder{rules: map[string][]registry.AutomationRule{"esp32-sala|button_pressed": {rule}}}
+	gateway, err := New(automationTestConfig(), client, &recordingLogger{}, nil, recorder)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := gateway.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	client.deliver("devices/esp32-sala/event", []byte(`{"message_id":"b4a5bb31-1710-4f7b-a043-1b6a292d04ad","timestamp":"2026-09-18T15:00:00Z","type":"button_pressed"}`))
+
+	if len(client.published) != 0 {
+		t.Errorf("published = %#v, want none", client.published)
+	}
+	events, _ := gateway.RecentEvents(EventFilter{})
+	found := false
+	for _, event := range events {
+		if event.Outcome == "rule_failed" && event.Detail != "" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("RecentEvents() = %#v, want a rule_failed entry", events)
+	}
+}
+
+func TestFireAutomationRulesRecordsFailureWhenPublishFails(t *testing.T) {
+	client := &fakeClient{publishErr: errors.New("network error")}
+	recorder := &fakeAutomationRecorder{rules: map[string][]registry.AutomationRule{"esp32-sala|button_pressed": {automationTestRule()}}}
+	gateway, err := New(automationTestConfig(), client, &recordingLogger{}, nil, recorder)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := gateway.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	client.deliver("devices/esp32-sala/event", []byte(`{"message_id":"b4a5bb31-1710-4f7b-a043-1b6a292d04ad","timestamp":"2026-09-18T15:00:00Z","type":"button_pressed"}`))
+
+	if len(recorder.commands) != 0 {
+		t.Errorf("recorded commands = %#v, want none (publish failed)", recorder.commands)
+	}
+	events, _ := gateway.RecentEvents(EventFilter{})
+	found := false
+	for _, event := range events {
+		if event.Outcome == "rule_failed" && event.Detail == "led1-to-led2: network error" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("RecentEvents() = %#v, want a rule_failed entry mentioning the publish error", events)
+	}
+}
+
 func mustCommandID(t *testing.T, payload []byte) string {
 	t.Helper()
 	var command struct {
@@ -913,6 +1090,14 @@ type fakeAutomationRecorder struct {
 	commandErr  error
 	resultMatch bool
 	resultErr   error
+
+	// rules is keyed by "deviceID|eventType" for MatchAutomationRules.
+	rules      map[string][]registry.AutomationRule
+	matchErr   error
+	dedupExist bool
+	dedupErr   error
+	firedCount int
+	countErr   error
 }
 
 func (r *fakeAutomationRecorder) RecordAutomationEvent(_ context.Context, event registry.AutomationEvent) error {
@@ -928,6 +1113,21 @@ func (r *fakeAutomationRecorder) RecordAutomationCommand(_ context.Context, comm
 func (r *fakeAutomationRecorder) RecordAutomationCommandResult(_ context.Context, result registry.AutomationCommandResult) (bool, error) {
 	r.results = append(r.results, result)
 	return r.resultMatch, r.resultErr
+}
+
+func (r *fakeAutomationRecorder) MatchAutomationRules(_ context.Context, deviceID, eventType string) ([]registry.AutomationRule, error) {
+	if r.matchErr != nil {
+		return nil, r.matchErr
+	}
+	return r.rules[deviceID+"|"+eventType], nil
+}
+
+func (r *fakeAutomationRecorder) AutomationCommandExistsForRuleAndCausation(_ context.Context, _, _ string) (bool, error) {
+	return r.dedupExist, r.dedupErr
+}
+
+func (r *fakeAutomationRecorder) CountAutomationCommandsForRuleSince(_ context.Context, _ string, _ time.Time) (int, error) {
+	return r.firedCount, r.countErr
 }
 
 type recordingLogger struct {

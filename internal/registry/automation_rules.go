@@ -333,3 +333,70 @@ func insertAutomationRule(ctx context.Context, tx *sql.Tx, rule AutomationRule) 
 	}
 	return nil
 }
+
+// MatchAutomationRules returns every enabled rule whose trigger is exactly
+// deviceID/eventType (Marco 5 item 4 - the execution engine, internal/mqtt's
+// Gateway.fireAutomationRules). Uses the same partial index
+// registry_automation_rules_source that item 3's migration already created
+// for this exact access pattern. No caching: events are low-frequency
+// compared to telemetry, so a direct query per accepted event stays cheap
+// and is always current - no revision/hot-reload plumbing needed.
+func (s *Store) MatchAutomationRules(ctx context.Context, deviceID, eventType string) ([]AutomationRule, error) {
+	if s == nil || s.db == nil {
+		return nil, errors.New("registry store is closed")
+	}
+	rows, err := s.db.QueryContext(ctx, automationRuleSelect+` WHERE enabled = 1 AND source_device_id = ? AND event_type = ? ORDER BY id`,
+		deviceID, eventType)
+	if err != nil {
+		return nil, fmt.Errorf("match automation rules: %w", err)
+	}
+	defer rows.Close()
+	rules := make([]AutomationRule, 0)
+	for rows.Next() {
+		rule, err := scanAutomationRule(rows)
+		if err != nil {
+			return nil, fmt.Errorf("read automation rule: %w", err)
+		}
+		rules = append(rules, rule)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("match automation rules: %w", err)
+	}
+	return rules, nil
+}
+
+// AutomationCommandExistsForRuleAndCausation reports whether ruleID has
+// already fired in response to causationMessageID - the dedup check that
+// stops a redelivered (QoS 1) event from firing the same rule twice.
+func (s *Store) AutomationCommandExistsForRuleAndCausation(ctx context.Context, ruleID, causationMessageID string) (bool, error) {
+	if s == nil || s.db == nil {
+		return false, errors.New("registry store is closed")
+	}
+	var exists int
+	err := s.db.QueryRowContext(ctx, `SELECT 1 FROM registry_automation_commands
+		WHERE rule_id = ? AND causation_message_id = ? LIMIT 1`, ruleID, causationMessageID).Scan(&exists)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("check automation command dedup: %w", err)
+	}
+	return true, nil
+}
+
+// CountAutomationCommandsForRuleSince counts how many times ruleID has
+// fired since since. The execution engine uses this as a per-rule firing
+// rate limit standing in for true cycle detection (the protocol gives no
+// way to prove an event was itself caused by an earlier command - see
+// docs/device-manifests.md Marco 5's cycle-prevention note).
+func (s *Store) CountAutomationCommandsForRuleSince(ctx context.Context, ruleID string, since time.Time) (int, error) {
+	if s == nil || s.db == nil {
+		return 0, errors.New("registry store is closed")
+	}
+	var count int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM registry_automation_commands
+		WHERE rule_id = ? AND published_at_ns >= ?`, ruleID, since.UnixNano()).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count automation commands for rule: %w", err)
+	}
+	return count, nil
+}

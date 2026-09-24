@@ -28,15 +28,17 @@ type AutomationEvent struct {
 	OccurredAt time.Time
 }
 
-// AutomationCommand is one command the gateway published, either
-// operator/API-initiated (RouteID/CausationMessageID/CausationKind/
-// CausationDeviceID all empty) or fired by a local route in response to an
-// inbound message of any kind.
+// AutomationCommand is one command the gateway published: operator/API-
+// initiated (RouteID/RuleID/CausationMessageID/CausationKind/
+// CausationDeviceID all empty), fired by a local route (RouteID set), or
+// fired by an automation rule (RuleID set, Marco 5 item 4) in response to
+// an inbound message of any kind.
 type AutomationCommand struct {
 	CommandID          string
 	DeviceID           string
 	Topic              string
 	RouteID            string
+	RuleID             string
 	CausationMessageID string
 	CausationKind      string
 	CausationDeviceID  string
@@ -100,9 +102,9 @@ func (s *Store) RecordAutomationCommand(ctx context.Context, command AutomationC
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO registry_automation_commands
-		(command_id, device_id, topic, route_id, causation_message_id, causation_kind, causation_device_id, published_at_ns)
-		VALUES (?, ?, ?, NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), ?)`,
-		command.CommandID, command.DeviceID, command.Topic, command.RouteID,
+		(command_id, device_id, topic, route_id, rule_id, causation_message_id, causation_kind, causation_device_id, published_at_ns)
+		VALUES (?, ?, ?, NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), ?)`,
+		command.CommandID, command.DeviceID, command.Topic, command.RouteID, command.RuleID,
 		command.CausationMessageID, command.CausationKind, command.CausationDeviceID,
 		command.PublishedAt.UnixNano()); err != nil {
 		return fmt.Errorf("record automation command: %w", err)

@@ -15,6 +15,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/ricardossiqueira/iot-gateway/internal/automationrule"
 	"github.com/ricardossiqueira/iot-gateway/internal/config"
 	"github.com/ricardossiqueira/iot-gateway/internal/outbox"
 	"github.com/ricardossiqueira/iot-gateway/internal/registry"
@@ -92,12 +93,18 @@ type Outbox interface {
 
 // AutomationRecorder persists the event/causation/command-result trail
 // Marco 5's automations groundwork needs (docs/device-manifests.md), in
-// registry.Store's SQLite. Optional: a nil recorder simply skips
-// persistence, same shape as Outbox being nil in NewCommandPublisher.
+// registry.Store's SQLite, and (item 4) lets the gateway match and rate-
+// limit automation rules against an accepted event without caching them
+// itself - events are low-frequency enough that a direct query per event
+// stays cheap. Optional: a nil recorder simply skips both persistence and
+// rule execution, same shape as Outbox being nil in NewCommandPublisher.
 type AutomationRecorder interface {
 	RecordAutomationEvent(context.Context, registry.AutomationEvent) error
 	RecordAutomationCommand(context.Context, registry.AutomationCommand) error
 	RecordAutomationCommandResult(context.Context, registry.AutomationCommandResult) (bool, error)
+	MatchAutomationRules(ctx context.Context, deviceID, eventType string) ([]registry.AutomationRule, error)
+	AutomationCommandExistsForRuleAndCausation(ctx context.Context, ruleID, causationMessageID string) (bool, error)
+	CountAutomationCommandsForRuleSince(ctx context.Context, ruleID string, since time.Time) (int, error)
 }
 
 // AutomationLogger is an optional operational logging extension for
@@ -213,6 +220,18 @@ const maxRecentEvents = 200
 // EventFilter.Limit is unset - a page for gateway-web's activity table, not
 // the whole buffer every time.
 const defaultEventsLimit = 50
+
+// ruleFiringWindow and maxRuleFiringsPerRule bound how often a single
+// automation rule (Marco 5 item 4) may fire, standing in for true cycle
+// detection: the protocol gives no way to prove an event was itself caused
+// by an earlier command (only command-result optionally carries a
+// command_id, and no firmware sends it yet), so a per-rule firing-rate
+// limit is what's actually enforceable today. Not configurable per rule
+// yet - a fixed constant, same posture as automationActivityRetention.
+const (
+	ruleFiringWindow      = 10 * time.Second
+	maxRuleFiringsPerRule = 5
+)
 
 // ActivityEvent is one payload-free entry in the in-memory activity log -
 // same privacy discipline as Message/RejectedMessage above (never a
@@ -634,6 +653,7 @@ func (g *Gateway) handleMessage(ctx context.Context, topic string, payload []byt
 	switch message.Kind {
 	case Event:
 		g.recordAutomationEvent(ctx, message)
+		g.fireAutomationRules(ctx, message)
 	case CommandResult:
 		g.recordAutomationCommandResult(ctx, message)
 	}
@@ -730,6 +750,100 @@ func eventPayloadType(payload []byte) string {
 		return ""
 	}
 	return envelope.Type
+}
+
+// fireAutomationRules is the Marco 5 item 4 execution engine: for an
+// accepted event, match enabled automation rules and, for each match whose
+// condition passes, publish its action synchronously - the same delivery
+// model local routes already use (transformJSONCommand below), not the
+// outbox (there is no VPS consumer for it yet, and outbox's
+// priority/eviction model is tuned for bandwidth, not local urgency).
+// Best-effort throughout: a rule-matching or execution failure never
+// affects the accepted message itself.
+func (g *Gateway) fireAutomationRules(ctx context.Context, message Message) {
+	if g.automationRecorder == nil {
+		return
+	}
+	eventType := eventPayloadType(message.Payload)
+	if eventType == "" {
+		return
+	}
+	rules, err := g.automationRecorder.MatchAutomationRules(ctx, message.DeviceID, eventType)
+	if err != nil {
+		if logger, ok := g.logger.(AutomationLogger); ok {
+			logger.AutomationRecordFailed(ctx, "rule_match", err)
+		}
+		return
+	}
+	for _, rule := range rules {
+		g.fireAutomationRule(ctx, rule, message)
+	}
+}
+
+// fireAutomationRule applies one rule's dedup, condition and firing-rate
+// checks in order - the first one that doesn't pass skips this rule
+// without affecting any other matched rule - then publishes its action.
+func (g *Gateway) fireAutomationRule(ctx context.Context, rule registry.AutomationRule, message Message) {
+	exists, err := g.automationRecorder.AutomationCommandExistsForRuleAndCausation(ctx, rule.ID, message.MessageID)
+	if err != nil {
+		if logger, ok := g.logger.(AutomationLogger); ok {
+			logger.AutomationRecordFailed(ctx, "rule_dedup", err)
+		}
+		return
+	}
+	if exists {
+		return
+	}
+	if rule.ConditionJSON != "" {
+		matched, err := automationrule.Evaluate(json.RawMessage(rule.ConditionJSON), message.Payload)
+		if err != nil {
+			if logger, ok := g.logger.(AutomationLogger); ok {
+				logger.AutomationRecordFailed(ctx, "rule_condition", err)
+			}
+			return
+		}
+		if !matched {
+			return
+		}
+	}
+	count, err := g.automationRecorder.CountAutomationCommandsForRuleSince(ctx, rule.ID, time.Now().UTC().Add(-ruleFiringWindow))
+	if err != nil {
+		if logger, ok := g.logger.(AutomationLogger); ok {
+			logger.AutomationRecordFailed(ctx, "rule_rate_limit", err)
+		}
+		return
+	}
+	if count >= maxRuleFiringsPerRule {
+		return
+	}
+
+	g.configMu.RLock()
+	device, ok := g.devices[rule.ActionDeviceID]
+	g.configMu.RUnlock()
+	if !ok || device.Enabled == nil || !*device.Enabled || device.Topics.Command == "" {
+		g.recordEvent(ActivityEvent{Timestamp: time.Now().UTC(), DeviceID: rule.SourceDeviceID, Outcome: "rule_failed", Detail: rule.ID + ": action device is not enabled with a command topic"})
+		return
+	}
+	payload, commandID, err := transformJSONCommand(rule.ActionCommandType, []byte(rule.ActionParametersJSON))
+	if err != nil {
+		g.recordEvent(ActivityEvent{Timestamp: time.Now().UTC(), DeviceID: rule.SourceDeviceID, Topic: device.Topics.Command, Outcome: "rule_failed", Detail: rule.ID + ": " + err.Error()})
+		return
+	}
+	if err := g.client.Publish(ctx, device.Topics.Command, payload, qosAtLeastOnce, false); err != nil {
+		g.recordEvent(ActivityEvent{Timestamp: time.Now().UTC(), DeviceID: rule.SourceDeviceID, Topic: device.Topics.Command, Outcome: "rule_failed", Detail: rule.ID + ": " + err.Error()})
+		return
+	}
+	g.recordEvent(ActivityEvent{Timestamp: time.Now().UTC(), DeviceID: rule.SourceDeviceID, Topic: device.Topics.Command, Outcome: "rule_fired", Detail: rule.ID})
+	g.recordAutomationCommand(ctx, registry.AutomationCommand{
+		CommandID:          commandID,
+		DeviceID:           rule.ActionDeviceID,
+		Topic:              device.Topics.Command,
+		RuleID:             rule.ID,
+		CausationMessageID: message.MessageID,
+		CausationKind:      string(Event),
+		CausationDeviceID:  message.DeviceID,
+		PublishedAt:        time.Now().UTC(),
+	})
 }
 
 // recordAutomationCommandResult best-effort correlates an inbound

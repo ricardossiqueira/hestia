@@ -207,7 +207,13 @@ nunca receberão credenciais ou endereços uns dos outros.
 - [x] Padronizar eventos transitórios separados de state retained.
 - [x] Persistir `event_id`, `causation_id` e resultado de comando.
 - [x] Modelar regras evento → condição → ação no SQLite.
-- [ ] Executar ações via outbox com deduplicação e prevenção de ciclos.
+- [x] Executar ações via outbox com deduplicação e prevenção de ciclos.
+  Execução é síncrona (mesmo caminho que rotas locais já usam), não via
+  outbox — sem VPS ainda, não fazia sentido rotear por lá. Dedup por
+  `event_id` e "prevenção de ciclos" via limite de disparos por regra numa
+  janela de tempo (5 em 10s, constante fixa), já que o protocolo não
+  permite provar uma cadeia causal evento→comando→evento sem mudança de
+  firmware.
 - [ ] Só então construir a UI dedicada de automações.
 
 ## Critério de conclusão da primeira etapa
