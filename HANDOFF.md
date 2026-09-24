@@ -37,17 +37,21 @@ numa porta só) composto por **dois processos** (ADR-013 em
 Serviços expostos:
 
 - `DeviceService`: `ListDevices`, `ListDeviceCommands`, `PublishCommand`
-  (valida `parameters` contra Protobuf quando o device tem `profile:` —
-  `internal/deviceprofile`, só `led.v1` por enquanto; sem profile, fallback
-  opaco).
+  (valida `parameters` contra o schema da revisão de manifest vinculada ao
+  device — `internal/devicemanifest`, `docs/device-manifests.md`; sem
+  manifest vinculado, fallback opaco). `internal/deviceprofile`/`led.v1` e
+  as RPCs `ProvisionDevice`/`ProvisionCYD`/`ProvisionLED` foram aposentados
+  (ADR-016 em `docs/decisions.md`) — nenhum device legado dependia mais
+  deles.
 - `GatewayService`: `GetStatus`.
-- `DeviceAdminService`: `ProvisionDevice` (a partir de um template
-  compilado, só `esp32_led.v1` por enquanto — `internal/admin/
-  device_templates.go`), `SetDeviceEnabled`, `RemoveDevice`. Rollback
-  automático só em `ProvisionDevice` (ADR-014). A lógica mora em
-  `internal/admin` (`registration.go`, `devices.go`, `provision.go`,
-  `restart.go`) — `internal/apigateway` só a consome via a interface
-  `DeviceAdmin`, satisfeita por `*admin.Server`.
+- `DeviceAdminService`: `ProvisionDeviceByIP` (a partir de um manifest
+  publicado, valida `model`/versão do device antes de provisionar),
+  `RegisterExistingDevice` (adoção de serviço local, só `orangepi_monitor.v1`
+  por enquanto — `internal/admin/device_templates.go`), `SetDeviceEnabled`,
+  `RemoveDevice`. Rollback automático só em `ProvisionDeviceByIP` (ADR-014).
+  A lógica mora em `internal/admin` (`registration.go`, `devices.go`,
+  `provision.go`, `restart.go`) — `internal/apigateway` só a consome via a
+  interface `DeviceAdmin`, satisfeita por `*admin.Server`.
 
 **`internal/admin` não serve mais HTTP nenhum** — a UI HTML em `:8081` foi
 removida (ADR-015) depois que `gateway-web` implementou as três operações

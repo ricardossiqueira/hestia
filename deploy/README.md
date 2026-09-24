@@ -252,14 +252,17 @@ need `IOT_GATEWAY_API_USERNAME`/`PASSWORD` - only
 `MQTT_GATEWAY_USERNAME`/`PASSWORD`. If a previous install left the API
 variables there, they are simply unused now; safe to remove or to leave.
 
-### Primeiro boot do CYD
+### Primeiro boot por IP (CYD, LED e demais devices com manifest)
 
-O CYD recebe host, porta, usuario e senha MQTT diretamente no NVS pelo
-`DeviceAdminService.ProvisionCYD`; o navegador nunca recebe a senha. Defina
-`IOT_GATEWAY_DEVICE_MQTT_HOST` no `admin-environment` com o IP LAN do Orange
-Pi (nunca `127.0.0.1`) e reinicie somente `iot-gateway-admin.service`. O
-procedimento completo, incluindo o IP exibido pelo Serial Monitor, esta em
-[docs/cyd-first-boot-provisioning.md](../docs/cyd-first-boot-provisioning.md).
+O device recebe host, porta, usuario e senha MQTT diretamente no NVS pelo
+`DeviceAdminService.ProvisionDeviceByIP`, a partir de um manifest publicado
+compativel (`docs/device-manifests.md`); o navegador nunca recebe a senha.
+Defina `IOT_GATEWAY_DEVICE_MQTT_HOST` no `admin-environment` com o IP LAN do
+Orange Pi (nunca `127.0.0.1`) e reinicie somente
+`iot-gateway-admin.service`. O fluxo original que motivou este contrato
+comum, incluindo o IP exibido pelo Serial Monitor, esta em
+[docs/cyd-first-boot-provisioning.md](../docs/cyd-first-boot-provisioning.md)
+(hoje historico - ver o aviso de status no topo daquele documento).
 
 ### CORS (for a browser client, e.g. `gateway-web`)
 

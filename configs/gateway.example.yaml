@@ -48,7 +48,6 @@ devices:
   - id: esp32-sala
     type: esp32
     enabled: true
-    # profile: led.v1  # optional; enables schema validation via internal/deviceprofile (see docs/api-v1.md). Empty/absent = opaque fallback.
     topics:
       telemetry: devices/esp32-sala/telemetry
       state: devices/esp32-sala/state

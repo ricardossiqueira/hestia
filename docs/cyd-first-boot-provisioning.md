@@ -1,5 +1,13 @@
 # Provisionamento inicial do CYD
 
+> **Status: superado.** `ProvisionCYD`/`ProvisionLED` (as RPCs específicas
+> descritas aqui) foram aposentadas — ver ADR-016 em `decisions.md`. Todo
+> cadastro por IP, CYD incluído, usa hoje o contrato comum
+> `GET /v1/device-info` + `POST /v1/provision` e a RPC genérica
+> `ProvisionDeviceByIP`, descritos em `docs/device-manifests.md`. Este
+> documento fica como registro do fluxo original que motivou aquele
+> contrato comum.
+
 Este e o primeiro fluxo sem credencial MQTT compilada no firmware. Ele vale
 somente para `cyd-monitor`; LEDs e os demais devices continuam no fluxo atual
 ate adotarem a mesma API de primeiro boot.

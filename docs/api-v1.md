@@ -50,11 +50,10 @@ aplica CORS.
 - Publicação de comando é fire-and-forget: a resposta confirma que o
   broker aceitou a publicação (QoS 1), não que o dispositivo executou o
   comando.
-- Só o profile `led.v1` está registrado nesta etapa
-  (`internal/deviceprofile`). Um dispositivo sem `profile:` continua
-  funcionando, sem validação de schema (fallback opaco).
-- Só o template de provisionamento `esp32_led.v1` existe por enquanto —
-  ver "Administração de dispositivos" abaixo.
+- Comandos são validados contra o schema declarado na revisão de manifest
+  vinculada ao dispositivo (`docs/device-manifests.md`). Um dispositivo sem
+  manifest vinculado continua funcionando, sem validação de schema
+  (fallback opaco).
 
 ## Transporte e autenticação
 
@@ -124,7 +123,7 @@ Regras:
 | --- | --- | --- |
 | `ListDevices` | `DeviceService` | Lista todos os dispositivos cadastrados, habilitados ou não. |
 | `ListDeviceCommands` | `DeviceService` | Descreve os comandos que um dispositivo aceita (schema Protobuf). |
-| `PublishCommand` | `DeviceService` | Publica um comando, validado por schema quando o dispositivo tem profile. |
+| `PublishCommand` | `DeviceService` | Publica um comando, validado por schema quando o dispositivo tem manifest vinculado. |
 | `GetDeviceTelemetry` | `DeviceService` | Devolve a última mensagem `telemetry` aceita de um device, em cache (sem histórico). |
 | `GetStatus` | `GatewayService` | Espelha `internal/mqtt.Snapshot`: sessão MQTT, contadores, sem payloads. |
 | `GetQueueSummary` | `GatewayService` | Espelha `internal/outbox.Snapshot`: pendentes agora, bytes, idade do item mais antigo. |
@@ -133,9 +132,7 @@ Regras:
 | `ListRoutes` | `DeviceAdminService` | Lista as rotas locais persistidas no SQLite. |
 | `CreateRoute` | `DeviceAdminService` | Cria uma rota entre um tópico inbound e um `command` habilitados. |
 | `RemoveRoute` | `DeviceAdminService` | Remove uma rota local pelo ID. |
-| `ProvisionDevice` | `DeviceAdminService` | Cadastra um device novo a partir de um template. Devolve a senha MQTT uma única vez. |
-| `ProvisionCYD` | `DeviceAdminService` | Entrega a credencial MQTT diretamente ao CYD nao provisionado pelo IP; a resposta nunca contem senha. |
-| `ProvisionLED` | `DeviceAdminService` | Entrega a credencial MQTT diretamente ao ESP32-C3 LED nao provisionado pelo IP; a resposta nunca contem senha. |
+| `ProvisionDeviceByIP` | `DeviceAdminService` | Provisiona um device novo pelo IP a partir de um manifest publicado; a resposta nunca contém senha. |
 | `SetDeviceEnabled` | `DeviceAdminService` | Habilita/desabilita um device e aplica a politica sem reiniciar o gateway. |
 | `RemoveDevice` | `DeviceAdminService` | Revoga a credencial Mosquitto e remove o device do registry SQLite. |
 | `ListInconsistencies` | `DeviceAdminService` | Lista provisionamentos cuja compensação (rollback) também falhou. |
@@ -197,8 +194,8 @@ item, payload ou device por item: paginação/filtro por device e histórico de
 existir um modelo de persistência novo - a outbox é uma fila de trabalho
 pendente, não um log.
 
-Nenhum fluxo de provisionamento atual (`ProvisionDevice`/`ProvisionCYD`/
-`ProvisionLED`/`RegisterExistingDevice`) liga `forwarding.*_to_vps` - só o
+Nenhum fluxo de provisionamento atual (`ProvisionDeviceByIP`/
+`RegisterExistingDevice`) liga `forwarding.*_to_vps` - só o
 `configs/gateway.example.yaml` fictício tem isso. Na prática, hoje, o
 resumo da fila sempre volta zerado; não há ainda um jeito de habilitar
 encaminhamento por device.
@@ -228,33 +225,31 @@ estável de UI), então a próxima página é
 `has_more` na resposta indica se ainda existem eventos mais antigos além
 da página devolvida.
 
-## Profile, validação e fallback opaco
+## Manifest, validação e fallback opaco
 
-Um dispositivo pode declarar `profile: led.v1` em `gateway.yaml`
-(`Device.Profile`). Um profile é uma entrada do registry compilado em
-`internal/deviceprofile`: para cada `type` de comando, uma mensagem
-Protobuf que É o schema dos `parameters` daquele comando.
+Um dispositivo provisionado pelo fluxo genérico (`ProvisionDeviceByIP`)
+fica vinculado a uma revisão publicada de manifest (`manifest_id` +
+`manifest_revision`, `docs/device-manifests.md`). É essa revisão — nunca a
+mais recente publicada depois — que descreve os `type` de comando
+aceitos e o schema textual dos seus `parameters`, mesmo que o manifest
+seja arquivado depois.
 
-- Com profile: `PublishCommand` decodifica `parameters` (um
-  `google.protobuf.Struct`) como JSON, valida contra a mensagem Protobuf
-  do comando (`protojson`, sem campos desconhecidos, tipos e presença
-  verificados) e recodifica no formato canônico (`snake_case`, os mesmos
-  nomes de campo que o firmware lê) antes de publicar no MQTT. Um campo
-  declarado `optional` na mensagem (rastreio de presença do proto3) deve
-  estar presente — `{}` é rejeitado para `set_led`, porque `on` é
-  `optional`. A resposta traz `schema_validated: true`.
-- Sem profile: `parameters` é serializado como JSON e publicado sem
-  validação de schema — o mesmo contrato genérico de `docs/mqtt.md`
-  (`command_id`, `type`, `parameters` como objeto JSON). A resposta traz
-  `schema_validated: false`.
+- Com manifest vinculado: `PublishCommand` decodifica `parameters` (um
+  `google.protobuf.Struct`) como JSON e valida contra o schema declarado
+  na revisão vinculada (`boolean`, `string`, `number`, `integer`, campos
+  obrigatórios e campos desconhecidos são rejeitados), recodificando no
+  formato canônico antes de publicar no MQTT. A resposta traz
+  `schema_validated: true`.
+- Sem manifest vinculado: `parameters` é serializado como JSON e
+  publicado sem validação de schema — o mesmo contrato genérico de
+  `docs/mqtt.md` (`command_id`, `type`, `parameters` como objeto JSON). A
+  resposta traz `schema_validated: false`.
 
-`ListDeviceCommands` devolve, para cada `type` de comando de um profile,
-um `CommandDescriptor` com o nome da mensagem Protobuf e o
-`google.protobuf.DescriptorProto` completo dela — suficiente, sozinho,
-para um cliente montar um formulário, porque toda mensagem de comando do
-registry é autocontida (só campos escalares e tipos aninhados nela mesma;
-ver o comentário de `internal/deviceprofile`). Um dispositivo sem profile
-devolve `schema_validated: false` e uma lista vazia.
+`ListDeviceCommands` devolve, para cada `type` de comando declarado na
+revisão vinculada, um `CommandDescriptor` com o schema textual
+(`parameters_json`) — suficiente, sozinho, para um cliente montar um
+formulário (é o que `gateway-web` faz). Um dispositivo sem manifest
+vinculado devolve `schema_validated: false` e uma lista vazia.
 
 Erros de schema (campo desconhecido, tipo errado, campo obrigatório
 ausente, `type` de comando desconhecido, dispositivo desconhecido,
@@ -281,32 +276,31 @@ declarado `string` na mensagem do comando.
 lógica que a antiga UI HTML de admin em 8081 usava, agora sem nenhuma
 superfície HTTP própria (ADR-015).
 
-### Templates de provisionamento
+### Provisionamento por IP e adoção de serviço local
 
-`ProvisionDevice` não aceita tipo/tópicos livres — cria o device a partir
-de um template compilado em `internal/admin` (registry no mesmo espírito
-do `internal/deviceprofile`). Só existe um por enquanto:
+`ProvisionDeviceByIP` é o único caminho para cadastrar um device de rede
+novo: consulta o endpoint LAN do device, confere `model`/versão contra um
+manifest publicado (`docs/device-manifests.md`) e só então cria a
+identidade DynSec e entrega a configuração ao NVS. Um device criado assim
+já sai vinculado à revisão de manifest usada no cadastro, então
+`PublishCommand`/`ListDeviceCommands` já validam seus comandos declarados
+sem nenhum passo extra.
 
-| Template | `type` | `profile` | Tópicos |
-| --- | --- | --- | --- |
-| `esp32_led.v1` | `esp32` | `led.v1` | `state`, `command` |
-
-Um device criado por esse template já sai com `profile: led.v1`, então
-`PublishCommand`/`ListDeviceCommands` já validam `set_led` nele sem
-nenhum passo extra.
-
-`orangepi_monitor.v1` é diferente: representa o coletor local já instalado
-no Orange Pi. Use `RegisterExistingDevice` com o ID `orangepi-monitor` para
-registrar `devices/orangepi-monitor/telemetry` no SQLite. A operação não
-provisiona, consulta, expõe ou rotaciona senha MQTT; ela pressupõe a identidade
-DynSec que o serviço já usa.
+`RegisterExistingDevice` é diferente: usa um template compilado em
+`internal/admin` (registry `deviceTemplates`), mas só para *adotar* um
+serviço local cuja identidade DynSec já existe — nunca para provisionar
+credencial nova. Hoje `orangepi_monitor.v1` é o único template marcado para
+adoção; representa o coletor local já instalado no Orange Pi. Use o ID
+`orangepi-monitor` para registrar `devices/orangepi-monitor/telemetry` no
+SQLite. A operação não provisiona, consulta, expõe ou rotaciona senha
+MQTT; ela pressupõe a identidade DynSec que o serviço já usa.
 
 ### Operação atômica sem reinício
 
 As alterações de devices e rotas são commits curtos no SQLite. O processo
 `iot-gateway run` observa a revisão e troca sua policy em memória; não há
-restart de serviço como parte de um sucesso. `ProvisionDevice` continua com
-rollback da credencial DynSec quando o registro no SQLite falha. A remoção
+restart de serviço como parte de um sucesso. `ProvisionDeviceByIP` continua
+com rollback da credencial DynSec quando o registro no SQLite falha. A remoção
 não recria automaticamente uma credencial cuja revogação já tenha sido
 solicitada: uma falha parcial retorna erro para investigação do operador.
 
@@ -335,8 +329,8 @@ Ao contrário de `DeviceService` (que colapsa a maioria dos erros em
 
 | Código | Quando |
 | --- | --- |
-| `AlreadyExists` | `ProvisionDevice` para um `device_id` já cadastrado. |
-| `InvalidArgument` | `device_id` inválido ou `template` desconhecido. |
+| `AlreadyExists` | `ProvisionDeviceByIP` para um `device_id` já cadastrado. |
+| `InvalidArgument` | `device_id` inválido, `manifest_id`/`template` desconhecido ou device não compatível. |
 | `NotFound` | `SetDeviceEnabled`/`RemoveDevice` para um device inexistente; `ResolveInconsistency` para um `id` desconhecido ou já resolvido. |
 | `Internal` | Falha do script de provisionamento, escrita em `gateway.yaml` ou `systemctl` — nada que o cliente resolva mudando a requisição. |
 
@@ -363,7 +357,7 @@ curl -u <usuario>:<senha> \
   http://<orange-pi>:<porta>/iot.gateway.api.v1.DeviceService/ListDeviceCommands
 ```
 
-Publicar um comando (`led-1`, profile `led.v1`):
+Publicar um comando (`led-1`, manifest vinculado no cadastro):
 
 ```bash
 curl -u <usuario>:<senha> \
@@ -424,14 +418,14 @@ curl -u <usuario>:<senha> \
   http://<orange-pi>:<porta>/iot.gateway.api.v1.GatewayService/GetRecentEvents
 ```
 
-Cadastrar um LED novo (devolve a senha MQTT uma única vez — anote-a, ela
-não aparece de novo em nenhuma outra chamada):
+Cadastrar um device novo pelo IP, a partir de um manifest publicado (a
+senha MQTT vai direto para o NVS do device; não aparece nesta resposta):
 
 ```bash
 curl -u <usuario>:<senha> \
   -H 'Content-Type: application/json' \
-  -d '{"deviceId":"led-3","deviceIp":"192.168.15.43"}' \
-  http://<orange-pi>:<porta>/iot.gateway.api.v1.DeviceAdminService/ProvisionLED
+  -d '{"deviceId":"led-3","manifestId":"esp32-c3-led","deviceIp":"192.168.15.43"}' \
+  http://<orange-pi>:<porta>/iot.gateway.api.v1.DeviceAdminService/ProvisionDeviceByIP
 ```
 
 Desabilitar um device (fica cadastrado, só para de aceitar comandos):

@@ -67,7 +67,8 @@
 - `internal/deviceprofile`: registry compilado de profiles de device
   (`led.v1` nesta etapa); valida e canoniza `parameters` contra um schema
   Protobuf antes de publicar; device sem `profile:` cai em fallback opaco
-  (ADR-011).
+  (ADR-011). Aposentado no Marco 4 de `docs/device-manifests.md` em favor da
+  validação por manifest publicado (ADR-016).
 - Mesma autenticação HTTP Basic e mesma restrição de uso à LAN confiável da
   UI de admin.
 - Substitui `internal/commandapi`, removido nesta mesma entrega.
@@ -101,7 +102,9 @@
 - `ProvisionDevice` cria a partir de um template compilado (só
   `esp32_led.v1` por enquanto) e tem rollback automático se a escrita em
   `gateway.yaml` falhar depois da credencial Mosquitto já criada;
-  `RemoveDevice` não desfaz uma remoção parcial (ADR-014).
+  `RemoveDevice` não desfaz uma remoção parcial (ADR-014). `ProvisionDevice`
+  e seu template foram aposentados no Marco 4 de `docs/device-manifests.md`
+  em favor de `ProvisionDeviceByIP` (ADR-016).
 
 ## Extensão local — aposentadoria da UI HTML de admin (concluído)
 
