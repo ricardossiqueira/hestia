@@ -44,7 +44,7 @@ func (c *pahoClient) Connected() bool { return c.client.IsConnected() }
 
 func (c *pahoClient) Subscribe(ctx context.Context, topic string, handler MessageHandler) error {
 	token := c.client.Subscribe(topic, qosAtLeastOnce, func(_ paho.Client, message paho.Message) {
-		handler(context.Background(), message.Topic(), message.Payload())
+		handler(context.Background(), message.Topic(), message.Payload(), message.Retained())
 	})
 	if err := waitToken(ctx, token); err != nil {
 		return fmt.Errorf("subscribe: %w", err)

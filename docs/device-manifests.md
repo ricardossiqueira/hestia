@@ -204,8 +204,8 @@ nunca receberão credenciais ou endereços uns dos outros.
 
 ### Marco 5 — base para automações
 
-- [ ] Padronizar eventos transitórios separados de state retained.
-- [ ] Persistir `event_id`, `causation_id` e resultado de comando.
+- [x] Padronizar eventos transitórios separados de state retained.
+- [x] Persistir `event_id`, `causation_id` e resultado de comando.
 - [ ] Modelar regras evento → condição → ação no SQLite.
 - [ ] Executar ações via outbox com deduplicação e prevenção de ciclos.
 - [ ] Só então construir a UI dedicada de automações.

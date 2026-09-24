@@ -17,6 +17,7 @@ import (
 
 	"github.com/ricardossiqueira/iot-gateway/internal/config"
 	"github.com/ricardossiqueira/iot-gateway/internal/outbox"
+	"github.com/ricardossiqueira/iot-gateway/internal/registry"
 )
 
 const qosAtLeastOnce byte = 1
@@ -68,7 +69,10 @@ type OutboxLogger interface {
 }
 
 // MessageHandler is invoked by a Client for a message on a subscribed topic.
-type MessageHandler func(ctx context.Context, topic string, payload []byte)
+// retained is the MQTT retained flag as the broker delivered it - true for
+// a message replayed on (re)subscribe (the broker's last-known value for
+// that topic), not necessarily a live transition.
+type MessageHandler func(ctx context.Context, topic string, payload []byte, retained bool)
 
 // Client is the small MQTT transport boundary used by the gateway. It keeps
 // gateway tests independent of a live Mosquitto broker and MQTT library.
@@ -84,6 +88,24 @@ type Client interface {
 // The SQLite implementation lives in internal/outbox and has no MQTT imports.
 type Outbox interface {
 	Enqueue(context.Context, outbox.Message) (outbox.EnqueueResult, error)
+}
+
+// AutomationRecorder persists the event/causation/command-result trail
+// Marco 5's automations groundwork needs (docs/device-manifests.md), in
+// registry.Store's SQLite. Optional: a nil recorder simply skips
+// persistence, same shape as Outbox being nil in NewCommandPublisher.
+type AutomationRecorder interface {
+	RecordAutomationEvent(context.Context, registry.AutomationEvent) error
+	RecordAutomationCommand(context.Context, registry.AutomationCommand) error
+	RecordAutomationCommandResult(context.Context, registry.AutomationCommandResult) (bool, error)
+}
+
+// AutomationLogger is an optional operational logging extension for
+// AutomationRecorder failures - these are always best-effort and never
+// affect message acceptance or command publication, so a Logger that
+// doesn't implement this simply has nothing surface them.
+type AutomationLogger interface {
+	AutomationRecordFailed(ctx context.Context, kind string, err error)
 }
 
 // Credentials are read separately from YAML so configuration can be committed
@@ -116,14 +138,15 @@ func ResolveCredentials(mqtt config.MQTT, lookup func(string) string) (Credentia
 
 // Gateway subscribes to configured device topics and publishes validated commands.
 type Gateway struct {
-	client   Client
-	logger   Logger
-	routes   map[string]route
-	forwards map[string][]config.Route
-	outbox   Outbox
-	toOutbox map[string]outbox.Kind
-	topics   []string
-	devices  map[string]config.Device
+	client             Client
+	logger             Logger
+	routes             map[string]route
+	forwards           map[string][]config.Route
+	outbox             Outbox
+	toOutbox           map[string]outbox.Kind
+	topics             []string
+	devices            map[string]config.Device
+	automationRecorder AutomationRecorder
 
 	mu        sync.Mutex
 	configMu  sync.RWMutex
@@ -231,18 +254,20 @@ type EventFilter struct {
 }
 
 // New constructs the MQTT gateway from an already validated configuration.
-func New(cfg config.Config, client Client, logger Logger, queue Outbox) (*Gateway, error) {
-	return newGateway(cfg, client, logger, queue, true)
+// recorder may be nil - see AutomationRecorder's doc comment.
+func New(cfg config.Config, client Client, logger Logger, queue Outbox, recorder AutomationRecorder) (*Gateway, error) {
+	return newGateway(cfg, client, logger, queue, true, recorder)
 }
 
 // NewCommandPublisher constructs the narrow gateway capability needed by the
 // publish-test-command CLI. It intentionally does not open or require the
-// durable outbox, because it cannot receive and forward inbound messages.
+// durable outbox, because it cannot receive and forward inbound messages -
+// nor does it record automation activity, for the same reason.
 func NewCommandPublisher(cfg config.Config, client Client, logger Logger) (*Gateway, error) {
-	return newGateway(cfg, client, logger, nil, false)
+	return newGateway(cfg, client, logger, nil, false, nil)
 }
 
-func newGateway(cfg config.Config, client Client, logger Logger, queue Outbox, requireOutbox bool) (*Gateway, error) {
+func newGateway(cfg config.Config, client Client, logger Logger, queue Outbox, requireOutbox bool, recorder AutomationRecorder) (*Gateway, error) {
 	if client == nil {
 		return nil, errors.New("MQTT client is required")
 	}
@@ -251,10 +276,11 @@ func newGateway(cfg config.Config, client Client, logger Logger, queue Outbox, r
 	}
 
 	gateway := &Gateway{
-		client:        client,
-		logger:        logger,
-		outbox:        queue,
-		lastTelemetry: make(map[string]telemetryEntry),
+		client:             client,
+		logger:             logger,
+		outbox:             queue,
+		automationRecorder: recorder,
+		lastTelemetry:      make(map[string]telemetryEntry),
 	}
 	routes, forwards, toOutbox, topics, devices, err := buildRouting(cfg, queue, requireOutbox)
 	if err != nil {
@@ -554,16 +580,38 @@ func (g *Gateway) PublishCommand(ctx context.Context, deviceID string, payload [
 	if device.Topics.Command == "" {
 		return fmt.Errorf("device %q does not define a command topic", deviceID)
 	}
-	if err := validateCommand(payload); err != nil {
+	commandID, err := validateCommand(payload)
+	if err != nil {
 		return fmt.Errorf("invalid command for device %q: %w", deviceID, err)
 	}
 	if err := g.client.Publish(ctx, device.Topics.Command, append([]byte(nil), payload...), qosAtLeastOnce, false); err != nil {
 		return fmt.Errorf("publish command to %q: %w", deviceID, err)
 	}
+	g.recordAutomationCommand(ctx, registry.AutomationCommand{
+		CommandID:   commandID,
+		DeviceID:    deviceID,
+		Topic:       device.Topics.Command,
+		PublishedAt: time.Now().UTC(),
+	})
 	return nil
 }
 
-func (g *Gateway) handleMessage(ctx context.Context, topic string, payload []byte) {
+// recordAutomationCommand is best-effort: a persistence failure never
+// unwinds an already-published command, it only surfaces through the
+// optional AutomationLogger extension (same posture as outbox failures,
+// see OutboxLogger's call sites in handleMessage).
+func (g *Gateway) recordAutomationCommand(ctx context.Context, command registry.AutomationCommand) {
+	if g.automationRecorder == nil {
+		return
+	}
+	if err := g.automationRecorder.RecordAutomationCommand(ctx, command); err != nil {
+		if logger, ok := g.logger.(AutomationLogger); ok {
+			logger.AutomationRecordFailed(ctx, "command", err)
+		}
+	}
+}
+
+func (g *Gateway) handleMessage(ctx context.Context, topic string, payload []byte, retained bool) {
 	g.configMu.RLock()
 	route, exists := g.routes[topic]
 	if !exists {
@@ -573,7 +621,7 @@ func (g *Gateway) handleMessage(ctx context.Context, topic string, payload []byt
 	toOutbox, forward := g.toOutbox[topic]
 	forwards := append([]config.Route(nil), g.forwards[topic]...)
 	g.configMu.RUnlock()
-	message, err := validateInbound(route, topic, payload)
+	message, err := validateInbound(route, topic, payload, retained)
 	if err != nil {
 		g.rejectedMessages.Add(1)
 		g.logger.Rejected(ctx, RejectedMessage{DeviceID: route.deviceID, Kind: route.kind, Topic: topic, Reason: err.Error()})
@@ -583,6 +631,12 @@ func (g *Gateway) handleMessage(ctx context.Context, topic string, payload []byt
 	g.acceptedMessages.Add(1)
 	g.logger.Accepted(ctx, message)
 	g.recordEvent(ActivityEvent{Timestamp: message.Timestamp, DeviceID: message.DeviceID, Kind: message.Kind, Topic: message.Topic, Outcome: "accepted"})
+	switch message.Kind {
+	case Event:
+		g.recordAutomationEvent(ctx, message)
+	case CommandResult:
+		g.recordAutomationCommandResult(ctx, message)
+	}
 	if route.kind == Telemetry {
 		g.telemetryMu.Lock()
 		g.lastTelemetry[route.deviceID] = telemetryEntry{payload: message.Payload, observedAt: message.Timestamp}
@@ -616,9 +670,9 @@ func (g *Gateway) handleMessage(ctx context.Context, topic string, payload []byt
 		}
 	}
 	for _, forward := range forwards {
-		payload, err := transformJSONCommand(forward.Transform.CommandType, message.Payload)
+		commandPayload, commandID, err := transformJSONCommand(forward.Transform.CommandType, message.Payload)
 		if err == nil {
-			err = g.client.Publish(ctx, forward.DestinationTopic, payload, forward.QoS, forward.Retain)
+			err = g.client.Publish(ctx, forward.DestinationTopic, commandPayload, forward.QoS, forward.Retain)
 		}
 		if err != nil {
 			g.localRoutesFailed.Add(1)
@@ -628,6 +682,80 @@ func (g *Gateway) handleMessage(ctx context.Context, topic string, payload []byt
 		} else {
 			g.localRoutesPublished.Add(1)
 			g.recordEvent(ActivityEvent{Timestamp: time.Now().UTC(), DeviceID: route.deviceID, Topic: forward.DestinationTopic, Outcome: "route_published", Detail: forward.ID})
+			g.recordAutomationCommand(ctx, registry.AutomationCommand{
+				CommandID:          commandID,
+				DeviceID:           route.deviceID,
+				Topic:              forward.DestinationTopic,
+				RouteID:            forward.ID,
+				CausationMessageID: message.MessageID,
+				CausationKind:      string(message.Kind),
+				CausationDeviceID:  message.DeviceID,
+				PublishedAt:        time.Now().UTC(),
+			})
+		}
+	}
+}
+
+// recordAutomationEvent persists an accepted event-kind message. Best-effort:
+// see recordAutomationCommand's doc comment.
+func (g *Gateway) recordAutomationEvent(ctx context.Context, message Message) {
+	if g.automationRecorder == nil {
+		return
+	}
+	err := g.automationRecorder.RecordAutomationEvent(ctx, registry.AutomationEvent{
+		EventID:    message.MessageID,
+		DeviceID:   message.DeviceID,
+		Topic:      message.Topic,
+		EventType:  eventPayloadType(message.Payload),
+		Payload:    message.Payload,
+		OccurredAt: message.Timestamp,
+	})
+	if err != nil {
+		if logger, ok := g.logger.(AutomationLogger); ok {
+			logger.AutomationRecordFailed(ctx, "event", err)
+		}
+	}
+}
+
+// eventPayloadType best-effort extracts a top-level "type" string field from
+// an event payload, matching devicemanifest.Event.Type's convention. It is
+// purely for indexing/presentation - an empty result (absent, non-string,
+// malformed JSON) is never an error, since validateInbound never required
+// this field.
+func eventPayloadType(payload []byte) string {
+	var envelope struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(payload, &envelope); err != nil {
+		return ""
+	}
+	return envelope.Type
+}
+
+// recordAutomationCommandResult best-effort correlates an inbound
+// command-result message to the command_id it responds to, when the
+// payload carries one - optional, since no firmware embeds it yet (see
+// docs/api-v1.md). A missing or malformed command_id is not an error: the
+// message was already accepted and is simply left uncorrelated.
+func (g *Gateway) recordAutomationCommandResult(ctx context.Context, message Message) {
+	if g.automationRecorder == nil {
+		return
+	}
+	var envelope struct {
+		CommandID string `json:"command_id"`
+	}
+	if err := json.Unmarshal(message.Payload, &envelope); err != nil || !uuidPattern.MatchString(envelope.CommandID) {
+		return
+	}
+	_, err := g.automationRecorder.RecordAutomationCommandResult(ctx, registry.AutomationCommandResult{
+		CommandID:       envelope.CommandID,
+		ResultMessageID: message.MessageID,
+		Payload:         message.Payload,
+		RecordedAt:      time.Now().UTC(),
+	})
+	if err != nil {
+		if logger, ok := g.logger.(AutomationLogger); ok {
+			logger.AutomationRecordFailed(ctx, "command_result", err)
 		}
 	}
 }
@@ -645,25 +773,33 @@ func forwardsToVPS(device config.Device, kind Kind) bool {
 	}
 }
 
-func transformJSONCommand(commandType string, parameters []byte) ([]byte, error) {
+func transformJSONCommand(commandType string, parameters []byte) (payload []byte, commandID string, err error) {
 	var object map[string]json.RawMessage
 	if err := json.Unmarshal(parameters, &object); err != nil || object == nil {
-		return nil, errors.New("route payload must be a JSON object")
+		return nil, "", errors.New("route payload must be a JSON object")
 	}
 	var id [16]byte
 	if _, err := rand.Read(id[:]); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	id[6] = (id[6] & 0x0f) | 0x40
 	id[8] = (id[8] & 0x3f) | 0x80
-	return json.Marshal(struct {
+	commandID = fmt.Sprintf("%x-%x-%x-%x-%x", id[0:4], id[4:6], id[6:8], id[8:10], id[10:16])
+	payload, err = json.Marshal(struct {
 		CommandID  string          `json:"command_id"`
 		Type       string          `json:"type"`
 		Parameters json.RawMessage `json:"parameters"`
-	}{fmt.Sprintf("%x-%x-%x-%x-%x", id[0:4], id[4:6], id[6:8], id[8:10], id[10:16]), commandType, parameters})
+	}{commandID, commandType, parameters})
+	if err != nil {
+		return nil, "", err
+	}
+	return payload, commandID, nil
 }
 
-func validateInbound(route route, topic string, payload []byte) (Message, error) {
+func validateInbound(route route, topic string, payload []byte, retained bool) (Message, error) {
+	if route.kind == Event && retained {
+		return Message{}, errors.New("event messages must not be retained")
+	}
 	if !utf8.Valid(payload) {
 		return Message{}, errors.New("payload is not valid UTF-8")
 	}
@@ -701,9 +837,9 @@ func validateInbound(route route, topic string, payload []byte) (Message, error)
 	}, nil
 }
 
-func validateCommand(payload []byte) error {
+func validateCommand(payload []byte) (commandID string, err error) {
 	if !utf8.Valid(payload) {
-		return errors.New("payload is not valid UTF-8")
+		return "", errors.New("payload is not valid UTF-8")
 	}
 	var command struct {
 		CommandID  string          `json:"command_id"`
@@ -713,19 +849,19 @@ func validateCommand(payload []byte) error {
 	var parameters map[string]json.RawMessage
 	var object map[string]json.RawMessage
 	if err := json.Unmarshal(payload, &object); err != nil || object == nil {
-		return errors.New("payload must be a JSON object")
+		return "", errors.New("payload must be a JSON object")
 	}
 	if err := json.Unmarshal(payload, &command); err != nil {
-		return fmt.Errorf("decode command: %w", err)
+		return "", fmt.Errorf("decode command: %w", err)
 	}
 	if !uuidPattern.MatchString(command.CommandID) {
-		return errors.New("command_id must be a UUID")
+		return "", errors.New("command_id must be a UUID")
 	}
 	if strings.TrimSpace(command.Type) == "" {
-		return errors.New("type is required")
+		return "", errors.New("type is required")
 	}
 	if len(command.Parameters) == 0 || json.Unmarshal(command.Parameters, &parameters) != nil || parameters == nil {
-		return errors.New("parameters must be a JSON object")
+		return "", errors.New("parameters must be a JSON object")
 	}
-	return nil
+	return command.CommandID, nil
 }

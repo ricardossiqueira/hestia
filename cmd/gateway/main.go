@@ -206,7 +206,7 @@ func runGateway(args []string, stderr io.Writer) int {
 	runtimeSnapshot := snapshot
 	runtimeConfig := cfg
 	logger := slog.New(slog.NewTextHandler(stderr, nil))
-	gateway, err := gatewaymqtt.New(runtimeConfig, client, gatewaymqtt.NewSlogLogger(logger), store)
+	gateway, err := gatewaymqtt.New(runtimeConfig, client, gatewaymqtt.NewSlogLogger(logger), store, deviceRegistry)
 	if err != nil {
 		fmt.Fprintf(stderr, "MQTT gateway setup failed: %v\n", err)
 		return 1

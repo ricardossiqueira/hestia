@@ -10,6 +10,7 @@ import (
 
 	"github.com/ricardossiqueira/iot-gateway/internal/config"
 	"github.com/ricardossiqueira/iot-gateway/internal/outbox"
+	"github.com/ricardossiqueira/iot-gateway/internal/registry"
 )
 
 func TestResolveCredentials(t *testing.T) {
@@ -62,7 +63,7 @@ func TestResolveCredentials(t *testing.T) {
 func TestGatewayStartsEnabledInboundTopicsAndLogsAcceptedMessage(t *testing.T) {
 	client := &fakeClient{}
 	logger := &recordingLogger{}
-	gateway, err := New(testConfig(), client, logger, nil)
+	gateway, err := New(testConfig(), client, logger, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +111,7 @@ func TestGatewaySnapshotCountsPayloadFreeOutcomes(t *testing.T) {
 	}}
 	client := &fakeClient{}
 	queue := &fakeOutbox{result: outbox.EnqueueResult{Stored: true}}
-	gateway, err := New(cfg, client, &recordingLogger{}, queue)
+	gateway, err := New(cfg, client, &recordingLogger{}, queue, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +139,7 @@ func TestGatewaySnapshotCountsRouteAndOutboxFailures(t *testing.T) {
 	}}
 	client := &fakeClient{publishErr: errors.New("unavailable")}
 	queue := &fakeOutbox{err: errors.New("disk full")}
-	gateway, err := New(cfg, client, &recordingLogger{}, queue)
+	gateway, err := New(cfg, client, &recordingLogger{}, queue, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +156,7 @@ func TestGatewaySnapshotCountsRouteAndOutboxFailures(t *testing.T) {
 func TestGatewayRejectsMalformedInboundMessage(t *testing.T) {
 	client := &fakeClient{}
 	logger := &recordingLogger{}
-	gateway, err := New(testConfig(), client, logger, nil)
+	gateway, err := New(testConfig(), client, logger, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,12 +190,39 @@ func TestGatewayRejectsMalformedInboundMessage(t *testing.T) {
 	}
 }
 
+func TestGatewayRejectsRetainedEvent(t *testing.T) {
+	client := &fakeClient{}
+	logger := &recordingLogger{}
+	gateway, err := New(testConfig(), client, logger, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := gateway.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	client.deliverRetained("devices/esp32-sala/event", []byte(`{"message_id":"b4a5bb31-1710-4f7b-a043-1b6a292d04ad","timestamp":"2026-09-18T15:00:00Z"}`))
+
+	if len(logger.accepted) != 0 {
+		t.Errorf("accepted messages = %d, want 0", len(logger.accepted))
+	}
+	if len(logger.rejected) != 1 {
+		t.Fatalf("rejected messages = %d, want 1", len(logger.rejected))
+	}
+	if got := logger.rejected[0]; got.Kind != Event || !strings.Contains(got.Reason, "retained") {
+		t.Errorf("rejected message = %#v, want Kind=%q and Reason mentioning \"retained\"", got, Event)
+	}
+	if snapshot := gateway.Snapshot(); snapshot.RejectedMessages != 1 {
+		t.Errorf("snapshot.RejectedMessages = %d, want 1", snapshot.RejectedMessages)
+	}
+}
+
 func TestGatewayDoesNotSubscribeDisabledDevices(t *testing.T) {
 	cfg := testConfig()
 	disabled := false
 	cfg.Devices[0].Enabled = &disabled
 	client := &fakeClient{}
-	gateway, err := New(cfg, client, &recordingLogger{}, nil)
+	gateway, err := New(cfg, client, &recordingLogger{}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,7 +236,7 @@ func TestGatewayDoesNotSubscribeDisabledDevices(t *testing.T) {
 
 func TestGatewayClosesClientWhenStartingFails(t *testing.T) {
 	client := &fakeClient{subscribeErr: errors.New("broker unavailable")}
-	gateway, err := New(testConfig(), client, &recordingLogger{}, nil)
+	gateway, err := New(testConfig(), client, &recordingLogger{}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,7 +250,7 @@ func TestGatewayClosesClientWhenStartingFails(t *testing.T) {
 
 func TestGatewayClosesClientWhenConnectingFails(t *testing.T) {
 	client := &fakeClient{connectErr: errors.New("broker unavailable")}
-	gateway, err := New(testConfig(), client, &recordingLogger{}, nil)
+	gateway, err := New(testConfig(), client, &recordingLogger{}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -238,7 +266,7 @@ func TestGatewayDoesNotUseClientWhenContextIsCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	client := &fakeClient{}
-	gateway, err := New(testConfig(), client, &recordingLogger{}, nil)
+	gateway, err := New(testConfig(), client, &recordingLogger{}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -258,7 +286,7 @@ func TestGatewayDoesNotUseClientWhenContextIsCanceled(t *testing.T) {
 
 func TestGatewayPublishesCommandOnlyForEnabledDeviceWithCommandTopic(t *testing.T) {
 	client := &fakeClient{}
-	gateway, err := New(testConfig(), client, &recordingLogger{}, nil)
+	gateway, err := New(testConfig(), client, &recordingLogger{}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -277,7 +305,7 @@ func TestGatewayPublishesCommandOnlyForEnabledDeviceWithCommandTopic(t *testing.
 	disabledConfig := testConfig()
 	disabled := false
 	disabledConfig.Devices[0].Enabled = &disabled
-	disabledGateway, err := New(disabledConfig, &fakeClient{}, &recordingLogger{}, nil)
+	disabledGateway, err := New(disabledConfig, &fakeClient{}, &recordingLogger{}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -304,7 +332,7 @@ func TestGatewayForwardsThroughGenericJSONCommandRoute(t *testing.T) {
 		Transform: config.RouteTransform{Type: "json_command", CommandType: "render_status"},
 	}}
 	client := &fakeClient{}
-	gateway, err := New(cfg, client, &recordingLogger{}, nil)
+	gateway, err := New(cfg, client, &recordingLogger{}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -333,6 +361,167 @@ func TestGatewayForwardsThroughGenericJSONCommandRoute(t *testing.T) {
 	}
 }
 
+func TestGatewayRecordsAcceptedEventAsAutomationEvent(t *testing.T) {
+	client := &fakeClient{}
+	recorder := &fakeAutomationRecorder{}
+	gateway, err := New(testConfig(), client, &recordingLogger{}, nil, recorder)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := gateway.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	payload := []byte(`{"message_id":"b4a5bb31-1710-4f7b-a043-1b6a292d04ad","timestamp":"2026-09-18T15:00:00Z","type":"button_pressed"}`)
+	client.deliver("devices/esp32-sala/event", payload)
+
+	if len(recorder.events) != 1 {
+		t.Fatalf("recorded events = %#v, want 1", recorder.events)
+	}
+	got := recorder.events[0]
+	if got.EventID != "b4a5bb31-1710-4f7b-a043-1b6a292d04ad" || got.DeviceID != "esp32-sala" ||
+		got.Topic != "devices/esp32-sala/event" || got.EventType != "button_pressed" || string(got.Payload) != string(payload) {
+		t.Errorf("recorded event = %#v", got)
+	}
+	if len(recorder.commands) != 0 || len(recorder.results) != 0 {
+		t.Errorf("unexpected command/result recordings = %#v / %#v", recorder.commands, recorder.results)
+	}
+}
+
+func TestGatewayRecordsRouteCommandWithCausation(t *testing.T) {
+	cfg := testConfig()
+	cfg.Devices = append(cfg.Devices, config.Device{ID: "display", Enabled: boolPtr(true), Topics: config.Topics{Command: "devices/display/command"}})
+	cfg.Routes = []config.Route{{
+		ID: "status-to-display", SourceTopic: "devices/esp32-sala/telemetry", DestinationTopic: "devices/display/command", QoS: 1,
+		Transform: config.RouteTransform{Type: "json_command", CommandType: "render_status"},
+	}}
+	client := &fakeClient{}
+	recorder := &fakeAutomationRecorder{}
+	gateway, err := New(cfg, client, &recordingLogger{}, nil, recorder)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := gateway.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	client.deliver("devices/esp32-sala/telemetry", []byte(`{"message_id":"b4a5bb31-1710-4f7b-a043-1b6a292d04ad","timestamp":"2026-09-18T15:00:00Z","cpu_pct":24.6}`))
+
+	if len(recorder.commands) != 1 {
+		t.Fatalf("recorded commands = %#v, want 1", recorder.commands)
+	}
+	got := recorder.commands[0]
+	if got.CommandID == "" || got.DeviceID != "esp32-sala" || got.Topic != "devices/display/command" ||
+		got.RouteID != "status-to-display" || got.CausationMessageID != "b4a5bb31-1710-4f7b-a043-1b6a292d04ad" ||
+		got.CausationKind != string(Telemetry) || got.CausationDeviceID != "esp32-sala" {
+		t.Errorf("recorded command = %#v", got)
+	}
+	if got.CommandID != mustCommandID(t, client.published[0].payload) {
+		t.Errorf("recorded command_id %q does not match published payload", got.CommandID)
+	}
+}
+
+func TestGatewayPublishCommandRecordsWithoutCausation(t *testing.T) {
+	client := &fakeClient{}
+	recorder := &fakeAutomationRecorder{}
+	gateway, err := New(testConfig(), client, &recordingLogger{}, nil, recorder)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := gateway.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := gateway.PublishCommand(context.Background(), "esp32-sala", validCommand()); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(recorder.commands) != 1 {
+		t.Fatalf("recorded commands = %#v, want 1", recorder.commands)
+	}
+	got := recorder.commands[0]
+	if got.CommandID != "a9f2290d-d1ee-4cbc-841d-03e29a7f028c" || got.DeviceID != "esp32-sala" ||
+		got.Topic != "devices/esp32-sala/command" ||
+		got.RouteID != "" || got.CausationMessageID != "" || got.CausationKind != "" || got.CausationDeviceID != "" {
+		t.Errorf("recorded command = %#v, want no causation", got)
+	}
+}
+
+func TestGatewayCorrelatesCommandResultWhenCommandIDPresent(t *testing.T) {
+	client := &fakeClient{}
+	recorder := &fakeAutomationRecorder{resultMatch: true}
+	logger := &recordingLogger{}
+	gateway, err := New(testConfig(), client, logger, nil, recorder)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := gateway.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	client.deliver("devices/esp32-sala/command-result", []byte(`{"message_id":"e9f2290d-d1ee-4cbc-841d-03e29a7f028c","timestamp":"2026-09-18T15:00:00Z","command_id":"a9f2290d-d1ee-4cbc-841d-03e29a7f028c","status":"ok"}`))
+
+	if len(logger.accepted) != 1 {
+		t.Fatalf("accepted messages = %d, want 1", len(logger.accepted))
+	}
+	if len(recorder.results) != 1 {
+		t.Fatalf("recorded results = %#v, want 1", recorder.results)
+	}
+	got := recorder.results[0]
+	if got.CommandID != "a9f2290d-d1ee-4cbc-841d-03e29a7f028c" || got.ResultMessageID != "e9f2290d-d1ee-4cbc-841d-03e29a7f028c" {
+		t.Errorf("recorded result = %#v", got)
+	}
+}
+
+func TestGatewayAcceptsCommandResultWithoutCommandID(t *testing.T) {
+	client := &fakeClient{}
+	recorder := &fakeAutomationRecorder{}
+	logger := &recordingLogger{}
+	gateway, err := New(testConfig(), client, logger, nil, recorder)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := gateway.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	client.deliver("devices/esp32-sala/command-result", []byte(`{"message_id":"e9f2290d-d1ee-4cbc-841d-03e29a7f028c","timestamp":"2026-09-18T15:00:00Z","status":"ok"}`))
+
+	if len(logger.accepted) != 1 {
+		t.Fatalf("accepted messages = %d, want 1", len(logger.accepted))
+	}
+	if len(recorder.results) != 0 {
+		t.Errorf("recorded results = %#v, want none", recorder.results)
+	}
+}
+
+func TestGatewayKeepsAcceptingWhenAutomationRecordingFails(t *testing.T) {
+	client := &fakeClient{}
+	recorder := &fakeAutomationRecorder{eventErr: errors.New("disk full")}
+	logger := &recordingLogger{}
+	gateway, err := New(testConfig(), client, logger, nil, recorder)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := gateway.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	client.deliver("devices/esp32-sala/event", []byte(`{"message_id":"b4a5bb31-1710-4f7b-a043-1b6a292d04ad","timestamp":"2026-09-18T15:00:00Z"}`))
+
+	if len(logger.accepted) != 1 {
+		t.Errorf("accepted messages = %d, want 1 (recording failure must not reject the message)", len(logger.accepted))
+	}
+	if len(logger.automationFailures) != 1 || logger.automationFailures[0] != "event" {
+		t.Errorf("automation failures = %#v, want [\"event\"]", logger.automationFailures)
+	}
+}
+
+func mustCommandID(t *testing.T, payload []byte) string {
+	t.Helper()
+	var command struct {
+		CommandID string `json:"command_id"`
+	}
+	if err := json.Unmarshal(payload, &command); err != nil {
+		t.Fatal(err)
+	}
+	return command.CommandID
+}
+
 func TestGatewayEnqueuesOnlyConfiguredVPSForwardingBeforeLocalRoutes(t *testing.T) {
 	cfg := testConfig()
 	cfg.Devices[0].Forwarding.TelemetryToVPS = true
@@ -343,7 +532,7 @@ func TestGatewayEnqueuesOnlyConfiguredVPSForwardingBeforeLocalRoutes(t *testing.
 	}}
 	queue := &fakeOutbox{}
 	client := &fakeClient{}
-	gateway, err := New(cfg, client, &recordingLogger{}, queue)
+	gateway, err := New(cfg, client, &recordingLogger{}, queue, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -376,7 +565,7 @@ func TestGatewayKeepsLocalRoutesWhenOutboxFails(t *testing.T) {
 		Transform: config.RouteTransform{Type: "json_command", CommandType: "render_status"},
 	}}
 	client := &fakeClient{}
-	gateway, err := New(cfg, client, &recordingLogger{}, &fakeOutbox{err: errors.New("disk full")})
+	gateway, err := New(cfg, client, &recordingLogger{}, &fakeOutbox{err: errors.New("disk full")}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -392,15 +581,15 @@ func TestGatewayKeepsLocalRoutesWhenOutboxFails(t *testing.T) {
 func TestGatewayRequiresOutboxWhenVPSForwardingIsEnabled(t *testing.T) {
 	cfg := testConfig()
 	cfg.Devices[0].Forwarding.EventsToVPS = true
-	if _, err := New(cfg, &fakeClient{}, &recordingLogger{}, nil); err == nil || !strings.Contains(err.Error(), "outbox is required") {
-		t.Fatalf("New() error = %v", err)
+	if _, err := New(cfg, &fakeClient{}, &recordingLogger{}, nil, nil); err == nil || !strings.Contains(err.Error(), "outbox is required") {
+		t.Fatalf("New(, nil) error = %v", err)
 	}
 }
 
 func TestGatewayApplyChangesPolicyWithoutRestart(t *testing.T) {
 	client := &fakeClient{}
 	logger := &recordingLogger{}
-	gateway, err := New(testConfig(), client, logger, nil)
+	gateway, err := New(testConfig(), client, logger, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -439,7 +628,7 @@ func TestGatewayApplyChangesPolicyWithoutRestart(t *testing.T) {
 
 func TestGatewayLastTelemetryReturnsMostRecentAcceptedMessage(t *testing.T) {
 	client := &fakeClient{}
-	gateway, err := New(testConfig(), client, &recordingLogger{}, nil)
+	gateway, err := New(testConfig(), client, &recordingLogger{}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -485,7 +674,7 @@ func TestGatewayRecentEventsCapturesAcceptedRejectedAndRouteOutcomes(t *testing.
 		Transform: config.RouteTransform{Type: "json_command", CommandType: "render_status"},
 	}}
 	client := &fakeClient{}
-	gateway, err := New(cfg, client, &recordingLogger{}, nil)
+	gateway, err := New(cfg, client, &recordingLogger{}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -533,7 +722,7 @@ func TestGatewayRecentEventsFiltersByDeviceAndSince(t *testing.T) {
 	client := &fakeClient{}
 	cfg := testConfig()
 	cfg.Devices = append(cfg.Devices, config.Device{ID: "led-2", Enabled: boolPtr(true), Topics: config.Topics{State: "devices/led-2/state"}})
-	gateway, err := New(cfg, client, &recordingLogger{}, nil)
+	gateway, err := New(cfg, client, &recordingLogger{}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -559,7 +748,7 @@ func TestGatewayRecentEventsFiltersByDeviceAndSince(t *testing.T) {
 
 func TestGatewayRecentEventsPaginatesWithBeforeSequenceAndHasMore(t *testing.T) {
 	client := &fakeClient{}
-	gateway, err := New(testConfig(), client, &recordingLogger{}, nil)
+	gateway, err := New(testConfig(), client, &recordingLogger{}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -589,7 +778,7 @@ func TestGatewayRecentEventsPaginatesWithBeforeSequenceAndHasMore(t *testing.T) 
 
 func TestGatewayRecentEventsBufferIsBoundedByMax(t *testing.T) {
 	client := &fakeClient{}
-	gateway, err := New(testConfig(), client, &recordingLogger{}, nil)
+	gateway, err := New(testConfig(), client, &recordingLogger{}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -607,7 +796,7 @@ func TestGatewayRecentEventsBufferIsBoundedByMax(t *testing.T) {
 
 func TestGatewayApplyPrunesLastTelemetryForRemovedDevice(t *testing.T) {
 	client := &fakeClient{}
-	gateway, err := New(testConfig(), client, &recordingLogger{}, nil)
+	gateway, err := New(testConfig(), client, &recordingLogger{}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -632,11 +821,11 @@ func validCommand() []byte {
 }
 
 func TestGatewayRejectsNilDependencies(t *testing.T) {
-	if _, err := New(testConfig(), nil, &recordingLogger{}, nil); err == nil {
-		t.Error("New() error = nil for nil client")
+	if _, err := New(testConfig(), nil, &recordingLogger{}, nil, nil); err == nil {
+		t.Error("New(, nil) error = nil for nil client")
 	}
-	if _, err := New(testConfig(), &fakeClient{}, nil, nil); err == nil {
-		t.Error("New() error = nil for nil logger")
+	if _, err := New(testConfig(), &fakeClient{}, nil, nil, nil); err == nil {
+		t.Error("New(, nil) error = nil for nil logger")
 	}
 }
 
@@ -685,7 +874,11 @@ func (c *fakeClient) Publish(_ context.Context, topic string, payload []byte, qo
 	return c.publishErr
 }
 func (c *fakeClient) deliver(topic string, payload []byte) {
-	c.subscriptions[topic](context.Background(), topic, payload)
+	c.subscriptions[topic](context.Background(), topic, payload, false)
+}
+
+func (c *fakeClient) deliverRetained(topic string, payload []byte) {
+	c.subscriptions[topic](context.Background(), topic, payload, true)
 }
 
 type publication struct {
@@ -712,9 +905,39 @@ func (o *fakeOutbox) Enqueue(_ context.Context, message outbox.Message) (outbox.
 	return o.result, nil
 }
 
+type fakeAutomationRecorder struct {
+	events      []registry.AutomationEvent
+	commands    []registry.AutomationCommand
+	results     []registry.AutomationCommandResult
+	eventErr    error
+	commandErr  error
+	resultMatch bool
+	resultErr   error
+}
+
+func (r *fakeAutomationRecorder) RecordAutomationEvent(_ context.Context, event registry.AutomationEvent) error {
+	r.events = append(r.events, event)
+	return r.eventErr
+}
+
+func (r *fakeAutomationRecorder) RecordAutomationCommand(_ context.Context, command registry.AutomationCommand) error {
+	r.commands = append(r.commands, command)
+	return r.commandErr
+}
+
+func (r *fakeAutomationRecorder) RecordAutomationCommandResult(_ context.Context, result registry.AutomationCommandResult) (bool, error) {
+	r.results = append(r.results, result)
+	return r.resultMatch, r.resultErr
+}
+
 type recordingLogger struct {
-	accepted []Message
-	rejected []RejectedMessage
+	accepted           []Message
+	rejected           []RejectedMessage
+	automationFailures []string
+}
+
+func (l *recordingLogger) AutomationRecordFailed(_ context.Context, kind string, _ error) {
+	l.automationFailures = append(l.automationFailures, kind)
 }
 
 func (l *recordingLogger) Accepted(_ context.Context, message Message) {
