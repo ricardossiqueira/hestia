@@ -440,7 +440,7 @@ func (s *Store) Snapshot(ctx context.Context) (Snapshot, error) {
 	if err := s.db.QueryRowContext(ctx, `SELECT value FROM registry_meta WHERE key = 'revision'`).Scan(&revision); err != nil {
 		return Snapshot{}, fmt.Errorf("read registry revision: %w", err)
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT d.id, d.type, d.profile, d.enabled,
+	rows, err := s.db.QueryContext(ctx, `SELECT d.id, d.type, d.enabled,
 		COALESCE(t.telemetry, ''), COALESCE(t.state, ''), COALESCE(t.event, ''), COALESCE(t.command, ''), COALESCE(t.command_result, ''),
 		f.telemetry_to_vps, f.state_to_vps, f.events_to_vps, f.commands_from_vps
 		FROM registry_devices d JOIN registry_device_forwarding f ON f.device_id = d.id
@@ -459,7 +459,7 @@ func (s *Store) Snapshot(ctx context.Context) (Snapshot, error) {
 	for rows.Next() {
 		var d config.Device
 		var enabled, telemetry, state, event, command int
-		if err := rows.Scan(&d.ID, &d.Type, &d.Profile, &enabled, &d.Topics.Telemetry, &d.Topics.State, &d.Topics.Event, &d.Topics.Command, &d.Topics.CommandResult, &telemetry, &state, &event, &command); err != nil {
+		if err := rows.Scan(&d.ID, &d.Type, &enabled, &d.Topics.Telemetry, &d.Topics.State, &d.Topics.Event, &d.Topics.Command, &d.Topics.CommandResult, &telemetry, &state, &event, &command); err != nil {
 			return Snapshot{}, fmt.Errorf("scan registry device: %w", err)
 		}
 		value := enabled != 0
@@ -515,7 +515,7 @@ func boolInt(value bool) int {
 }
 
 func insertDevice(ctx context.Context, tx *sql.Tx, d config.Device, revision uint64, now time.Time) error {
-	if _, err := tx.ExecContext(ctx, `INSERT INTO registry_devices(id, type, profile, enabled, revision, created_at_ns, updated_at_ns) VALUES (?, ?, ?, ?, ?, ?, ?)`, d.ID, d.Type, d.Profile, boolInt(*d.Enabled), revision, now.UnixNano(), now.UnixNano()); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO registry_devices(id, type, enabled, revision, created_at_ns, updated_at_ns) VALUES (?, ?, ?, ?, ?, ?)`, d.ID, d.Type, boolInt(*d.Enabled), revision, now.UnixNano(), now.UnixNano()); err != nil {
 		return fmt.Errorf("insert registry device %q: %w", d.ID, err)
 	}
 	for _, item := range []struct{ kind, topic string }{{"telemetry", d.Topics.Telemetry}, {"state", d.Topics.State}, {"event", d.Topics.Event}, {"command", d.Topics.Command}, {"command_result", d.Topics.CommandResult}} {

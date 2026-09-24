@@ -1,9 +1,10 @@
 // Package api implements the Connect-RPC server that exposes device
 // listing, command-schema discovery, command publishing and gateway status.
 // Unlike internal/commandapi (which it replaced), parameters are validated
-// against a device's internal/deviceprofile schema before being published
-// to MQTT, and a client can discover what a device accepts instead of
-// guessing.
+// against the schema declared in the manifest revision bound to a device
+// (see internal/devicemanifest and docs/device-manifests.md) before being
+// published to MQTT, and a client can discover what a device accepts
+// instead of guessing.
 //
 // Since docs/decisions.md ADR-013, this server is loopback-only and does
 // its own neither auth nor CORS: it is never reached directly from the LAN

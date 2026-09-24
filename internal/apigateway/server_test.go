@@ -58,17 +58,8 @@ func newFakeInternalAPI(t *testing.T) (*httptest.Server, *recordedRequest) {
 type fakeDeviceAdmin struct {
 	mu sync.Mutex
 
-	provisionErr        error
-	provisioned         config.Device
-	password            string
 	registerExistingErr error
 	registeredExisting  config.Device
-	cydProvisionErr     error
-	cydProvisioned      config.Device
-	cydAddress          string
-	ledProvisionErr     error
-	ledProvisioned      config.Device
-	ledAddress          string
 	ipProvisionErr      error
 	ipProvisioned       config.Device
 	ipAddress           string
@@ -170,15 +161,6 @@ func (f *fakeDeviceAdmin) PublishDeviceManifest(ctx context.Context, id string, 
 	return f.publishedManifest, f.publishManifestErr
 }
 
-func (f *fakeDeviceAdmin) ProvisionDevice(ctx context.Context, id, template string) (config.Device, string, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.provisionErr != nil {
-		return config.Device{}, "", f.provisionErr
-	}
-	return f.provisioned, f.password, nil
-}
-
 func (f *fakeDeviceAdmin) ProvisionDeviceByIP(ctx context.Context, id, manifestID, address string) (config.Device, string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -190,24 +172,6 @@ func (f *fakeDeviceAdmin) ProvisionDeviceByIP(ctx context.Context, id, manifestI
 
 func (f *fakeDeviceAdmin) MigrateDeviceToManifest(ctx context.Context, deviceID, manifestID, actor string) (config.Device, error) {
 	return f.migrated, f.migrateErr
-}
-
-func (f *fakeDeviceAdmin) ProvisionCYD(ctx context.Context, id, address string) (config.Device, string, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.cydProvisionErr != nil {
-		return config.Device{}, "", f.cydProvisionErr
-	}
-	return f.cydProvisioned, f.cydAddress, nil
-}
-
-func (f *fakeDeviceAdmin) ProvisionLED(ctx context.Context, id, address string) (config.Device, string, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.ledProvisionErr != nil {
-		return config.Device{}, "", f.ledProvisionErr
-	}
-	return f.ledProvisioned, f.ledAddress, nil
 }
 
 func (f *fakeDeviceAdmin) SetDeviceEnabled(ctx context.Context, id string, enabled bool) (config.Device, error) {
@@ -484,122 +448,6 @@ func authedRequest[T any](msg *T) *connect.Request[T] {
 	req := connect.NewRequest(msg)
 	req.Header().Set("Authorization", authHeader("user", "pass"))
 	return req
-}
-
-func TestDeviceAdminService_ProvisionDevice_Success(t *testing.T) {
-	backend, _ := newFakeInternalAPI(t)
-	enabled := true
-	fake := &fakeDeviceAdmin{
-		provisioned: config.Device{ID: "led-1", Type: "esp32", Profile: "led.v1", Enabled: &enabled},
-		password:    "generated-secret",
-	}
-	ts := newTestGatewayWithAdmin(t, backend.URL, nil, fake)
-
-	resp, err := connectClient(ts).ProvisionDevice(context.Background(), authedRequest(&apiv1.ProvisionDeviceRequest{
-		DeviceId: "led-1", Template: "esp32_led.v1",
-	}))
-	if err != nil {
-		t.Fatalf("ProvisionDevice() error = %v", err)
-	}
-	if resp.Msg.MqttUsername != "led-1" || resp.Msg.MqttPassword != "generated-secret" {
-		t.Errorf("response = %#v", resp.Msg)
-	}
-	if resp.Msg.Device.GetProfile() != "led.v1" {
-		t.Errorf("device = %#v", resp.Msg.Device)
-	}
-	if resp.Msg.AppliedAt == nil {
-		t.Error("AppliedAt is nil")
-	}
-}
-
-func TestDeviceAdminService_ProvisionDevice_AlreadyExists(t *testing.T) {
-	backend, _ := newFakeInternalAPI(t)
-	fake := &fakeDeviceAdmin{provisionErr: admin.ErrDeviceAlreadyExists}
-	ts := newTestGatewayWithAdmin(t, backend.URL, nil, fake)
-
-	_, err := connectClient(ts).ProvisionDevice(context.Background(), authedRequest(&apiv1.ProvisionDeviceRequest{
-		DeviceId: "led-1", Template: "esp32_led.v1",
-	}))
-	if connect.CodeOf(err) != connect.CodeAlreadyExists {
-		t.Errorf("code = %v, want AlreadyExists", connect.CodeOf(err))
-	}
-}
-
-func TestDeviceAdminService_ProvisionDevice_InvalidArgument(t *testing.T) {
-	backend, _ := newFakeInternalAPI(t)
-	fake := &fakeDeviceAdmin{provisionErr: admin.ErrUnknownTemplate}
-	ts := newTestGatewayWithAdmin(t, backend.URL, nil, fake)
-
-	_, err := connectClient(ts).ProvisionDevice(context.Background(), authedRequest(&apiv1.ProvisionDeviceRequest{
-		DeviceId: "led-1", Template: "no-such-template",
-	}))
-	if connect.CodeOf(err) != connect.CodeInvalidArgument {
-		t.Errorf("code = %v, want InvalidArgument", connect.CodeOf(err))
-	}
-}
-
-func TestDeviceAdminService_ProvisionDevice_Internal(t *testing.T) {
-	backend, _ := newFakeInternalAPI(t)
-	fake := &fakeDeviceAdmin{provisionErr: errors.New("provisioning script failed")}
-	ts := newTestGatewayWithAdmin(t, backend.URL, nil, fake)
-
-	_, err := connectClient(ts).ProvisionDevice(context.Background(), authedRequest(&apiv1.ProvisionDeviceRequest{
-		DeviceId: "led-1", Template: "esp32_led.v1",
-	}))
-	if connect.CodeOf(err) != connect.CodeInternal {
-		t.Errorf("code = %v, want Internal", connect.CodeOf(err))
-	}
-}
-
-func TestDeviceAdminService_ProvisionCYD_DoesNotExposeMQTTPassword(t *testing.T) {
-	backend, _ := newFakeInternalAPI(t)
-	enabled := true
-	fake := &fakeDeviceAdmin{
-		cydProvisioned: config.Device{ID: "cyd-sala", Type: "esp32-cyd", Enabled: &enabled},
-		cydAddress:     "192.168.15.42",
-	}
-	ts := newTestGatewayWithAdmin(t, backend.URL, nil, fake)
-
-	response, err := connectClient(ts).ProvisionCYD(context.Background(), authedRequest(&apiv1.ProvisionCYDRequest{
-		DeviceId: "cyd-sala", DeviceIp: "192.168.15.42",
-	}))
-	if err != nil {
-		t.Fatalf("ProvisionCYD() error = %v", err)
-	}
-	if response.Msg.GetDevice().GetId() != "cyd-sala" || response.Msg.GetDeviceIp() != "192.168.15.42" || response.Msg.GetAppliedAt() == nil {
-		t.Fatalf("response = %#v", response.Msg)
-	}
-}
-
-func TestDeviceAdminService_ProvisionCYD_MapsInvalidAddress(t *testing.T) {
-	backend, _ := newFakeInternalAPI(t)
-	fake := &fakeDeviceAdmin{cydProvisionErr: admin.ErrInvalidDeviceAddress}
-	ts := newTestGatewayWithAdmin(t, backend.URL, nil, fake)
-	_, err := connectClient(ts).ProvisionCYD(context.Background(), authedRequest(&apiv1.ProvisionCYDRequest{
-		DeviceId: "cyd-sala", DeviceIp: "8.8.8.8",
-	}))
-	if connect.CodeOf(err) != connect.CodeInvalidArgument {
-		t.Errorf("code = %v, want InvalidArgument", connect.CodeOf(err))
-	}
-}
-
-func TestDeviceAdminService_ProvisionLED_DoesNotExposeMQTTPassword(t *testing.T) {
-	backend, _ := newFakeInternalAPI(t)
-	enabled := true
-	fake := &fakeDeviceAdmin{
-		ledProvisioned: config.Device{ID: "led-sala", Type: "esp32", Profile: "led.v1", Enabled: &enabled},
-		ledAddress:     "192.168.15.43",
-	}
-	ts := newTestGatewayWithAdmin(t, backend.URL, nil, fake)
-	response, err := connectClient(ts).ProvisionLED(context.Background(), authedRequest(&apiv1.ProvisionLEDRequest{
-		DeviceId: "led-sala", DeviceIp: "192.168.15.43",
-	}))
-	if err != nil {
-		t.Fatalf("ProvisionLED() error = %v", err)
-	}
-	if response.Msg.GetDevice().GetId() != "led-sala" || response.Msg.GetDeviceIp() != "192.168.15.43" || response.Msg.GetAppliedAt() == nil {
-		t.Fatalf("response = %#v", response.Msg)
-	}
 }
 
 func TestDeviceAdminService_ProvisionDeviceByIP_DoesNotExposeMQTTPassword(t *testing.T) {

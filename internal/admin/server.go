@@ -27,14 +27,10 @@ type Config struct {
 	// Registry is the runtime source of truth. ConfigPath is retained only
 	// for the temporary YAML migration fallback when Registry is nil.
 	Registry *registry.Store
-	// CYD and LED use the same in-band first-boot provisioning protocol. Their
-	// client and broker endpoint are deployment inputs, not YAML or SQLite
-	// state. DeviceBrokerHost must be LAN-reachable from the ESP (not 127.0.0.1).
-	CYD cydprovision.Client
-	LED cydprovision.Client
 	// ProvisioningClient returns an HTTP client constrained to the model from
 	// a published manifest. Keeping the factory injectable makes the generic
 	// protocol transaction testable without a device on the LAN.
+	// DeviceBrokerHost must be LAN-reachable from the ESP (not 127.0.0.1).
 	ProvisioningClient func(model string) cydprovision.Client
 	DeviceBrokerHost   string
 	DeviceBrokerPort   uint16
@@ -74,27 +70,6 @@ func New(cfg Config) (*Server, error) {
 	return &Server{cfg: cfg}, nil
 }
 
-// ProvisionDevice, SetDeviceEnabled and RemoveDevice below are thin
-// wrappers around registration.go's free functions, adding a request
-// timeout (s.cfg.RequestTimeout) and supplying s.cfg.ConfigPath/
-// ProvisionScript so a caller doesn't need to know either path. This is
-// how *Server structurally satisfies internal/apigateway's DeviceAdmin
-// interface - the exact same pattern *mqtt.Gateway already uses to satisfy
-// internal/api's CommandPublisher/StatusProvider - so cmd/gateway/main.go
-// can construct one and pass it straight into apigateway.New.
-
-// ProvisionDevice registers a new device from template and returns its
-// generated Mosquitto password for one-time display - see RegisterDevice's
-// doc comment for the exact ordering and rollback semantics.
-func (s *Server) ProvisionDevice(ctx context.Context, id, template string) (config.Device, string, error) {
-	ctx, cancel := context.WithTimeout(ctx, s.cfg.RequestTimeout)
-	defer cancel()
-	if s.cfg.Registry != nil {
-		return s.provisionRegistry(ctx, id, template)
-	}
-	return RegisterDevice(ctx, s.cfg.ConfigPath, s.cfg.ProvisionScript, id, template)
-}
-
 // RegisterExistingDevice adds policy for a local service whose DynSec client
 // already exists. It intentionally never reads, returns, changes or rotates a
 // broker password, so adopting orangepi-monitor cannot interrupt collection.
@@ -114,7 +89,7 @@ func (s *Server) RegisterExistingDevice(ctx context.Context, id, template string
 	if err := config.ValidateDeviceID("device_id", id); err != nil {
 		return config.Device{}, fmt.Errorf("%w: %v", ErrInvalidDeviceID, err)
 	}
-	device := buildDevice(id, tmpl.Type, tmpl.Profile, tmpl.Topics)
+	device := buildDevice(id, tmpl.Type, tmpl.Topics)
 	if _, err := s.cfg.Registry.AddDevice(ctx, device, uuid.NewString()); err != nil {
 		if errors.Is(err, registry.ErrDeviceAlreadyExists) {
 			return config.Device{}, fmt.Errorf("%w: %q", ErrDeviceAlreadyExists, id)
@@ -267,172 +242,6 @@ func (s *Server) ResolveInconsistency(ctx context.Context, id string) error {
 	return nil
 }
 
-// ProvisionCYD supplies a new, Wi-Fi-connected CYD with its broker identity
-// over its one-time local HTTP endpoint. The password is kept in memory only:
-// it is sent directly to the CYD and never returned to gateway-web.
-func (s *Server) ProvisionCYD(ctx context.Context, id, address string) (config.Device, string, error) {
-	ctx, cancel := context.WithTimeout(ctx, s.cfg.RequestTimeout)
-	defer cancel()
-	if s.cfg.Registry == nil {
-		return config.Device{}, "", errors.New("CYD provisioning requires the SQLite registry")
-	}
-	if s.cfg.CYD == nil || strings.TrimSpace(s.cfg.DeviceBrokerHost) == "" || s.cfg.DeviceBrokerPort == 0 {
-		return config.Device{}, "", errors.New("CYD provisioning is not configured")
-	}
-	tmpl, ok := deviceTemplates["cyd_monitor.v1"]
-	if !ok {
-		return config.Device{}, "", errors.New("cyd_monitor.v1 template is missing")
-	}
-	if err := config.ValidateDeviceID("device_id", id); err != nil {
-		return config.Device{}, "", fmt.Errorf("%w: %v", ErrInvalidDeviceID, err)
-	}
-	if _, err := s.cfg.CYD.Inspect(ctx, address); err != nil {
-		if errors.Is(err, cydprovision.ErrInvalidIPAddress) {
-			return config.Device{}, "", fmt.Errorf("%w: %v", ErrInvalidDeviceAddress, err)
-		}
-		if errors.Is(err, cydprovision.ErrUnexpectedDevice) {
-			return config.Device{}, "", fmt.Errorf("%w: %v", ErrDeviceNotProvisionable, err)
-		}
-		return config.Device{}, "", fmt.Errorf("inspect CYD: %w", err)
-	}
-
-	// The registry intentionally starts disabled. If delivery is interrupted
-	// after NVS was written, the operator can safely use SetDeviceEnabled to
-	// finish activation without rotating a password the CYD already holds.
-	device := buildDevice(id, tmpl.Type, tmpl.Profile, tmpl.Topics)
-	disabled := false
-	device.Enabled = &disabled
-	if _, err := s.cfg.Registry.AddDevice(ctx, device, uuid.NewString()); err != nil {
-		if errors.Is(err, registry.ErrDeviceAlreadyExists) {
-			return config.Device{}, "", fmt.Errorf("%w: %q", ErrDeviceAlreadyExists, id)
-		}
-		return config.Device{}, "", fmt.Errorf("add CYD to registry: %w", err)
-	}
-	cleanupBeforeDelivery := func(cause error) (config.Device, string, error) {
-		if revokeErr := s.cfg.Credentials.Revoke(ctx, id); revokeErr != nil {
-			s.recordInconsistency("provision_cyd", id, cause, fmt.Errorf("revoke CYD credential also failed: %w", revokeErr))
-			return config.Device{}, "", fmt.Errorf("%v; revoke CYD credential also failed: %w", cause, revokeErr)
-		}
-		if removeErr := s.cfg.Registry.RemoveDevice(ctx, id, uuid.NewString()); removeErr != nil {
-			s.recordInconsistency("provision_cyd", id, cause, fmt.Errorf("remove pending CYD registry entry also failed: %w", removeErr))
-			return config.Device{}, "", fmt.Errorf("%v; remove pending CYD registry entry also failed: %w", cause, removeErr)
-		}
-		return config.Device{}, "", cause
-	}
-
-	password, err := s.cfg.Credentials.Provision(ctx, id, tmpl.Topics)
-	if err != nil {
-		if removeErr := s.cfg.Registry.RemoveDevice(ctx, id, uuid.NewString()); removeErr != nil {
-			s.recordInconsistency("provision_cyd", id, fmt.Errorf("create CYD credential: %w", err), fmt.Errorf("remove pending registry entry also failed: %w", removeErr))
-			return config.Device{}, "", fmt.Errorf("create CYD credential: %v; remove pending registry entry also failed: %w", err, removeErr)
-		}
-		return config.Device{}, "", fmt.Errorf("create CYD credential: %w", err)
-	}
-	if err := s.cfg.Credentials.SetEnabled(ctx, id, false); err != nil {
-		return cleanupBeforeDelivery(fmt.Errorf("disable new CYD credential: %w", err))
-	}
-	settings := cydprovision.Settings{
-		DeviceID: id, BrokerHost: s.cfg.DeviceBrokerHost, BrokerPort: s.cfg.DeviceBrokerPort,
-		Username: id, Password: password,
-	}
-	if err := s.cfg.CYD.Provision(ctx, address, settings); err != nil {
-		return cleanupBeforeDelivery(fmt.Errorf("deliver CYD configuration: %w", err))
-	}
-	if err := s.cfg.Credentials.SetEnabled(ctx, id, true); err != nil {
-		s.recordInconsistency("provision_cyd", id, errors.New("CYD already stored its configuration"), fmt.Errorf("enable broker credential failed: %w", err))
-		return config.Device{}, "", fmt.Errorf("CYD stored its configuration but its broker credential remains disabled: %w", err)
-	}
-	active, err := s.cfg.Registry.SetDeviceEnabled(ctx, id, true, uuid.NewString())
-	if err != nil {
-		// Keep the recovery state coherent: a configured but disabled CYD can
-		// be activated later using SetDeviceEnabled, without resending secrets.
-		if rollbackErr := s.cfg.Credentials.SetEnabled(context.Background(), id, false); rollbackErr != nil {
-			s.recordInconsistency("provision_cyd", id, fmt.Errorf("registry activation failed: %w", err), fmt.Errorf("disable credential rollback also failed: %w", rollbackErr))
-		}
-		return config.Device{}, "", fmt.Errorf("CYD stored its configuration but registry activation failed: %w", err)
-	}
-	return active, address, nil
-}
-
-// ProvisionLED supplies a new, Wi-Fi-connected ESP32-C3 LED with an MQTT
-// identity over its temporary first-boot endpoint. As with CYD provisioning,
-// the password moves directly from DynSec to NVS and never enters SQLite or a
-// browser response.
-func (s *Server) ProvisionLED(ctx context.Context, id, address string) (config.Device, string, error) {
-	ctx, cancel := context.WithTimeout(ctx, s.cfg.RequestTimeout)
-	defer cancel()
-	if s.cfg.Registry == nil {
-		return config.Device{}, "", errors.New("LED provisioning requires the SQLite registry")
-	}
-	if s.cfg.LED == nil || strings.TrimSpace(s.cfg.DeviceBrokerHost) == "" || s.cfg.DeviceBrokerPort == 0 {
-		return config.Device{}, "", errors.New("LED provisioning is not configured")
-	}
-	tmpl, ok := deviceTemplates["esp32_led.v1"]
-	if !ok {
-		return config.Device{}, "", errors.New("esp32_led.v1 template is missing")
-	}
-	if err := config.ValidateDeviceID("device_id", id); err != nil {
-		return config.Device{}, "", fmt.Errorf("%w: %v", ErrInvalidDeviceID, err)
-	}
-	if _, err := s.cfg.LED.Inspect(ctx, address); err != nil {
-		if errors.Is(err, cydprovision.ErrInvalidIPAddress) {
-			return config.Device{}, "", fmt.Errorf("%w: %v", ErrInvalidDeviceAddress, err)
-		}
-		if errors.Is(err, cydprovision.ErrUnexpectedDevice) {
-			return config.Device{}, "", fmt.Errorf("%w: %v", ErrDeviceNotProvisionable, err)
-		}
-		return config.Device{}, "", fmt.Errorf("inspect LED: %w", err)
-	}
-
-	device := buildDevice(id, tmpl.Type, tmpl.Profile, tmpl.Topics)
-	disabled := false
-	device.Enabled = &disabled
-	if _, err := s.cfg.Registry.AddDevice(ctx, device, uuid.NewString()); err != nil {
-		if errors.Is(err, registry.ErrDeviceAlreadyExists) {
-			return config.Device{}, "", fmt.Errorf("%w: %q", ErrDeviceAlreadyExists, id)
-		}
-		return config.Device{}, "", fmt.Errorf("add LED to registry: %w", err)
-	}
-	cleanupBeforeDelivery := func(cause error) (config.Device, string, error) {
-		if revokeErr := s.cfg.Credentials.Revoke(ctx, id); revokeErr != nil {
-			s.recordInconsistency("provision_led", id, cause, fmt.Errorf("revoke LED credential also failed: %w", revokeErr))
-			return config.Device{}, "", fmt.Errorf("%v; revoke LED credential also failed: %w", cause, revokeErr)
-		}
-		if removeErr := s.cfg.Registry.RemoveDevice(ctx, id, uuid.NewString()); removeErr != nil {
-			s.recordInconsistency("provision_led", id, cause, fmt.Errorf("remove pending LED registry entry also failed: %w", removeErr))
-			return config.Device{}, "", fmt.Errorf("%v; remove pending LED registry entry also failed: %w", cause, removeErr)
-		}
-		return config.Device{}, "", cause
-	}
-	password, err := s.cfg.Credentials.Provision(ctx, id, tmpl.Topics)
-	if err != nil {
-		if removeErr := s.cfg.Registry.RemoveDevice(ctx, id, uuid.NewString()); removeErr != nil {
-			s.recordInconsistency("provision_led", id, fmt.Errorf("create LED credential: %w", err), fmt.Errorf("remove pending registry entry also failed: %w", removeErr))
-			return config.Device{}, "", fmt.Errorf("create LED credential: %v; remove pending registry entry also failed: %w", err, removeErr)
-		}
-		return config.Device{}, "", fmt.Errorf("create LED credential: %w", err)
-	}
-	if err := s.cfg.Credentials.SetEnabled(ctx, id, false); err != nil {
-		return cleanupBeforeDelivery(fmt.Errorf("disable new LED credential: %w", err))
-	}
-	settings := cydprovision.Settings{DeviceID: id, BrokerHost: s.cfg.DeviceBrokerHost, BrokerPort: s.cfg.DeviceBrokerPort, Username: id, Password: password}
-	if err := s.cfg.LED.Provision(ctx, address, settings); err != nil {
-		return cleanupBeforeDelivery(fmt.Errorf("deliver LED configuration: %w", err))
-	}
-	if err := s.cfg.Credentials.SetEnabled(ctx, id, true); err != nil {
-		s.recordInconsistency("provision_led", id, errors.New("LED already stored its configuration"), fmt.Errorf("enable broker credential failed: %w", err))
-		return config.Device{}, "", fmt.Errorf("LED stored its configuration but its broker credential remains disabled: %w", err)
-	}
-	active, err := s.cfg.Registry.SetDeviceEnabled(ctx, id, true, uuid.NewString())
-	if err != nil {
-		if rollbackErr := s.cfg.Credentials.SetEnabled(context.Background(), id, false); rollbackErr != nil {
-			s.recordInconsistency("provision_led", id, fmt.Errorf("registry activation failed: %w", err), fmt.Errorf("disable credential rollback also failed: %w", rollbackErr))
-		}
-		return config.Device{}, "", fmt.Errorf("LED stored its configuration but registry activation failed: %w", err)
-	}
-	return active, address, nil
-}
-
 // ProvisionDeviceByIP provisions any published http-nvs-v1 manifest. The
 // manifest is the durable source of the expected model and allowed MQTT
 // topics; no hardware-specific RPC or YAML entry is needed for a new family.
@@ -483,7 +292,7 @@ func (s *Server) ProvisionDeviceByIP(ctx context.Context, id, manifestID, addres
 	// The record and broker credential deliberately begin disabled. Once NVS
 	// receives a password, a later enable operation is recovery-safe and does
 	// not rotate the password that the device already holds.
-	device := buildDevice(id, document.Provisioning.Model, "", document.MQTT.Topics)
+	device := buildDevice(id, document.Provisioning.Model, document.MQTT.Topics)
 	disabled := false
 	device.Enabled = &disabled
 	if _, err := s.cfg.Registry.AddDevice(ctx, device, uuid.NewString()); err != nil {
@@ -613,43 +422,14 @@ func (s *Server) RemoveDevice(ctx context.Context, id string) error {
 	return DeregisterDevice(ctx, s.cfg.ConfigPath, s.cfg.ProvisionScript, id)
 }
 
-func (s *Server) provisionRegistry(ctx context.Context, id, template string) (config.Device, string, error) {
-	tmpl, ok := deviceTemplates[template]
-	if !ok {
-		return config.Device{}, "", fmt.Errorf("%w: %q", ErrUnknownTemplate, template)
-	}
-	if tmpl.AdoptExisting {
-		return config.Device{}, "", fmt.Errorf("%w: %q", ErrTemplateRequiresAdopt, template)
-	}
-	if err := config.ValidateDeviceID("device_id", id); err != nil {
-		return config.Device{}, "", fmt.Errorf("%w: %v", ErrInvalidDeviceID, err)
-	}
-	device := buildDevice(id, tmpl.Type, tmpl.Profile, tmpl.Topics)
-	password, err := s.cfg.Credentials.Provision(ctx, id, tmpl.Topics)
-	if err != nil {
-		return config.Device{}, "", fmt.Errorf("provisioning failed: %w", err)
-	}
-	if _, err := s.cfg.Registry.AddDevice(ctx, device, uuid.NewString()); err != nil {
-		if rollbackErr := s.cfg.Credentials.Revoke(ctx, id); rollbackErr != nil {
-			s.recordInconsistency("provision_device", id, fmt.Errorf("registry rejected device after Mosquitto provision: %w", err), fmt.Errorf("rollback also failed: %w", rollbackErr))
-			return config.Device{}, "", fmt.Errorf("registry rejected device after Mosquitto provision (%v); rollback also failed (%v)", err, rollbackErr)
-		}
-		if errors.Is(err, registry.ErrDeviceAlreadyExists) {
-			return config.Device{}, "", fmt.Errorf("%w: %q", ErrDeviceAlreadyExists, id)
-		}
-		return config.Device{}, "", fmt.Errorf("add device to registry: %w", err)
-	}
-	return device, password, nil
-}
-
 // recordInconsistency durably notes that a best-effort compensation failed
 // (see the doc comments above each call site), so ListInconsistencies
 // surfaces it to an operator even if nobody reads the HTTP error response
 // that also describes it. It always uses context.Background(), never a
 // caller's request-scoped ctx: that context may already be near
 // cancellation (it is the same one bounded by s.cfg.RequestTimeout), and
-// this write must still happen - the same reasoning ProvisionCYD/
-// ProvisionLED already apply to their own best-effort credential rollback.
+// this write must still happen - the same reasoning ProvisionDeviceByIP
+// already applies to its own best-effort credential rollback.
 // Best-effort itself: if the SQLite write fails there is nothing more
 // useful to do here than let the original error, which the caller already
 // has, reach the operator.

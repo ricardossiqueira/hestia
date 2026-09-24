@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+	"github.com/ricardossiqueira/iot-gateway/internal/config"
 	"github.com/ricardossiqueira/iot-gateway/internal/registry"
 )
 
@@ -72,7 +74,7 @@ func TestRegisterDevice_Success(t *testing.T) {
 	callLog := filepath.Join(t.TempDir(), "calls.log")
 	script := writeFakeProvisionScript(t, callLog, false)
 
-	device, password, err := RegisterDevice(context.Background(), path, script, "led-1", "esp32_led.v1")
+	device, password, err := RegisterDevice(context.Background(), path, script, "led-1", "cyd_monitor.v1")
 	// RestartGateway shells out to the real `systemctl`, which does not
 	// exist on this dev machine (Windows) - accept ONLY that specific
 	// failure here; anything else (provisioning, the YAML write) must
@@ -83,7 +85,7 @@ func TestRegisterDevice_Success(t *testing.T) {
 	if password != "fake-password-123" {
 		t.Errorf("password = %q", password)
 	}
-	if device.ID != "led-1" || device.Type != "esp32" || device.Profile != "led.v1" {
+	if device.ID != "led-1" || device.Type != "esp32-cyd" {
 		t.Errorf("device = %#v", device)
 	}
 	if !strings.Contains(readCallLog(t, callLog), "PROVISION led-1") {
@@ -105,12 +107,22 @@ func TestServerRegistryPathDoesNotRestartGateway(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	device, password, err := server.ProvisionDevice(context.Background(), "led-1", "esp32_led.v1")
+	// ProvisionDevice(template) was retired along with led.v1/esp32_led.v1 -
+	// exercise the same registry-path invariant (device bookkeeping in
+	// SQLite, credential rotation still via the script) by driving the two
+	// steps it used to combine directly.
+	password, err := server.cfg.Credentials.Provision(context.Background(), "led-1", []string{"command"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if password != "fake-password-123" || device.ID != "led-1" {
-		t.Fatalf("provision = %#v, %q", device, password)
+	if password != "fake-password-123" {
+		t.Fatalf("password = %q", password)
+	}
+	enabled := true
+	if _, err := store.AddDevice(context.Background(), config.Device{
+		ID: "led-1", Type: "esp32-cyd", Enabled: &enabled, Topics: config.Topics{Command: "devices/led-1/command"},
+	}, uuid.NewString()); err != nil {
+		t.Fatal(err)
 	}
 	if _, err := server.SetDeviceEnabled(context.Background(), "led-1", false); err != nil {
 		t.Fatal(err)
@@ -144,7 +156,7 @@ func TestRegisterDevice_InvalidID(t *testing.T) {
 	path := writeFixture(t, baseYAML)
 	script := writeFakeProvisionScript(t, filepath.Join(t.TempDir(), "calls.log"), false)
 
-	_, _, err := RegisterDevice(context.Background(), path, script, "Not Valid!", "esp32_led.v1")
+	_, _, err := RegisterDevice(context.Background(), path, script, "Not Valid!", "cyd_monitor.v1")
 	if !errors.Is(err, ErrInvalidDeviceID) {
 		t.Fatalf("RegisterDevice() error = %v, want ErrInvalidDeviceID", err)
 	}
@@ -154,7 +166,7 @@ func TestRegisterDevice_AlreadyExists(t *testing.T) {
 	path := writeFixture(t, baseYAML)
 	script := writeFakeProvisionScript(t, filepath.Join(t.TempDir(), "calls.log"), false)
 
-	_, _, err := RegisterDevice(context.Background(), path, script, "esp32-sala", "esp32_led.v1")
+	_, _, err := RegisterDevice(context.Background(), path, script, "esp32-sala", "cyd_monitor.v1")
 	if !errors.Is(err, ErrDeviceAlreadyExists) {
 		t.Fatalf("RegisterDevice() error = %v, want ErrDeviceAlreadyExists", err)
 	}
@@ -174,7 +186,7 @@ func TestRegisterDevice_RollsBackCredentialWhenYAMLWriteFails(t *testing.T) {
 	callLog := filepath.Join(t.TempDir(), "calls.log")
 	script := writeFakeProvisionScript(t, callLog, false)
 
-	_, _, err := RegisterDevice(context.Background(), path, script, "led-1", "esp32_led.v1")
+	_, _, err := RegisterDevice(context.Background(), path, script, "led-1", "cyd_monitor.v1")
 	if err == nil {
 		t.Fatal("RegisterDevice() error = nil, want the forced YAML write failure")
 	}

@@ -84,10 +84,10 @@ func AddDevice(path, id string, topicSuffixes []string) error {
 		}
 	}
 
-	// "esp32", "" reproduce exactly what buildDeviceNode hardcoded before
-	// it grew deviceType/profile parameters for AddDeviceFromTemplate below
+	// "esp32" reproduces exactly what buildDeviceNode hardcoded before
+	// it grew a deviceType parameter for AddDeviceFromTemplate below
 	// - this caller's behavior is unchanged.
-	node, _, err := buildDeviceNode(id, "esp32", "", topicSuffixes)
+	node, _, err := buildDeviceNode(id, "esp32", topicSuffixes)
 	if err != nil {
 		return err
 	}
@@ -107,7 +107,7 @@ func AddDeviceFromTemplate(path, id, templateName string) (config.Device, error)
 	if !ok {
 		return config.Device{}, fmt.Errorf("unknown template %q", templateName)
 	}
-	node, device, err := buildDeviceNode(id, tmpl.Type, tmpl.Profile, tmpl.Topics)
+	node, device, err := buildDeviceNode(id, tmpl.Type, tmpl.Topics)
 	if err != nil {
 		return config.Device{}, err
 	}
@@ -275,12 +275,11 @@ func deviceNodeID(item *yaml.Node) string {
 // into the document; AddDeviceFromTemplate also returns this value
 // directly to its caller, so nothing needs to re-read the file to learn
 // what was just created.
-func buildDevice(id, deviceType, profile string, topicSuffixes []string) config.Device {
+func buildDevice(id, deviceType string, topicSuffixes []string) config.Device {
 	enabled := true
 	device := config.Device{
 		ID:      id,
 		Type:    deviceType,
-		Profile: profile,
 		Enabled: &enabled,
 	}
 	for _, suffix := range topicSuffixes {
@@ -304,13 +303,11 @@ func buildDevice(id, deviceType, profile string, topicSuffixes []string) config.
 // buildDeviceNode marshals a config.Device fragment (to get field order and
 // omitempty behavior for free from the real type - see config.Topics' own
 // comment) and re-parses just that fragment into a Node, ready to splice
-// into the parent document's devices sequence. deviceType and profile are
-// written as-is (profile empty means the omitempty tag drops it entirely,
-// same as a device with no profile written by hand). Also returns the
-// config.Device it built, so a caller that needs to report back what it
-// just created doesn't have to re-read and re-parse the file.
-func buildDeviceNode(id, deviceType, profile string, topicSuffixes []string) (*yaml.Node, config.Device, error) {
-	device := buildDevice(id, deviceType, profile, topicSuffixes)
+// into the parent document's devices sequence. Also returns the config.Device
+// it built, so a caller that needs to report back what it just created does
+// not have to re-read and re-parse the file.
+func buildDeviceNode(id, deviceType string, topicSuffixes []string) (*yaml.Node, config.Device, error) {
+	device := buildDevice(id, deviceType, topicSuffixes)
 
 	fragment, err := yaml.Marshal(device)
 	if err != nil {

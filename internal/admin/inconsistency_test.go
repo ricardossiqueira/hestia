@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/ricardossiqueira/iot-gateway/internal/config"
 	"github.com/ricardossiqueira/iot-gateway/internal/registry"
 )
 
@@ -33,7 +35,10 @@ func TestRemoveDeviceRecordsInconsistencyWhenRegistryRemovalFails(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := server.ProvisionDevice(context.Background(), "led-1", "esp32_led.v1"); err != nil {
+	enabled := true
+	if _, err := store.AddDevice(context.Background(), config.Device{
+		ID: "led-1", Type: "esp32", Enabled: &enabled, Topics: config.Topics{Command: "devices/led-1/command"},
+	}, uuid.NewString()); err != nil {
 		t.Fatal(err)
 	}
 

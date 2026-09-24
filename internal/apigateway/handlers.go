@@ -34,7 +34,6 @@ func deviceToProto(d config.Device) *apiv1.Device {
 		Id:      d.ID,
 		Type:    d.Type,
 		Enabled: d.Enabled != nil && *d.Enabled,
-		Profile: d.Profile,
 		Topics: &apiv1.DeviceTopics{
 			Telemetry:     d.Topics.Telemetry,
 			State:         d.Topics.State,
@@ -223,64 +222,9 @@ func (s *Server) PublishDeviceManifest(ctx context.Context, req *connect.Request
 	return connect.NewResponse(&apiv1.PublishDeviceManifestResponse{Manifest: manifestToProto(manifest)}), nil
 }
 
-// ProvisionDevice creates a new device from a template, returning its
-// one-time-display Mosquitto password. Error codes are more granular here
-// than DeviceService's (which collapses most failures to InvalidArgument
-// as a deliberate MVP simplification for its small set of cases): a
-// mutating, privileged operation has genuinely distinct failure classes
-// worth a client acting differently on - CodeAlreadyExists for a
-// duplicate id, CodeInvalidArgument for a bad id or unknown template, and
-// CodeInternal for anything operational (the provisioning script,
-// gateway.yaml write, or systemctl) that the caller cannot fix by changing
-// the request.
-func (s *Server) ProvisionDevice(ctx context.Context, req *connect.Request[apiv1.ProvisionDeviceRequest]) (*connect.Response[apiv1.ProvisionDeviceResponse], error) {
-	id := req.Msg.GetDeviceId()
-	template := req.Msg.GetTemplate()
-
-	device, password, err := s.cfg.Admin.ProvisionDevice(ctx, id, template)
-	if err != nil {
-		switch {
-		case errors.Is(err, admin.ErrDeviceAlreadyExists):
-			return nil, connect.NewError(connect.CodeAlreadyExists, err)
-		case errors.Is(err, admin.ErrUnknownTemplate), errors.Is(err, admin.ErrInvalidDeviceID):
-			return nil, connect.NewError(connect.CodeInvalidArgument, err)
-		default:
-			return nil, connect.NewError(connect.CodeInternal, err)
-		}
-	}
-
-	return connect.NewResponse(&apiv1.ProvisionDeviceResponse{
-		Device:       deviceToProto(device),
-		MqttUsername: device.ID,
-		MqttPassword: password,
-		AppliedAt:    timestamppb.Now(),
-	}), nil
-}
-
-// ProvisionCYD delivers the newly generated MQTT identity directly to the
-// first-boot CYD. The API intentionally has no MQTT password field: that
-// secret is never visible to gateway-web or persisted by the registry.
-func (s *Server) ProvisionCYD(ctx context.Context, req *connect.Request[apiv1.ProvisionCYDRequest]) (*connect.Response[apiv1.ProvisionCYDResponse], error) {
-	device, address, err := s.cfg.Admin.ProvisionCYD(ctx, req.Msg.GetDeviceId(), req.Msg.GetDeviceIp())
-	if err != nil {
-		switch {
-		case errors.Is(err, admin.ErrDeviceAlreadyExists):
-			return nil, connect.NewError(connect.CodeAlreadyExists, err)
-		case errors.Is(err, admin.ErrInvalidDeviceID), errors.Is(err, admin.ErrInvalidDeviceAddress):
-			return nil, connect.NewError(connect.CodeInvalidArgument, err)
-		case errors.Is(err, admin.ErrDeviceNotProvisionable):
-			return nil, connect.NewError(connect.CodeFailedPrecondition, err)
-		default:
-			return nil, connect.NewError(connect.CodeInternal, err)
-		}
-	}
-	return connect.NewResponse(&apiv1.ProvisionCYDResponse{
-		Device: deviceToProto(device), DeviceIp: address, AppliedAt: timestamppb.Now(),
-	}), nil
-}
-
-// ProvisionDeviceByIP is the manifest-driven successor to ProvisionCYD and
-// ProvisionLED. It never exposes the one-time MQTT password to its caller.
+// ProvisionDeviceByIP is the manifest-driven successor to the retired
+// ProvisionCYD/ProvisionLED RPCs. It never exposes the one-time MQTT
+// password to its caller.
 func (s *Server) ProvisionDeviceByIP(ctx context.Context, req *connect.Request[apiv1.ProvisionDeviceByIPRequest]) (*connect.Response[apiv1.ProvisionDeviceByIPResponse], error) {
 	device, address, err := s.cfg.Admin.ProvisionDeviceByIP(ctx, req.Msg.GetDeviceId(), req.Msg.GetManifestId(), req.Msg.GetDeviceIp())
 	if err != nil {
@@ -299,28 +243,6 @@ func (s *Server) ProvisionDeviceByIP(ctx context.Context, req *connect.Request[a
 	}
 	return connect.NewResponse(&apiv1.ProvisionDeviceByIPResponse{
 		Device: deviceToProto(device), DeviceIp: address, ManifestId: req.Msg.GetManifestId(), AppliedAt: timestamppb.Now(),
-	}), nil
-}
-
-// ProvisionLED uses the same direct-to-NVS first-boot protocol as the CYD.
-// Keeping the generated password out of this response ensures gateway-web
-// never handles an MQTT secret for either ESP family.
-func (s *Server) ProvisionLED(ctx context.Context, req *connect.Request[apiv1.ProvisionLEDRequest]) (*connect.Response[apiv1.ProvisionLEDResponse], error) {
-	device, address, err := s.cfg.Admin.ProvisionLED(ctx, req.Msg.GetDeviceId(), req.Msg.GetDeviceIp())
-	if err != nil {
-		switch {
-		case errors.Is(err, admin.ErrDeviceAlreadyExists):
-			return nil, connect.NewError(connect.CodeAlreadyExists, err)
-		case errors.Is(err, admin.ErrInvalidDeviceID), errors.Is(err, admin.ErrInvalidDeviceAddress):
-			return nil, connect.NewError(connect.CodeInvalidArgument, err)
-		case errors.Is(err, admin.ErrDeviceNotProvisionable):
-			return nil, connect.NewError(connect.CodeFailedPrecondition, err)
-		default:
-			return nil, connect.NewError(connect.CodeInternal, err)
-		}
-	}
-	return connect.NewResponse(&apiv1.ProvisionLEDResponse{
-		Device: deviceToProto(device), DeviceIp: address, AppliedAt: timestamppb.Now(),
 	}), nil
 }
 
@@ -376,7 +298,7 @@ func inconsistencyToProto(item registry.Inconsistency) *apiv1.Inconsistency {
 // ListInconsistencies is read-only and payload-free by construction
 // (Inconsistency carries only error strings, never a device secret or MQTT
 // payload) - safe to answer without the granular error-code treatment
-// ProvisionDevice/ProvisionCYD above need.
+// ProvisionDeviceByIP above needs.
 func (s *Server) ListInconsistencies(ctx context.Context, _ *connect.Request[apiv1.ListInconsistenciesRequest]) (*connect.Response[apiv1.ListInconsistenciesResponse], error) {
 	items, err := s.cfg.Admin.ListInconsistencies(ctx)
 	if err != nil {

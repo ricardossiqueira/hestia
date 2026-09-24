@@ -18,10 +18,9 @@ import (
 )
 
 const (
-	defaultDeviceModel = "cyd-monitor"
-	deviceStatus       = "unprovisioned"
-	provisioningPort   = 8080
-	maxResponseLength  = 4096
+	deviceStatus      = "unprovisioned"
+	provisioningPort  = 8080
+	maxResponseLength = 4096
 )
 
 var (
@@ -60,13 +59,6 @@ type Client interface {
 type HTTPClient struct {
 	client *http.Client
 	model  string
-}
-
-func NewHTTPClient(timeout time.Duration) *HTTPClient {
-	if timeout <= 0 {
-		timeout = 10 * time.Second
-	}
-	return NewHTTPClientForModel(timeout, defaultDeviceModel)
 }
 
 // NewHTTPClientForModel returns an endpoint client that accepts exactly one

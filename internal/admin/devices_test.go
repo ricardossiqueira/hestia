@@ -195,14 +195,14 @@ func TestListDevices(t *testing.T) {
 func TestAddDeviceFromTemplate(t *testing.T) {
 	path := writeFixture(t, baseYAML)
 
-	returned, err := AddDeviceFromTemplate(path, "led-1", "esp32_led.v1")
+	returned, err := AddDeviceFromTemplate(path, "cyd-1", "cyd_monitor.v1")
 	if err != nil {
 		t.Fatalf("AddDeviceFromTemplate() error = %v", err)
 	}
-	if returned.ID != "led-1" || returned.Type != "esp32" || returned.Profile != "led.v1" {
+	if returned.ID != "cyd-1" || returned.Type != "esp32-cyd" {
 		t.Errorf("returned device = %#v", returned)
 	}
-	if returned.Topics.Command != "devices/led-1/command" {
+	if returned.Topics.Command != "devices/cyd-1/command" {
 		t.Errorf("returned.Topics.Command = %q", returned.Topics.Command)
 	}
 
@@ -214,20 +214,20 @@ func TestAddDeviceFromTemplate(t *testing.T) {
 		t.Fatalf("len(devices) = %d, want 2", len(cfg.Devices))
 	}
 	added := cfg.Devices[1]
-	if added.ID != "led-1" || added.Type != "esp32" || added.Profile != "led.v1" {
+	if added.ID != "cyd-1" || added.Type != "esp32-cyd" {
 		t.Errorf("added = %#v", added)
 	}
-	if added.Topics.Command != "devices/led-1/command" {
+	if added.Topics.Command != "devices/cyd-1/command" {
 		t.Errorf("added.Topics.Command = %q", added.Topics.Command)
 	}
-	if added.Topics.Telemetry != "" || added.Topics.State != "devices/led-1/state" {
-		t.Errorf("template should set state and command only: %#v", added.Topics)
+	if added.Topics.Telemetry != "" || added.Topics.State != "" {
+		t.Errorf("template should set command only: %#v", added.Topics)
 	}
 }
 
 func TestAddDeviceFromTemplate_UnknownTemplate(t *testing.T) {
 	path := writeFixture(t, baseYAML)
-	_, err := AddDeviceFromTemplate(path, "led-1", "no-such-template")
+	_, err := AddDeviceFromTemplate(path, "cyd-1", "no-such-template")
 	if err == nil || !strings.Contains(err.Error(), "unknown template") {
 		t.Fatalf("AddDeviceFromTemplate() error = %v, want unknown template", err)
 	}
@@ -235,7 +235,7 @@ func TestAddDeviceFromTemplate_UnknownTemplate(t *testing.T) {
 
 func TestAddDeviceFromTemplate_RejectsDuplicateID(t *testing.T) {
 	path := writeFixture(t, baseYAML)
-	_, err := AddDeviceFromTemplate(path, "esp32-sala", "esp32_led.v1")
+	_, err := AddDeviceFromTemplate(path, "esp32-sala", "cyd_monitor.v1")
 	if err == nil || !strings.Contains(err.Error(), "already exists") {
 		t.Fatalf("AddDeviceFromTemplate() error = %v, want already exists", err)
 	}

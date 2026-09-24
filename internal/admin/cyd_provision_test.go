@@ -60,106 +60,6 @@ func (f *fakeCredentialStore) SetEnabled(_ context.Context, id string, enabled b
 	return nil
 }
 
-func TestProvisionCYDDeliversSecretWithoutPersistingIt(t *testing.T) {
-	store, err := registry.Open(context.Background(), filepath.Join(t.TempDir(), "gateway.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	credentials := &fakeCredentialStore{password: "secret-that-must-not-enter-sqlite"}
-	cyd := &fakeCYDProvisioner{}
-	server, err := New(Config{
-		Registry: store, Credentials: credentials, CYD: cyd,
-		DeviceBrokerHost: "192.168.15.195", DeviceBrokerPort: 1884,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	device, address, err := server.ProvisionCYD(context.Background(), "cyd-sala", "192.168.15.42")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if address != "192.168.15.42" || device.Enabled == nil || !*device.Enabled {
-		t.Fatalf("result = %#v, %q", device, address)
-	}
-	if cyd.settings.Password != credentials.password || cyd.settings.Username != "cyd-sala" || cyd.settings.BrokerPort != 1884 {
-		t.Fatalf("delivered settings = %#v", cyd.settings)
-	}
-	if got := credentials.calls; len(got) != 3 || got[0] != "provision:cyd-sala" || got[1] != "disable:cyd-sala" || got[2] != "enable:cyd-sala" {
-		t.Fatalf("credential calls = %#v", got)
-	}
-	snapshot, err := store.Snapshot(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(snapshot.Devices) != 1 || snapshot.Devices[0].ID != "cyd-sala" || snapshot.Devices[0].Topics.Command != "devices/cyd-sala/command" {
-		t.Fatalf("snapshot = %#v", snapshot)
-	}
-}
-
-func TestProvisionCYDRejectsUnreadyDeviceBeforeCreatingRegistryEntry(t *testing.T) {
-	store, err := registry.Open(context.Background(), filepath.Join(t.TempDir(), "gateway.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	server, err := New(Config{
-		Registry: store, Credentials: &fakeCredentialStore{password: "secret"},
-		CYD:              &fakeCYDProvisioner{inspectErr: cydprovision.ErrUnexpectedDevice},
-		DeviceBrokerHost: "192.168.15.195", DeviceBrokerPort: 1884,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, _, err = server.ProvisionCYD(context.Background(), "cyd-sala", "192.168.15.42")
-	if !errors.Is(err, ErrDeviceNotProvisionable) {
-		t.Fatalf("ProvisionCYD() error = %v", err)
-	}
-	snapshot, err := store.Snapshot(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(snapshot.Devices) != 0 {
-		t.Fatalf("snapshot = %#v", snapshot)
-	}
-}
-
-func TestProvisionLEDDeliversSecretWithoutPersistingIt(t *testing.T) {
-	store, err := registry.Open(context.Background(), filepath.Join(t.TempDir(), "gateway.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	credentials := &fakeCredentialStore{password: "secret-that-must-not-enter-sqlite"}
-	led := &fakeCYDProvisioner{model: "esp32c3-led"}
-	server, err := New(Config{
-		Registry: store, Credentials: credentials, LED: led,
-		DeviceBrokerHost: "192.168.15.195", DeviceBrokerPort: 1884,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	device, address, err := server.ProvisionLED(context.Background(), "led-sala", "192.168.15.43")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if address != "192.168.15.43" || device.Enabled == nil || !*device.Enabled {
-		t.Fatalf("result = %#v, %q", device, address)
-	}
-	if led.settings.Password != credentials.password || led.settings.Username != "led-sala" || led.settings.BrokerPort != 1884 {
-		t.Fatalf("delivered settings = %#v", led.settings)
-	}
-	snapshot, err := store.Snapshot(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(snapshot.Devices) != 1 || snapshot.Devices[0].Topics.State != "devices/led-sala/state" || snapshot.Devices[0].Topics.Command != "devices/led-sala/command" {
-		t.Fatalf("snapshot = %#v", snapshot)
-	}
-}
-
 func TestProvisionDeviceByIPUsesPublishedManifest(t *testing.T) {
 	store, err := registry.Open(context.Background(), filepath.Join(t.TempDir(), "gateway.db"))
 	if err != nil {
@@ -186,7 +86,7 @@ func TestProvisionDeviceByIPUsesPublishedManifest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if address != "192.168.15.43" || device.Type != "esp32c3-led" || device.Profile != "" || device.Enabled == nil || !*device.Enabled {
+	if address != "192.168.15.43" || device.Type != "esp32c3-led" || device.Enabled == nil || !*device.Enabled {
 		t.Fatalf("result = %#v, %q", device, address)
 	}
 	if device.Topics.State != "devices/led-sala/state" || device.Topics.Command != "devices/led-sala/command" {

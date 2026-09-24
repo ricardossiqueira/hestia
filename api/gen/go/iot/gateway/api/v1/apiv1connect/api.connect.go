@@ -91,18 +91,9 @@ const (
 	// DeviceAdminServicePublishDeviceManifestProcedure is the fully-qualified name of the
 	// DeviceAdminService's PublishDeviceManifest RPC.
 	DeviceAdminServicePublishDeviceManifestProcedure = "/iot.gateway.api.v1.DeviceAdminService/PublishDeviceManifest"
-	// DeviceAdminServiceProvisionDeviceProcedure is the fully-qualified name of the
-	// DeviceAdminService's ProvisionDevice RPC.
-	DeviceAdminServiceProvisionDeviceProcedure = "/iot.gateway.api.v1.DeviceAdminService/ProvisionDevice"
 	// DeviceAdminServiceProvisionDeviceByIPProcedure is the fully-qualified name of the
 	// DeviceAdminService's ProvisionDeviceByIP RPC.
 	DeviceAdminServiceProvisionDeviceByIPProcedure = "/iot.gateway.api.v1.DeviceAdminService/ProvisionDeviceByIP"
-	// DeviceAdminServiceProvisionCYDProcedure is the fully-qualified name of the DeviceAdminService's
-	// ProvisionCYD RPC.
-	DeviceAdminServiceProvisionCYDProcedure = "/iot.gateway.api.v1.DeviceAdminService/ProvisionCYD"
-	// DeviceAdminServiceProvisionLEDProcedure is the fully-qualified name of the DeviceAdminService's
-	// ProvisionLED RPC.
-	DeviceAdminServiceProvisionLEDProcedure = "/iot.gateway.api.v1.DeviceAdminService/ProvisionLED"
 	// DeviceAdminServiceSetDeviceEnabledProcedure is the fully-qualified name of the
 	// DeviceAdminService's SetDeviceEnabled RPC.
 	DeviceAdminServiceSetDeviceEnabledProcedure = "/iot.gateway.api.v1.DeviceAdminService/SetDeviceEnabled"
@@ -425,19 +416,10 @@ type DeviceAdminServiceClient interface {
 	CreateDeviceManifestDraft(context.Context, *connect.Request[v1.CreateDeviceManifestDraftRequest]) (*connect.Response[v1.CreateDeviceManifestDraftResponse], error)
 	CreateDeviceManifestRevisionDraft(context.Context, *connect.Request[v1.CreateDeviceManifestRevisionDraftRequest]) (*connect.Response[v1.CreateDeviceManifestRevisionDraftResponse], error)
 	PublishDeviceManifest(context.Context, *connect.Request[v1.PublishDeviceManifestRequest]) (*connect.Response[v1.PublishDeviceManifestResponse], error)
-	ProvisionDevice(context.Context, *connect.Request[v1.ProvisionDeviceRequest]) (*connect.Response[v1.ProvisionDeviceResponse], error)
 	// ProvisionDeviceByIP provisions an unprovisioned device using a published
 	// http-nvs-v1 manifest. The MQTT password is delivered directly to NVS and
 	// never appears in this API response.
 	ProvisionDeviceByIP(context.Context, *connect.Request[v1.ProvisionDeviceByIPRequest]) (*connect.Response[v1.ProvisionDeviceByIPResponse], error)
-	// ProvisionCYD delivers the MQTT identity to an unprovisioned CYD over its
-	// temporary LAN endpoint. Unlike ProvisionDevice, it never returns a
-	// password to the caller.
-	ProvisionCYD(context.Context, *connect.Request[v1.ProvisionCYDRequest]) (*connect.Response[v1.ProvisionCYDResponse], error)
-	// ProvisionLED delivers the MQTT identity to an unprovisioned ESP32-C3 LED
-	// over its temporary LAN endpoint. The password is never returned to the
-	// browser.
-	ProvisionLED(context.Context, *connect.Request[v1.ProvisionLEDRequest]) (*connect.Response[v1.ProvisionLEDResponse], error)
 	SetDeviceEnabled(context.Context, *connect.Request[v1.SetDeviceEnabledRequest]) (*connect.Response[v1.SetDeviceEnabledResponse], error)
 	RemoveDevice(context.Context, *connect.Request[v1.RemoveDeviceRequest]) (*connect.Response[v1.RemoveDeviceResponse], error)
 	// ListInconsistencies returns provisioning operations whose best-effort
@@ -524,28 +506,10 @@ func NewDeviceAdminServiceClient(httpClient connect.HTTPClient, baseURL string, 
 			connect.WithSchema(deviceAdminServiceMethods.ByName("PublishDeviceManifest")),
 			connect.WithClientOptions(opts...),
 		),
-		provisionDevice: connect.NewClient[v1.ProvisionDeviceRequest, v1.ProvisionDeviceResponse](
-			httpClient,
-			baseURL+DeviceAdminServiceProvisionDeviceProcedure,
-			connect.WithSchema(deviceAdminServiceMethods.ByName("ProvisionDevice")),
-			connect.WithClientOptions(opts...),
-		),
 		provisionDeviceByIP: connect.NewClient[v1.ProvisionDeviceByIPRequest, v1.ProvisionDeviceByIPResponse](
 			httpClient,
 			baseURL+DeviceAdminServiceProvisionDeviceByIPProcedure,
 			connect.WithSchema(deviceAdminServiceMethods.ByName("ProvisionDeviceByIP")),
-			connect.WithClientOptions(opts...),
-		),
-		provisionCYD: connect.NewClient[v1.ProvisionCYDRequest, v1.ProvisionCYDResponse](
-			httpClient,
-			baseURL+DeviceAdminServiceProvisionCYDProcedure,
-			connect.WithSchema(deviceAdminServiceMethods.ByName("ProvisionCYD")),
-			connect.WithClientOptions(opts...),
-		),
-		provisionLED: connect.NewClient[v1.ProvisionLEDRequest, v1.ProvisionLEDResponse](
-			httpClient,
-			baseURL+DeviceAdminServiceProvisionLEDProcedure,
-			connect.WithSchema(deviceAdminServiceMethods.ByName("ProvisionLED")),
 			connect.WithClientOptions(opts...),
 		),
 		setDeviceEnabled: connect.NewClient[v1.SetDeviceEnabledRequest, v1.SetDeviceEnabledResponse](
@@ -588,10 +552,7 @@ type deviceAdminServiceClient struct {
 	createDeviceManifestDraft         *connect.Client[v1.CreateDeviceManifestDraftRequest, v1.CreateDeviceManifestDraftResponse]
 	createDeviceManifestRevisionDraft *connect.Client[v1.CreateDeviceManifestRevisionDraftRequest, v1.CreateDeviceManifestRevisionDraftResponse]
 	publishDeviceManifest             *connect.Client[v1.PublishDeviceManifestRequest, v1.PublishDeviceManifestResponse]
-	provisionDevice                   *connect.Client[v1.ProvisionDeviceRequest, v1.ProvisionDeviceResponse]
 	provisionDeviceByIP               *connect.Client[v1.ProvisionDeviceByIPRequest, v1.ProvisionDeviceByIPResponse]
-	provisionCYD                      *connect.Client[v1.ProvisionCYDRequest, v1.ProvisionCYDResponse]
-	provisionLED                      *connect.Client[v1.ProvisionLEDRequest, v1.ProvisionLEDResponse]
 	setDeviceEnabled                  *connect.Client[v1.SetDeviceEnabledRequest, v1.SetDeviceEnabledResponse]
 	removeDevice                      *connect.Client[v1.RemoveDeviceRequest, v1.RemoveDeviceResponse]
 	listInconsistencies               *connect.Client[v1.ListInconsistenciesRequest, v1.ListInconsistenciesResponse]
@@ -655,24 +616,9 @@ func (c *deviceAdminServiceClient) PublishDeviceManifest(ctx context.Context, re
 	return c.publishDeviceManifest.CallUnary(ctx, req)
 }
 
-// ProvisionDevice calls iot.gateway.api.v1.DeviceAdminService.ProvisionDevice.
-func (c *deviceAdminServiceClient) ProvisionDevice(ctx context.Context, req *connect.Request[v1.ProvisionDeviceRequest]) (*connect.Response[v1.ProvisionDeviceResponse], error) {
-	return c.provisionDevice.CallUnary(ctx, req)
-}
-
 // ProvisionDeviceByIP calls iot.gateway.api.v1.DeviceAdminService.ProvisionDeviceByIP.
 func (c *deviceAdminServiceClient) ProvisionDeviceByIP(ctx context.Context, req *connect.Request[v1.ProvisionDeviceByIPRequest]) (*connect.Response[v1.ProvisionDeviceByIPResponse], error) {
 	return c.provisionDeviceByIP.CallUnary(ctx, req)
-}
-
-// ProvisionCYD calls iot.gateway.api.v1.DeviceAdminService.ProvisionCYD.
-func (c *deviceAdminServiceClient) ProvisionCYD(ctx context.Context, req *connect.Request[v1.ProvisionCYDRequest]) (*connect.Response[v1.ProvisionCYDResponse], error) {
-	return c.provisionCYD.CallUnary(ctx, req)
-}
-
-// ProvisionLED calls iot.gateway.api.v1.DeviceAdminService.ProvisionLED.
-func (c *deviceAdminServiceClient) ProvisionLED(ctx context.Context, req *connect.Request[v1.ProvisionLEDRequest]) (*connect.Response[v1.ProvisionLEDResponse], error) {
-	return c.provisionLED.CallUnary(ctx, req)
 }
 
 // SetDeviceEnabled calls iot.gateway.api.v1.DeviceAdminService.SetDeviceEnabled.
@@ -716,19 +662,10 @@ type DeviceAdminServiceHandler interface {
 	CreateDeviceManifestDraft(context.Context, *connect.Request[v1.CreateDeviceManifestDraftRequest]) (*connect.Response[v1.CreateDeviceManifestDraftResponse], error)
 	CreateDeviceManifestRevisionDraft(context.Context, *connect.Request[v1.CreateDeviceManifestRevisionDraftRequest]) (*connect.Response[v1.CreateDeviceManifestRevisionDraftResponse], error)
 	PublishDeviceManifest(context.Context, *connect.Request[v1.PublishDeviceManifestRequest]) (*connect.Response[v1.PublishDeviceManifestResponse], error)
-	ProvisionDevice(context.Context, *connect.Request[v1.ProvisionDeviceRequest]) (*connect.Response[v1.ProvisionDeviceResponse], error)
 	// ProvisionDeviceByIP provisions an unprovisioned device using a published
 	// http-nvs-v1 manifest. The MQTT password is delivered directly to NVS and
 	// never appears in this API response.
 	ProvisionDeviceByIP(context.Context, *connect.Request[v1.ProvisionDeviceByIPRequest]) (*connect.Response[v1.ProvisionDeviceByIPResponse], error)
-	// ProvisionCYD delivers the MQTT identity to an unprovisioned CYD over its
-	// temporary LAN endpoint. Unlike ProvisionDevice, it never returns a
-	// password to the caller.
-	ProvisionCYD(context.Context, *connect.Request[v1.ProvisionCYDRequest]) (*connect.Response[v1.ProvisionCYDResponse], error)
-	// ProvisionLED delivers the MQTT identity to an unprovisioned ESP32-C3 LED
-	// over its temporary LAN endpoint. The password is never returned to the
-	// browser.
-	ProvisionLED(context.Context, *connect.Request[v1.ProvisionLEDRequest]) (*connect.Response[v1.ProvisionLEDResponse], error)
 	SetDeviceEnabled(context.Context, *connect.Request[v1.SetDeviceEnabledRequest]) (*connect.Response[v1.SetDeviceEnabledResponse], error)
 	RemoveDevice(context.Context, *connect.Request[v1.RemoveDeviceRequest]) (*connect.Response[v1.RemoveDeviceResponse], error)
 	// ListInconsistencies returns provisioning operations whose best-effort
@@ -811,28 +748,10 @@ func NewDeviceAdminServiceHandler(svc DeviceAdminServiceHandler, opts ...connect
 		connect.WithSchema(deviceAdminServiceMethods.ByName("PublishDeviceManifest")),
 		connect.WithHandlerOptions(opts...),
 	)
-	deviceAdminServiceProvisionDeviceHandler := connect.NewUnaryHandler(
-		DeviceAdminServiceProvisionDeviceProcedure,
-		svc.ProvisionDevice,
-		connect.WithSchema(deviceAdminServiceMethods.ByName("ProvisionDevice")),
-		connect.WithHandlerOptions(opts...),
-	)
 	deviceAdminServiceProvisionDeviceByIPHandler := connect.NewUnaryHandler(
 		DeviceAdminServiceProvisionDeviceByIPProcedure,
 		svc.ProvisionDeviceByIP,
 		connect.WithSchema(deviceAdminServiceMethods.ByName("ProvisionDeviceByIP")),
-		connect.WithHandlerOptions(opts...),
-	)
-	deviceAdminServiceProvisionCYDHandler := connect.NewUnaryHandler(
-		DeviceAdminServiceProvisionCYDProcedure,
-		svc.ProvisionCYD,
-		connect.WithSchema(deviceAdminServiceMethods.ByName("ProvisionCYD")),
-		connect.WithHandlerOptions(opts...),
-	)
-	deviceAdminServiceProvisionLEDHandler := connect.NewUnaryHandler(
-		DeviceAdminServiceProvisionLEDProcedure,
-		svc.ProvisionLED,
-		connect.WithSchema(deviceAdminServiceMethods.ByName("ProvisionLED")),
 		connect.WithHandlerOptions(opts...),
 	)
 	deviceAdminServiceSetDeviceEnabledHandler := connect.NewUnaryHandler(
@@ -883,14 +802,8 @@ func NewDeviceAdminServiceHandler(svc DeviceAdminServiceHandler, opts ...connect
 			deviceAdminServiceCreateDeviceManifestRevisionDraftHandler.ServeHTTP(w, r)
 		case DeviceAdminServicePublishDeviceManifestProcedure:
 			deviceAdminServicePublishDeviceManifestHandler.ServeHTTP(w, r)
-		case DeviceAdminServiceProvisionDeviceProcedure:
-			deviceAdminServiceProvisionDeviceHandler.ServeHTTP(w, r)
 		case DeviceAdminServiceProvisionDeviceByIPProcedure:
 			deviceAdminServiceProvisionDeviceByIPHandler.ServeHTTP(w, r)
-		case DeviceAdminServiceProvisionCYDProcedure:
-			deviceAdminServiceProvisionCYDHandler.ServeHTTP(w, r)
-		case DeviceAdminServiceProvisionLEDProcedure:
-			deviceAdminServiceProvisionLEDHandler.ServeHTTP(w, r)
 		case DeviceAdminServiceSetDeviceEnabledProcedure:
 			deviceAdminServiceSetDeviceEnabledHandler.ServeHTTP(w, r)
 		case DeviceAdminServiceRemoveDeviceProcedure:
@@ -952,20 +865,8 @@ func (UnimplementedDeviceAdminServiceHandler) PublishDeviceManifest(context.Cont
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("iot.gateway.api.v1.DeviceAdminService.PublishDeviceManifest is not implemented"))
 }
 
-func (UnimplementedDeviceAdminServiceHandler) ProvisionDevice(context.Context, *connect.Request[v1.ProvisionDeviceRequest]) (*connect.Response[v1.ProvisionDeviceResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("iot.gateway.api.v1.DeviceAdminService.ProvisionDevice is not implemented"))
-}
-
 func (UnimplementedDeviceAdminServiceHandler) ProvisionDeviceByIP(context.Context, *connect.Request[v1.ProvisionDeviceByIPRequest]) (*connect.Response[v1.ProvisionDeviceByIPResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("iot.gateway.api.v1.DeviceAdminService.ProvisionDeviceByIP is not implemented"))
-}
-
-func (UnimplementedDeviceAdminServiceHandler) ProvisionCYD(context.Context, *connect.Request[v1.ProvisionCYDRequest]) (*connect.Response[v1.ProvisionCYDResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("iot.gateway.api.v1.DeviceAdminService.ProvisionCYD is not implemented"))
-}
-
-func (UnimplementedDeviceAdminServiceHandler) ProvisionLED(context.Context, *connect.Request[v1.ProvisionLEDRequest]) (*connect.Response[v1.ProvisionLEDResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("iot.gateway.api.v1.DeviceAdminService.ProvisionLED is not implemented"))
 }
 
 func (UnimplementedDeviceAdminServiceHandler) SetDeviceEnabled(context.Context, *connect.Request[v1.SetDeviceEnabledRequest]) (*connect.Response[v1.SetDeviceEnabledResponse], error) {

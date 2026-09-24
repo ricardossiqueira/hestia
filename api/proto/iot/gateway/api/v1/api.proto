@@ -4,7 +4,6 @@ package iot.gateway.api.v1;
 
 option go_package = "github.com/ricardossiqueira/iot-gateway/api/gen/go/iot/gateway/api/v1;apiv1";
 
-import "google/protobuf/descriptor.proto";
 import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";
 
@@ -58,19 +57,10 @@ service DeviceAdminService {
   rpc CreateDeviceManifestDraft(CreateDeviceManifestDraftRequest) returns (CreateDeviceManifestDraftResponse);
   rpc CreateDeviceManifestRevisionDraft(CreateDeviceManifestRevisionDraftRequest) returns (CreateDeviceManifestRevisionDraftResponse);
   rpc PublishDeviceManifest(PublishDeviceManifestRequest) returns (PublishDeviceManifestResponse);
-  rpc ProvisionDevice(ProvisionDeviceRequest) returns (ProvisionDeviceResponse);
   // ProvisionDeviceByIP provisions an unprovisioned device using a published
   // http-nvs-v1 manifest. The MQTT password is delivered directly to NVS and
   // never appears in this API response.
   rpc ProvisionDeviceByIP(ProvisionDeviceByIPRequest) returns (ProvisionDeviceByIPResponse);
-  // ProvisionCYD delivers the MQTT identity to an unprovisioned CYD over its
-  // temporary LAN endpoint. Unlike ProvisionDevice, it never returns a
-  // password to the caller.
-  rpc ProvisionCYD(ProvisionCYDRequest) returns (ProvisionCYDResponse);
-  // ProvisionLED delivers the MQTT identity to an unprovisioned ESP32-C3 LED
-  // over its temporary LAN endpoint. The password is never returned to the
-  // browser.
-  rpc ProvisionLED(ProvisionLEDRequest) returns (ProvisionLEDResponse);
   rpc SetDeviceEnabled(SetDeviceEnabledRequest) returns (SetDeviceEnabledResponse);
   rpc RemoveDevice(RemoveDeviceRequest) returns (RemoveDeviceResponse);
   // ListInconsistencies returns provisioning operations whose best-effort
@@ -190,27 +180,6 @@ message PublishDeviceManifestResponse {
   DeviceManifest manifest = 1;
 }
 
-message ProvisionDeviceRequest {
-  string device_id = 1;
-  // template names a compiled internal/admin registry entry. Only
-  // "esp32_led.v1" exists for now - see docs/api-v1.md.
-  string template = 2;
-}
-
-message ProvisionDeviceResponse {
-  Device device = 1;
-  // mqtt_username always equals device.id - included explicitly so a
-  // client can write secrets.h without hardcoding that convention itself.
-  string mqtt_username = 2;
-  // mqtt_password is a one-time-display secret: the caller must show it to
-  // the operator once and never log, store or re-request it - the
-  // provisioning script does not remember it either.
-  string mqtt_password = 3;
-  // applied_at records when the registry mutation was durably committed.
-  // It does not imply a process or broker restart.
-  google.protobuf.Timestamp applied_at = 4;
-}
-
 message ProvisionDeviceByIPRequest {
   string device_id = 1;
   string manifest_id = 2;
@@ -223,30 +192,6 @@ message ProvisionDeviceByIPResponse {
   string device_ip = 2;
   string manifest_id = 3;
   google.protobuf.Timestamp applied_at = 4;
-}
-
-message ProvisionCYDRequest {
-  string device_id = 1;
-  // IPv4 printed by the CYD over Serial before its first MQTT connection.
-  string device_ip = 2;
-}
-
-message ProvisionCYDResponse {
-  Device device = 1;
-  string device_ip = 2;
-  google.protobuf.Timestamp applied_at = 3;
-}
-
-message ProvisionLEDRequest {
-  string device_id = 1;
-  // IPv4 printed by the LED over Serial before its first MQTT connection.
-  string device_ip = 2;
-}
-
-message ProvisionLEDResponse {
-  Device device = 1;
-  string device_ip = 2;
-  google.protobuf.Timestamp applied_at = 3;
 }
 
 message SetDeviceEnabledRequest {
@@ -305,10 +250,6 @@ message Device {
   string id = 1;
   string type = 2;
   bool enabled = 3;
-  // profile names an internal/deviceprofile registry entry (e.g.
-  // "led.v1"). Empty means this device has no profile: PublishCommand
-  // falls back to opaque, schema-less validation for it.
-  string profile = 4;
   DeviceTopics topics = 5;
 }
 
@@ -326,24 +267,15 @@ message ListDeviceCommandsRequest {
 
 message ListDeviceCommandsResponse {
   string device_id = 1;
-  // schema_validated is false when the device has no profile: commands is
-  // then empty and PublishCommand will accept this device's parameters
-  // opaquely, with no schema.
+  // schema_validated is false when the device has no manifest binding:
+  // commands is then empty and PublishCommand accepts parameters opaquely.
   bool schema_validated = 2;
   repeated CommandDescriptor commands = 3;
 }
 
-// CommandDescriptor is the schema for one command type, sufficient on its
-// own for a client to render a form: see internal/deviceprofile's
-// self-contained-message invariant.
+// CommandDescriptor is the manifest JSON schema for one command type.
 message CommandDescriptor {
   string type = 1;
-  // parameters_message is the fully qualified Protobuf message name (e.g.
-  // "iot.device.led.v1.SetLed").
-  string parameters_message = 2;
-  google.protobuf.DescriptorProto parameters_schema = 3;
-  // Canonical manifest parameter schema for declarative devices. Empty for
-  // legacy compiled profiles, which continue to use parameters_schema.
   string parameters_json = 4;
 }
 
@@ -365,7 +297,7 @@ message PublishCommandResponse {
   string command_id = 1;
   string device_id = 2;
   // schema_validated is false when the device published opaquely (no
-  // profile) - the same meaning as ListDeviceCommandsResponse's field.
+  // manifest binding) - the same meaning as ListDeviceCommandsResponse's field.
   bool schema_validated = 3;
   google.protobuf.Timestamp published_at = 4;
 }

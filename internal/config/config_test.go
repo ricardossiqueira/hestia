@@ -369,25 +369,6 @@ func TestParseRejectsInvalidAllowedOrigins(t *testing.T) {
 	}
 }
 
-func TestParseAcceptsValidProfile(t *testing.T) {
-	yaml := strings.Replace(validYAML, "type: esp32\n", "type: esp32\n    profile: led.v1\n", 1)
-	cfg, err := Parse([]byte(yaml))
-	if err != nil {
-		t.Fatalf("Parse() error = %v", err)
-	}
-	if cfg.Devices[0].Profile != "led.v1" {
-		t.Errorf("Profile = %q, want led.v1", cfg.Devices[0].Profile)
-	}
-}
-
-func TestParseRejectsUnknownProfile(t *testing.T) {
-	yaml := strings.Replace(validYAML, "type: esp32\n", "type: esp32\n    profile: thermostat.v1\n", 1)
-	_, err := Parse([]byte(yaml))
-	if err == nil || !strings.Contains(err.Error(), "not a known device profile") {
-		t.Fatalf("Parse() error = %v, want unknown profile error", err)
-	}
-}
-
 func TestParseAcceptsEmptyTimezone(t *testing.T) {
 	withoutTimezone := strings.Replace(validYAML, "  timezone: America/Sao_Paulo\n", "", 1)
 	if _, err := Parse([]byte(withoutTimezone)); err != nil {

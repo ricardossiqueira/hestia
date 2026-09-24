@@ -61,10 +61,7 @@ type DeviceAdmin interface {
 	CreateDeviceManifestDraft(ctx context.Context, document, actor string) (registry.DeviceManifest, error)
 	CreateDeviceManifestRevisionDraft(ctx context.Context, id, document, actor string) (registry.DeviceManifest, error)
 	PublishDeviceManifest(ctx context.Context, id string, revision uint64, actor string) (registry.DeviceManifest, error)
-	ProvisionDevice(ctx context.Context, id, template string) (config.Device, string, error)
 	ProvisionDeviceByIP(ctx context.Context, id, manifestID, address string) (config.Device, string, error)
-	ProvisionCYD(ctx context.Context, id, address string) (config.Device, string, error)
-	ProvisionLED(ctx context.Context, id, address string) (config.Device, string, error)
 	SetDeviceEnabled(ctx context.Context, id string, enabled bool) (config.Device, error)
 	RemoveDevice(ctx context.Context, id string) error
 	ListInconsistencies(ctx context.Context) ([]registry.Inconsistency, error)

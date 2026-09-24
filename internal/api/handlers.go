@@ -15,7 +15,6 @@ import (
 
 	apiv1 "github.com/ricardossiqueira/iot-gateway/api/gen/go/iot/gateway/api/v1"
 	"github.com/ricardossiqueira/iot-gateway/internal/devicemanifest"
-	"github.com/ricardossiqueira/iot-gateway/internal/deviceprofile"
 	"github.com/ricardossiqueira/iot-gateway/internal/mqtt"
 )
 
@@ -30,7 +29,6 @@ func (s *Server) ListDevices(ctx context.Context, req *connect.Request[apiv1.Lis
 			Id:      d.ID,
 			Type:    d.Type,
 			Enabled: d.Enabled != nil && *d.Enabled,
-			Profile: d.Profile,
 			Topics: &apiv1.DeviceTopics{
 				Telemetry:     d.Topics.Telemetry,
 				State:         d.Topics.State,
@@ -43,12 +41,11 @@ func (s *Server) ListDevices(ctx context.Context, req *connect.Request[apiv1.Lis
 	return connect.NewResponse(&apiv1.ListDevicesResponse{Devices: devices}), nil
 }
 
-// ListDeviceCommands describes the commands a device accepts. A device
-// without a profile returns schema_validated=false and an empty commands
-// list - see docs/api-v1.md's fallback-opaco section.
+// ListDeviceCommands describes the commands a device accepts. Devices without
+// a manifest binding remain opaque until an operator migrates them.
 func (s *Server) ListDeviceCommands(ctx context.Context, req *connect.Request[apiv1.ListDeviceCommandsRequest]) (*connect.Response[apiv1.ListDeviceCommandsResponse], error) {
 	deviceID := strings.TrimSpace(req.Msg.GetDeviceId())
-	device, ok := s.deviceByID(deviceID)
+	_, ok := s.deviceByID(deviceID)
 	if !ok {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("unknown device %q", deviceID))
 	}
@@ -65,33 +62,7 @@ func (s *Server) ListDeviceCommands(ctx context.Context, req *connect.Request[ap
 			return connect.NewResponse(&apiv1.ListDeviceCommandsResponse{DeviceId: deviceID, SchemaValidated: true, Commands: commands}), nil
 		}
 	}
-	if device.Profile == "" {
-		return connect.NewResponse(&apiv1.ListDeviceCommandsResponse{
-			DeviceId:        deviceID,
-			SchemaValidated: false,
-		}), nil
-	}
-	descriptors, err := deviceprofile.Describe(device.Profile)
-	if err != nil {
-		// The registry rejected a profile name that Config.Validate already
-		// confirmed exists - only possible if the process's compiled
-		// registry and the validated configuration disagree, which is
-		// itself a bug (not a client error).
-		return nil, connect.NewError(connect.CodeInternal, err)
-	}
-	commands := make([]*apiv1.CommandDescriptor, 0, len(descriptors))
-	for _, d := range descriptors {
-		commands = append(commands, &apiv1.CommandDescriptor{
-			Type:              d.Type,
-			ParametersMessage: d.ParametersMessage,
-			ParametersSchema:  d.ParametersSchema,
-		})
-	}
-	return connect.NewResponse(&apiv1.ListDeviceCommandsResponse{
-		DeviceId:        deviceID,
-		SchemaValidated: true,
-		Commands:        commands,
-	}), nil
+	return connect.NewResponse(&apiv1.ListDeviceCommandsResponse{DeviceId: deviceID, SchemaValidated: false}), nil
 }
 
 // commandEnvelope is the outgoing MQTT payload shape docs/mqtt.md and
@@ -105,7 +76,7 @@ type commandEnvelope struct {
 }
 
 // PublishCommand resolves the device, validates parameters against its
-// profile when it has one (opaque fallback otherwise), and publishes a
+// published manifest when it has one (opaque fallback otherwise), and publishes a
 // fire-and-forget command through CommandPublisher. Every rejection this
 // method or the publisher can return (unknown device, schema violation,
 // disabled device, missing command topic) is something the caller can fix
@@ -122,7 +93,7 @@ func (s *Server) PublishCommand(ctx context.Context, req *connect.Request[apiv1.
 	if commandType == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("type is required"))
 	}
-	device, ok := s.deviceByID(deviceID)
+	_, ok := s.deviceByID(deviceID)
 	if !ok {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("unknown device %q", deviceID))
 	}
@@ -134,7 +105,7 @@ func (s *Server) PublishCommand(ctx context.Context, req *connect.Request[apiv1.
 	// Struct -> JSON: numbers become float64 (ADR-012's documented
 	// precision limitation). Acceptable because parameters are validated
 	// and recodified against a schema immediately below when the device
-	// has a profile; devices without a profile inherit the same
+	// has a manifest; devices without a manifest inherit the same
 	// limitation internal/commandapi already had for any client that
 	// JSON-decoded then re-encoded a number.
 	paramsJSON, err := protojson.Marshal(parameters)
@@ -157,15 +128,6 @@ func (s *Server) PublishCommand(ctx context.Context, req *connect.Request[apiv1.
 			finalParams, schemaValidated = canonical, true
 		}
 	}
-	if !schemaValidated && device.Profile != "" {
-		canonical, err := deviceprofile.ValidateAndCanonicalize(device.Profile, commandType, paramsJSON)
-		if err != nil {
-			return nil, connect.NewError(connect.CodeInvalidArgument, err)
-		}
-		finalParams = canonical
-		schemaValidated = true
-	}
-
 	commandID := uuid.NewString()
 	payload, err := json.Marshal(commandEnvelope{CommandID: commandID, Type: commandType, Parameters: finalParams})
 	if err != nil {

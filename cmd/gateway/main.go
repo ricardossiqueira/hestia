@@ -23,7 +23,6 @@ import (
 	"github.com/ricardossiqueira/iot-gateway/internal/api"
 	"github.com/ricardossiqueira/iot-gateway/internal/apigateway"
 	"github.com/ricardossiqueira/iot-gateway/internal/config"
-	"github.com/ricardossiqueira/iot-gateway/internal/cydprovision"
 	"github.com/ricardossiqueira/iot-gateway/internal/diagnostics"
 	"github.com/ricardossiqueira/iot-gateway/internal/dynsec"
 	gatewaymqtt "github.com/ricardossiqueira/iot-gateway/internal/mqtt"
@@ -371,8 +370,6 @@ func runAdmin(args []string, stderr io.Writer) int {
 		ProvisionScript:  *provisionScript,
 		Credentials:      credentials,
 		Registry:         deviceRegistry,
-		CYD:              cydprovision.NewHTTPClient(adminRequestTimeout),
-		LED:              cydprovision.NewHTTPClientForModel(adminRequestTimeout, "esp32c3-led"),
 		DeviceBrokerHost: strings.TrimSpace(os.Getenv("IOT_GATEWAY_DEVICE_MQTT_HOST")),
 		DeviceBrokerPort: mqttPort(cfg.MQTT.URL),
 		RequestTimeout:   adminRequestTimeout,

@@ -294,8 +294,8 @@ func (s *Store) ResolveDeviceManifest(ctx context.Context, deviceID string) (dev
 	return parsed, true, nil
 }
 
-// MigrateDeviceToManifest replaces a legacy compiled profile with a pinned,
-// published manifest. It never changes a broker credential or device NVS.
+// MigrateDeviceToManifest binds a pre-manifest device to a pinned, published
+// manifest. It never changes a broker credential or device NVS.
 func (s *Store) MigrateDeviceToManifest(ctx context.Context, deviceID, manifestID, actor string) (config.Device, error) {
 	actor, err := validateManifestActor(actor)
 	if err != nil {
@@ -324,7 +324,11 @@ func (s *Store) MigrateDeviceToManifest(ctx context.Context, deviceID, manifestI
 	if !found {
 		return config.Device{}, fmt.Errorf("%w: %q", ErrDeviceNotFound, deviceID)
 	}
-	if device.Profile == "" {
+	var bound int
+	if err := s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM registry_device_manifest_bindings WHERE device_id = ?)`, deviceID).Scan(&bound); err != nil {
+		return config.Device{}, fmt.Errorf("check device manifest binding: %w", err)
+	}
+	if bound != 0 {
 		return config.Device{}, errors.New("device is already manifest-managed")
 	}
 	for _, topic := range document.MQTT.Topics {
@@ -341,19 +345,18 @@ func (s *Store) MigrateDeviceToManifest(ctx context.Context, deviceID, manifestI
 	if err != nil {
 		return config.Device{}, err
 	}
-	if _, err = tx.ExecContext(ctx, `UPDATE registry_devices SET profile='', revision=?, updated_at_ns=? WHERE id=?`, revision, s.now().UnixNano(), deviceID); err != nil {
+	if _, err = tx.ExecContext(ctx, `UPDATE registry_devices SET revision=?, updated_at_ns=? WHERE id=?`, revision, s.now().UnixNano(), deviceID); err != nil {
 		return config.Device{}, err
 	}
 	if _, err = tx.ExecContext(ctx, `INSERT INTO registry_device_manifest_bindings(device_id,manifest_id,manifest_revision) VALUES (?,?,?)`, deviceID, manifest.ID, manifest.Revision); err != nil {
 		return config.Device{}, err
 	}
-	if _, err = tx.ExecContext(ctx, `INSERT INTO registry_device_manifest_binding_audit(id,device_id,manifest_id,manifest_revision,previous_profile,actor,created_at_ns) VALUES(lower(hex(randomblob(16))),?,?,?,?,?,?)`, deviceID, manifest.ID, manifest.Revision, device.Profile, actor, s.now().UnixNano()); err != nil {
+	if _, err = tx.ExecContext(ctx, `INSERT INTO registry_device_manifest_binding_audit(id,device_id,manifest_id,manifest_revision,actor,created_at_ns) VALUES(lower(hex(randomblob(16))),?,?,?,?,?)`, deviceID, manifest.ID, manifest.Revision, actor, s.now().UnixNano()); err != nil {
 		return config.Device{}, err
 	}
 	if err = tx.Commit(); err != nil {
 		return config.Device{}, err
 	}
-	device.Profile = ""
 	return device, nil
 }
 

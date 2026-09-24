@@ -15,7 +15,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ricardossiqueira/iot-gateway/internal/deviceprofile"
 	"gopkg.in/yaml.v3"
 )
 
@@ -155,15 +154,9 @@ func (d *Duration) UnmarshalYAML(value *yaml.Node) error {
 func (d Duration) TimeDuration() time.Duration { return time.Duration(d) }
 
 type Device struct {
-	ID      string `yaml:"id"`
-	Type    string `yaml:"type"`
-	Enabled *bool  `yaml:"enabled"`
-	// Profile names a compiled internal/deviceprofile registry entry (e.g.
-	// "led.v1") whose command schemas validate this device's commands sent
-	// through internal/api. Empty means the device has no profile: commands
-	// fall back to the opaque, schema-less contract in docs/mqtt.md. type
-	// still describes hardware; profile is strictly opt-in and orthogonal.
-	Profile    string     `yaml:"profile,omitempty"`
+	ID         string     `yaml:"id"`
+	Type       string     `yaml:"type"`
+	Enabled    *bool      `yaml:"enabled"`
 	Topics     Topics     `yaml:"topics"`
 	Forwarding Forwarding `yaml:"forwarding"`
 }
@@ -305,10 +298,6 @@ func (c Config) Validate() error {
 		if device.Enabled == nil {
 			return fmt.Errorf("%s.enabled is required", prefix)
 		}
-		if device.Profile != "" && !deviceprofile.Exists(device.Profile) {
-			return fmt.Errorf("%s.profile %q is not a known device profile", prefix, device.Profile)
-		}
-
 		if err := validateTopics(prefix, device, topicOwners); err != nil {
 			return err
 		}

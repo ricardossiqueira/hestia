@@ -35,7 +35,7 @@ func TestDecodeOneJSONRejectsTrailingDocument(t *testing.T) {
 }
 
 func TestHTTPClientMethodsRejectPublicAddress(t *testing.T) {
-	client := NewHTTPClient(0)
+	client := NewHTTPClientForModel(0, "cyd-monitor")
 	if _, err := client.Inspect(context.Background(), "8.8.8.8"); !errors.Is(err, ErrInvalidIPAddress) {
 		t.Fatalf("Inspect() error = %v", err)
 	}
@@ -49,7 +49,7 @@ func decodeDeviceInfo(reader *strings.Reader) (DeviceInfo, error) {
 	if err := decodeOneJSON(reader, &info); err != nil {
 		return DeviceInfo{}, err
 	}
-	if info.Model != defaultDeviceModel || info.Status != deviceStatus {
+	if info.Model != "cyd-monitor" || info.Status != deviceStatus {
 		return DeviceInfo{}, ErrUnexpectedDevice
 	}
 	return info, nil

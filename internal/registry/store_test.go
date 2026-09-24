@@ -304,7 +304,7 @@ func openTestStore(t *testing.T) *Store {
 }
 
 func testDevice(id string, enabled bool) config.Device {
-	return config.Device{ID: id, Type: "esp32", Enabled: &enabled, Profile: "led.v1", Topics: config.Topics{Command: "devices/" + id + "/command"}}
+	return config.Device{ID: id, Type: "esp32", Enabled: &enabled, Topics: config.Topics{Command: "devices/" + id + "/command"}}
 }
 
 func boolPtr(value bool) *bool { return &value }

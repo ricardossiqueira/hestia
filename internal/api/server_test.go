@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
-	"google.golang.org/protobuf/types/descriptorpb"
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -107,7 +106,6 @@ func testDevices() []config.Device {
 			ID:      "led-1",
 			Type:    "esp32",
 			Enabled: &enabled,
-			Profile: "led.v1",
 			Topics:  config.Topics{Command: "devices/led-1/command"},
 		},
 		{
@@ -127,6 +125,35 @@ type fakeManifestResolver struct {
 
 func (f fakeManifestResolver) ResolveDeviceManifest(context.Context, string) (devicemanifest.Document, bool, error) {
 	return f.document, f.found, f.err
+}
+
+// ledManifestDocument is a published-manifest stand-in for the retired
+// led.v1 compiled profile: one required boolean parameter on set_led,
+// exactly what the tests below need to exercise schema validation without
+// device.Profile.
+const ledManifestDocument = `{"schema_version":1,"id":"esp32-c3-led","display_name":"LED","provisioning":{"protocol":"http-nvs-v1","model":"esp32c3-led","required_protocol_version":1},"mqtt":{"topics":["command"]},"capabilities":{"commands":[{"type":"set_led","parameters":{"on":{"type":"boolean","required":true}}}],"events":[]}}`
+
+// newManifestBoundServer starts a test server where every device resolves
+// to ledManifestDocument's manifest, the same shape newTestServer gives
+// every device no manifest at all (opaque fallback).
+func newManifestBoundServer(t *testing.T, publisher CommandPublisher) *httptest.Server {
+	t.Helper()
+	document, _, err := devicemanifest.Parse(ledManifestDocument)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := Config{
+		Address: "127.0.0.1:0", RequestTimeout: time.Second,
+		Registry:         config.Config{Devices: testDevices()},
+		ManifestResolver: fakeManifestResolver{document: document, found: true},
+	}
+	srv, err := New(cfg, publisher, fakeStatus{}, fakeTelemetry{}, fakeQueue{}, &fakeEvents{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(srv.http.Handler)
+	t.Cleanup(ts.Close)
+	return ts
 }
 
 // newTestServer starts an httptest server directly on the Server's
@@ -163,16 +190,16 @@ func TestListDevices(t *testing.T) {
 	if len(resp.Msg.Devices) != 2 {
 		t.Fatalf("len(Devices) = %d, want 2", len(resp.Msg.Devices))
 	}
-	if resp.Msg.Devices[0].Id != "led-1" || resp.Msg.Devices[0].Profile != "led.v1" {
+	if resp.Msg.Devices[0].Id != "led-1" {
 		t.Errorf("Devices[0] = %#v", resp.Msg.Devices[0])
 	}
-	if resp.Msg.Devices[1].Id != "opaque-1" || resp.Msg.Devices[1].Profile != "" {
+	if resp.Msg.Devices[1].Id != "opaque-1" {
 		t.Errorf("Devices[1] = %#v", resp.Msg.Devices[1])
 	}
 }
 
-func TestListDeviceCommands_WithProfile(t *testing.T) {
-	ts := newTestServer(t, &fakePublisher{}, fakeStatus{}, fakeTelemetry{}, fakeQueue{})
+func TestListDeviceCommands_WithManifest(t *testing.T) {
+	ts := newManifestBoundServer(t, &fakePublisher{})
 	client := apiv1connect.NewDeviceServiceClient(ts.Client(), ts.URL)
 	req := connect.NewRequest(&apiv1.ListDeviceCommandsRequest{DeviceId: "led-1"})
 	resp, err := client.ListDeviceCommands(context.Background(), req)
@@ -182,12 +209,8 @@ func TestListDeviceCommands_WithProfile(t *testing.T) {
 	if !resp.Msg.SchemaValidated {
 		t.Fatal("SchemaValidated = false, want true")
 	}
-	if len(resp.Msg.Commands) != 1 || resp.Msg.Commands[0].Type != "set_led" {
+	if len(resp.Msg.Commands) != 1 || resp.Msg.Commands[0].Type != "set_led" || resp.Msg.Commands[0].ParametersJson == "" {
 		t.Fatalf("Commands = %#v", resp.Msg.Commands)
-	}
-	schema := resp.Msg.Commands[0].ParametersSchema
-	if schema == nil || len(schema.Field) != 1 || schema.Field[0].GetName() != "on" || schema.Field[0].GetType() != descriptorpb.FieldDescriptorProto_TYPE_BOOL {
-		t.Fatalf("ParametersSchema = %#v", schema)
 	}
 }
 
@@ -234,7 +257,7 @@ func TestPublishCommand_UsesBoundManifest(t *testing.T) {
 
 func TestPublishCommand_Success_SchemaValidated(t *testing.T) {
 	publisher := &fakePublisher{}
-	ts := newTestServer(t, publisher, fakeStatus{}, fakeTelemetry{}, fakeQueue{})
+	ts := newManifestBoundServer(t, publisher)
 	client := apiv1connect.NewDeviceServiceClient(ts.Client(), ts.URL)
 	params, _ := structpb.NewStruct(map[string]any{"on": true})
 	req := connect.NewRequest(&apiv1.PublishCommandRequest{DeviceId: "led-1", Type: "set_led", Parameters: params})
@@ -265,7 +288,7 @@ func TestPublishCommand_Success_SchemaValidated(t *testing.T) {
 
 func TestPublishCommand_SchemaRejection_WrongType(t *testing.T) {
 	publisher := &fakePublisher{}
-	ts := newTestServer(t, publisher, fakeStatus{}, fakeTelemetry{}, fakeQueue{})
+	ts := newManifestBoundServer(t, publisher)
 	client := apiv1connect.NewDeviceServiceClient(ts.Client(), ts.URL)
 	params, _ := structpb.NewStruct(map[string]any{"on": "sim"})
 	req := connect.NewRequest(&apiv1.PublishCommandRequest{DeviceId: "led-1", Type: "set_led", Parameters: params})
@@ -283,7 +306,7 @@ func TestPublishCommand_SchemaRejection_WrongType(t *testing.T) {
 
 func TestPublishCommand_SchemaRejection_MissingField(t *testing.T) {
 	publisher := &fakePublisher{}
-	ts := newTestServer(t, publisher, fakeStatus{}, fakeTelemetry{}, fakeQueue{})
+	ts := newManifestBoundServer(t, publisher)
 	client := apiv1connect.NewDeviceServiceClient(ts.Client(), ts.URL)
 	req := connect.NewRequest(&apiv1.PublishCommandRequest{DeviceId: "led-1", Type: "set_led", Parameters: &structpb.Struct{}})
 	_, err := client.PublishCommand(context.Background(), req)
