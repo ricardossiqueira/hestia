@@ -73,6 +73,15 @@ type EventProvider interface {
 	RecentEvents(filter mqtt.EventFilter) (events []mqtt.ActivityEvent, hasMore bool)
 }
 
+// AutomationRuleTester is the one capability this package needs to serve
+// TestAutomationRule - satisfied structurally by *mqtt.Gateway already, same
+// pattern as CommandPublisher/StatusProvider/TelemetryProvider. It lives on
+// DeviceService (not DeviceAdminService's registry-only CRUD) because it
+// needs the live MQTT connection only this sandboxed process holds.
+type AutomationRuleTester interface {
+	TestAutomationRule(ctx context.Context, ruleID string, payload []byte) (fired bool, reason string, err error)
+}
+
 type QueueProvider interface {
 	Snapshot(ctx context.Context) (outbox.Snapshot, error)
 }
@@ -107,14 +116,15 @@ type Config struct {
 // Server is the loopback-only Connect-RPC server (gRPC, gRPC-Web and
 // HTTP/JSON on one port).
 type Server struct {
-	cfg       Config
-	publisher CommandPublisher
-	status    StatusProvider
-	telemetry TelemetryProvider
-	queue     QueueProvider
-	events    EventProvider
-	logger    *slog.Logger
-	http      *http.Server
+	cfg        Config
+	publisher  CommandPublisher
+	status     StatusProvider
+	telemetry  TelemetryProvider
+	queue      QueueProvider
+	events     EventProvider
+	ruleTester AutomationRuleTester
+	logger     *slog.Logger
+	http       *http.Server
 
 	devices          map[string]config.Device
 	deviceList       []config.Device
@@ -122,7 +132,7 @@ type Server struct {
 	manifestResolver DeviceManifestResolver
 }
 
-func New(cfg Config, publisher CommandPublisher, status StatusProvider, telemetry TelemetryProvider, queue QueueProvider, events EventProvider, logger *slog.Logger) (*Server, error) {
+func New(cfg Config, publisher CommandPublisher, status StatusProvider, telemetry TelemetryProvider, queue QueueProvider, events EventProvider, ruleTester AutomationRuleTester, logger *slog.Logger) (*Server, error) {
 	if strings.TrimSpace(cfg.Address) == "" {
 		return nil, errors.New("api address is required")
 	}
@@ -140,6 +150,9 @@ func New(cfg Config, publisher CommandPublisher, status StatusProvider, telemetr
 	}
 	if events == nil {
 		return nil, errors.New("api event provider is required")
+	}
+	if ruleTester == nil {
+		return nil, errors.New("api automation rule tester is required")
 	}
 	if cfg.RequestTimeout <= 0 {
 		cfg.RequestTimeout = 10 * time.Second
@@ -163,6 +176,7 @@ func New(cfg Config, publisher CommandPublisher, status StatusProvider, telemetr
 		telemetry:        telemetry,
 		queue:            queue,
 		events:           events,
+		ruleTester:       ruleTester,
 		logger:           logger,
 		devices:          devices,
 		deviceList:       deviceList,

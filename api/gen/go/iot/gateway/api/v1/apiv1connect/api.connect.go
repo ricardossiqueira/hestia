@@ -52,6 +52,9 @@ const (
 	// DeviceServiceGetDeviceTelemetryProcedure is the fully-qualified name of the DeviceService's
 	// GetDeviceTelemetry RPC.
 	DeviceServiceGetDeviceTelemetryProcedure = "/iot.gateway.api.v1.DeviceService/GetDeviceTelemetry"
+	// DeviceServiceTestAutomationRuleProcedure is the fully-qualified name of the DeviceService's
+	// TestAutomationRule RPC.
+	DeviceServiceTestAutomationRuleProcedure = "/iot.gateway.api.v1.DeviceService/TestAutomationRule"
 	// GatewayServiceGetStatusProcedure is the fully-qualified name of the GatewayService's GetStatus
 	// RPC.
 	GatewayServiceGetStatusProcedure = "/iot.gateway.api.v1.GatewayService/GetStatus"
@@ -138,6 +141,12 @@ type DeviceServiceClient interface {
 	// docs/api-v1.md). available=false means nothing has been received yet
 	// since this process started, not an error.
 	GetDeviceTelemetry(context.Context, *connect.Request[v1.GetDeviceTelemetryRequest]) (*connect.Response[v1.GetDeviceTelemetryResponse], error)
+	// TestAutomationRule runs one automation rule through the live pipeline
+	// with an operator-supplied payload standing in for the source device's
+	// event - it lives here, not on DeviceAdminService, because only this
+	// sandboxed process holds the live MQTT connection needed to actually
+	// publish the resulting action command (see docs/api-v1.md).
+	TestAutomationRule(context.Context, *connect.Request[v1.TestAutomationRuleRequest]) (*connect.Response[v1.TestAutomationRuleResponse], error)
 }
 
 // NewDeviceServiceClient constructs a client for the iot.gateway.api.v1.DeviceService service. By
@@ -181,6 +190,12 @@ func NewDeviceServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			connect.WithSchema(deviceServiceMethods.ByName("GetDeviceTelemetry")),
 			connect.WithClientOptions(opts...),
 		),
+		testAutomationRule: connect.NewClient[v1.TestAutomationRuleRequest, v1.TestAutomationRuleResponse](
+			httpClient,
+			baseURL+DeviceServiceTestAutomationRuleProcedure,
+			connect.WithSchema(deviceServiceMethods.ByName("TestAutomationRule")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -191,6 +206,7 @@ type deviceServiceClient struct {
 	listDeviceEvents   *connect.Client[v1.ListDeviceEventsRequest, v1.ListDeviceEventsResponse]
 	publishCommand     *connect.Client[v1.PublishCommandRequest, v1.PublishCommandResponse]
 	getDeviceTelemetry *connect.Client[v1.GetDeviceTelemetryRequest, v1.GetDeviceTelemetryResponse]
+	testAutomationRule *connect.Client[v1.TestAutomationRuleRequest, v1.TestAutomationRuleResponse]
 }
 
 // ListDevices calls iot.gateway.api.v1.DeviceService.ListDevices.
@@ -218,6 +234,11 @@ func (c *deviceServiceClient) GetDeviceTelemetry(ctx context.Context, req *conne
 	return c.getDeviceTelemetry.CallUnary(ctx, req)
 }
 
+// TestAutomationRule calls iot.gateway.api.v1.DeviceService.TestAutomationRule.
+func (c *deviceServiceClient) TestAutomationRule(ctx context.Context, req *connect.Request[v1.TestAutomationRuleRequest]) (*connect.Response[v1.TestAutomationRuleResponse], error) {
+	return c.testAutomationRule.CallUnary(ctx, req)
+}
+
 // DeviceServiceHandler is an implementation of the iot.gateway.api.v1.DeviceService service.
 type DeviceServiceHandler interface {
 	ListDevices(context.Context, *connect.Request[v1.ListDevicesRequest]) (*connect.Response[v1.ListDevicesResponse], error)
@@ -233,6 +254,12 @@ type DeviceServiceHandler interface {
 	// docs/api-v1.md). available=false means nothing has been received yet
 	// since this process started, not an error.
 	GetDeviceTelemetry(context.Context, *connect.Request[v1.GetDeviceTelemetryRequest]) (*connect.Response[v1.GetDeviceTelemetryResponse], error)
+	// TestAutomationRule runs one automation rule through the live pipeline
+	// with an operator-supplied payload standing in for the source device's
+	// event - it lives here, not on DeviceAdminService, because only this
+	// sandboxed process holds the live MQTT connection needed to actually
+	// publish the resulting action command (see docs/api-v1.md).
+	TestAutomationRule(context.Context, *connect.Request[v1.TestAutomationRuleRequest]) (*connect.Response[v1.TestAutomationRuleResponse], error)
 }
 
 // NewDeviceServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -272,6 +299,12 @@ func NewDeviceServiceHandler(svc DeviceServiceHandler, opts ...connect.HandlerOp
 		connect.WithSchema(deviceServiceMethods.ByName("GetDeviceTelemetry")),
 		connect.WithHandlerOptions(opts...),
 	)
+	deviceServiceTestAutomationRuleHandler := connect.NewUnaryHandler(
+		DeviceServiceTestAutomationRuleProcedure,
+		svc.TestAutomationRule,
+		connect.WithSchema(deviceServiceMethods.ByName("TestAutomationRule")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/iot.gateway.api.v1.DeviceService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case DeviceServiceListDevicesProcedure:
@@ -284,6 +317,8 @@ func NewDeviceServiceHandler(svc DeviceServiceHandler, opts ...connect.HandlerOp
 			deviceServicePublishCommandHandler.ServeHTTP(w, r)
 		case DeviceServiceGetDeviceTelemetryProcedure:
 			deviceServiceGetDeviceTelemetryHandler.ServeHTTP(w, r)
+		case DeviceServiceTestAutomationRuleProcedure:
+			deviceServiceTestAutomationRuleHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -311,6 +346,10 @@ func (UnimplementedDeviceServiceHandler) PublishCommand(context.Context, *connec
 
 func (UnimplementedDeviceServiceHandler) GetDeviceTelemetry(context.Context, *connect.Request[v1.GetDeviceTelemetryRequest]) (*connect.Response[v1.GetDeviceTelemetryResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("iot.gateway.api.v1.DeviceService.GetDeviceTelemetry is not implemented"))
+}
+
+func (UnimplementedDeviceServiceHandler) TestAutomationRule(context.Context, *connect.Request[v1.TestAutomationRuleRequest]) (*connect.Response[v1.TestAutomationRuleResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("iot.gateway.api.v1.DeviceService.TestAutomationRule is not implemented"))
 }
 
 // GatewayServiceClient is a client for the iot.gateway.api.v1.GatewayService service.

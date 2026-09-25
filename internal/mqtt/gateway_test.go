@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -688,6 +689,101 @@ func TestFireAutomationRulesRecordsFailureWhenPublishFails(t *testing.T) {
 	}
 }
 
+func TestTestAutomationRuleFiresWhenConditionPasses(t *testing.T) {
+	client := &fakeClient{}
+	rule := automationTestRule()
+	rule.ConditionJSON = `{"==": [{"var": "pressed"}, true]}`
+	recorder := &fakeAutomationRecorder{byID: map[string]registry.AutomationRule{rule.ID: rule}}
+	gateway, err := New(automationTestConfig(), client, &recordingLogger{}, nil, recorder)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := gateway.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	fired, reason, err := gateway.TestAutomationRule(context.Background(), rule.ID, []byte(`{"pressed":true}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !fired || reason != "fired" {
+		t.Errorf("TestAutomationRule() = %v, %q, want true, \"fired\"", fired, reason)
+	}
+	if len(client.published) != 1 || client.published[0].topic != "devices/led-2/command" {
+		t.Errorf("published = %#v, want one publish to devices/led-2/command", client.published)
+	}
+	if len(recorder.events) != 0 {
+		t.Errorf("recorded automation events = %#v, want none (no real message was accepted)", recorder.events)
+	}
+}
+
+func TestTestAutomationRuleReportsConditionNotMet(t *testing.T) {
+	client := &fakeClient{}
+	rule := automationTestRule()
+	rule.ConditionJSON = `{"==": [{"var": "pressed"}, false]}`
+	recorder := &fakeAutomationRecorder{byID: map[string]registry.AutomationRule{rule.ID: rule}}
+	gateway, err := New(automationTestConfig(), client, &recordingLogger{}, nil, recorder)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := gateway.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	fired, reason, err := gateway.TestAutomationRule(context.Background(), rule.ID, []byte(`{"pressed":true}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fired || reason != "condition not met" {
+		t.Errorf("TestAutomationRule() = %v, %q, want false, \"condition not met\"", fired, reason)
+	}
+	if len(client.published) != 0 {
+		t.Errorf("published = %#v, want none", client.published)
+	}
+}
+
+func TestTestAutomationRuleRefusesDisabledRule(t *testing.T) {
+	client := &fakeClient{}
+	rule := automationTestRule()
+	rule.Enabled = false
+	recorder := &fakeAutomationRecorder{byID: map[string]registry.AutomationRule{rule.ID: rule}}
+	gateway, err := New(automationTestConfig(), client, &recordingLogger{}, nil, recorder)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := gateway.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	fired, reason, err := gateway.TestAutomationRule(context.Background(), rule.ID, []byte(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fired || reason != "rule is disabled" {
+		t.Errorf("TestAutomationRule() = %v, %q, want false, \"rule is disabled\"", fired, reason)
+	}
+	if len(client.published) != 0 {
+		t.Errorf("published = %#v, want none (rule is disabled)", client.published)
+	}
+}
+
+func TestTestAutomationRuleReturnsNotFoundForUnknownRule(t *testing.T) {
+	client := &fakeClient{}
+	recorder := &fakeAutomationRecorder{}
+	gateway, err := New(automationTestConfig(), client, &recordingLogger{}, nil, recorder)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := gateway.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err = gateway.TestAutomationRule(context.Background(), "no-such-rule", []byte(`{}`))
+	if !errors.Is(err, registry.ErrAutomationRuleNotFound) {
+		t.Errorf("TestAutomationRule() error = %v, want ErrAutomationRuleNotFound", err)
+	}
+}
+
 func mustCommandID(t *testing.T, payload []byte) string {
 	t.Helper()
 	var command struct {
@@ -1098,6 +1194,10 @@ type fakeAutomationRecorder struct {
 	dedupErr   error
 	firedCount int
 	countErr   error
+
+	// byID is keyed by rule ID for GetAutomationRule.
+	byID    map[string]registry.AutomationRule
+	byIDErr error
 }
 
 func (r *fakeAutomationRecorder) RecordAutomationEvent(_ context.Context, event registry.AutomationEvent) error {
@@ -1128,6 +1228,17 @@ func (r *fakeAutomationRecorder) AutomationCommandExistsForRuleAndCausation(_ co
 
 func (r *fakeAutomationRecorder) CountAutomationCommandsForRuleSince(_ context.Context, _ string, _ time.Time) (int, error) {
 	return r.firedCount, r.countErr
+}
+
+func (r *fakeAutomationRecorder) GetAutomationRule(_ context.Context, id string) (registry.AutomationRule, error) {
+	if r.byIDErr != nil {
+		return registry.AutomationRule{}, r.byIDErr
+	}
+	rule, ok := r.byID[id]
+	if !ok {
+		return registry.AutomationRule{}, fmt.Errorf("%w: %q", registry.ErrAutomationRuleNotFound, id)
+	}
+	return rule, nil
 }
 
 type recordingLogger struct {

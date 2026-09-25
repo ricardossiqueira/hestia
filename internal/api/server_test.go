@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http/httptest"
 	"strings"
 	"sync"
@@ -19,6 +20,7 @@ import (
 	"github.com/ricardossiqueira/iot-gateway/internal/devicemanifest"
 	"github.com/ricardossiqueira/iot-gateway/internal/mqtt"
 	"github.com/ricardossiqueira/iot-gateway/internal/outbox"
+	"github.com/ricardossiqueira/iot-gateway/internal/registry"
 )
 
 type publishCall struct {
@@ -99,6 +101,33 @@ func (f *fakeEvents) RecentEvents(filter mqtt.EventFilter) ([]mqtt.ActivityEvent
 	return f.events, f.hasMore
 }
 
+type testAutomationRuleCall struct {
+	ruleID  string
+	payload []byte
+}
+
+// fakeRuleTester stands in for internal/mqtt.Gateway.TestAutomationRule.
+// err takes priority over fired/reason, matching how the real method
+// returns either an error (rule not found, context cancelled) or a
+// (fired, reason) outcome, never both.
+type fakeRuleTester struct {
+	mu     sync.Mutex
+	calls  []testAutomationRuleCall
+	fired  bool
+	reason string
+	err    error
+}
+
+func (f *fakeRuleTester) TestAutomationRule(_ context.Context, ruleID string, payload []byte) (bool, string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, testAutomationRuleCall{ruleID: ruleID, payload: append([]byte(nil), payload...)})
+	if f.err != nil {
+		return false, "", f.err
+	}
+	return f.fired, f.reason, nil
+}
+
 func testDevices() []config.Device {
 	enabled := true
 	return []config.Device{
@@ -158,7 +187,7 @@ func newManifestBoundServerWithDocument(t *testing.T, publisher CommandPublisher
 		Registry:         config.Config{Devices: testDevices()},
 		ManifestResolver: fakeManifestResolver{document: document, found: true},
 	}
-	srv, err := New(cfg, publisher, fakeStatus{}, fakeTelemetry{}, fakeQueue{}, &fakeEvents{}, nil)
+	srv, err := New(cfg, publisher, fakeStatus{}, fakeTelemetry{}, fakeQueue{}, &fakeEvents{}, &fakeRuleTester{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +211,7 @@ func newTestServer(t *testing.T, publisher *fakePublisher, status fakeStatus, te
 		RequestTimeout: time.Second,
 		Registry:       config.Config{Devices: testDevices()},
 	}
-	srv, err := New(cfg, publisher, status, telemetry, queue, &fakeEvents{events: events}, nil)
+	srv, err := New(cfg, publisher, status, telemetry, queue, &fakeEvents{events: events}, &fakeRuleTester{}, nil)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -280,7 +309,7 @@ func TestPublishCommand_UsesBoundManifest(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := Config{Address: "127.0.0.1:0", RequestTimeout: time.Second, Registry: config.Config{Devices: testDevices()}, ManifestResolver: fakeManifestResolver{document: document, found: true}}
-	srv, err := New(cfg, publisher, fakeStatus{}, fakeTelemetry{}, fakeQueue{}, &fakeEvents{}, nil)
+	srv, err := New(cfg, publisher, fakeStatus{}, fakeTelemetry{}, fakeQueue{}, &fakeEvents{}, &fakeRuleTester{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -295,6 +324,74 @@ func TestPublishCommand_UsesBoundManifest(t *testing.T) {
 	_, err = client.PublishCommand(context.Background(), connect.NewRequest(&apiv1.PublishCommandRequest{DeviceId: "led-1", Type: "set_led"}))
 	if connect.CodeOf(err) != connect.CodeInvalidArgument {
 		t.Fatalf("code=%v", connect.CodeOf(err))
+	}
+}
+
+func newRuleTestServer(t *testing.T, tester *fakeRuleTester) *httptest.Server {
+	t.Helper()
+	cfg := Config{Address: "127.0.0.1:0", RequestTimeout: time.Second, Registry: config.Config{Devices: testDevices()}}
+	srv, err := New(cfg, &fakePublisher{}, fakeStatus{}, fakeTelemetry{}, fakeQueue{}, &fakeEvents{}, tester, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(srv.http.Handler)
+	t.Cleanup(ts.Close)
+	return ts
+}
+
+func TestTestAutomationRule_ForwardsRuleIDAndPayload(t *testing.T) {
+	tester := &fakeRuleTester{fired: true, reason: "fired"}
+	ts := newRuleTestServer(t, tester)
+	client := apiv1connect.NewDeviceServiceClient(ts.Client(), ts.URL)
+	payload, _ := structpb.NewStruct(map[string]any{"pressed": true})
+
+	response, err := client.TestAutomationRule(context.Background(), connect.NewRequest(&apiv1.TestAutomationRuleRequest{RuleId: "led1-to-led2", Payload: payload}))
+	if err != nil {
+		t.Fatalf("TestAutomationRule() error = %v", err)
+	}
+	if !response.Msg.GetFired() || response.Msg.GetReason() != "fired" || response.Msg.GetTestedAt() == nil {
+		t.Errorf("response = %#v", response.Msg)
+	}
+	if len(tester.calls) != 1 || tester.calls[0].ruleID != "led1-to-led2" {
+		t.Fatalf("calls = %#v", tester.calls)
+	}
+	if !strings.Contains(string(tester.calls[0].payload), `"pressed":true`) {
+		t.Errorf("payload sent to tester = %s, want it to contain pressed:true", tester.calls[0].payload)
+	}
+}
+
+func TestTestAutomationRule_ConditionNotMet(t *testing.T) {
+	tester := &fakeRuleTester{fired: false, reason: "condition not met"}
+	ts := newRuleTestServer(t, tester)
+	client := apiv1connect.NewDeviceServiceClient(ts.Client(), ts.URL)
+
+	response, err := client.TestAutomationRule(context.Background(), connect.NewRequest(&apiv1.TestAutomationRuleRequest{RuleId: "led1-to-led2"}))
+	if err != nil {
+		t.Fatalf("TestAutomationRule() error = %v", err)
+	}
+	if response.Msg.GetFired() || response.Msg.GetReason() != "condition not met" {
+		t.Errorf("response = %#v, want fired=false reason=\"condition not met\"", response.Msg)
+	}
+}
+
+func TestTestAutomationRule_UnknownRuleReturnsNotFound(t *testing.T) {
+	tester := &fakeRuleTester{err: fmt.Errorf("%w: %q", registry.ErrAutomationRuleNotFound, "no-such-rule")}
+	ts := newRuleTestServer(t, tester)
+	client := apiv1connect.NewDeviceServiceClient(ts.Client(), ts.URL)
+
+	_, err := client.TestAutomationRule(context.Background(), connect.NewRequest(&apiv1.TestAutomationRuleRequest{RuleId: "no-such-rule"}))
+	if connect.CodeOf(err) != connect.CodeNotFound {
+		t.Fatalf("code = %v, want CodeNotFound", connect.CodeOf(err))
+	}
+}
+
+func TestTestAutomationRule_RequiresRuleID(t *testing.T) {
+	ts := newRuleTestServer(t, &fakeRuleTester{})
+	client := apiv1connect.NewDeviceServiceClient(ts.Client(), ts.URL)
+
+	_, err := client.TestAutomationRule(context.Background(), connect.NewRequest(&apiv1.TestAutomationRuleRequest{}))
+	if connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("code = %v, want CodeInvalidArgument", connect.CodeOf(err))
 	}
 }
 
@@ -631,7 +728,7 @@ func newTestServerWithEvents(t *testing.T, events *fakeEvents) *httptest.Server 
 		RequestTimeout: time.Second,
 		Registry:       config.Config{Devices: testDevices()},
 	}
-	srv, err := New(cfg, &fakePublisher{}, fakeStatus{}, fakeTelemetry{}, fakeQueue{}, events, nil)
+	srv, err := New(cfg, &fakePublisher{}, fakeStatus{}, fakeTelemetry{}, fakeQueue{}, events, &fakeRuleTester{}, nil)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}

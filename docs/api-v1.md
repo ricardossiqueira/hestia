@@ -126,6 +126,7 @@ Regras:
 | `ListDeviceEvents` | `DeviceService` | Descreve os eventos que um dispositivo pode emitir (schema Protobuf) — mesmo fallback opaco de `ListDeviceCommands`. |
 | `PublishCommand` | `DeviceService` | Publica um comando, validado por schema quando o dispositivo tem manifest vinculado. |
 | `GetDeviceTelemetry` | `DeviceService` | Devolve a última mensagem `telemetry` aceita de um device, em cache (sem histórico). |
+| `TestAutomationRule` | `DeviceService` | Roda uma regra de automação já salva pelo pipeline de verdade com um payload informado pelo operador — ver seção própria abaixo. |
 | `GetStatus` | `GatewayService` | Espelha `internal/mqtt.Snapshot`: sessão MQTT, contadores, sem payloads. |
 | `GetQueueSummary` | `GatewayService` | Espelha `internal/outbox.Snapshot`: pendentes agora, bytes, idade do item mais antigo. |
 | `GetRecentEvents` | `GatewayService` | Log de atividade em memória: mensagens aceitas/rejeitadas e rotas locais, sem payload. |
@@ -191,6 +192,36 @@ cache — e nunca passa pela outbox (não há consumidor VPS ainda). Dedup é
 por `event_id`+regra; "prevenção de ciclo" é um limite de disparos por
 regra numa janela de tempo, não detecção causal (o protocolo não permite
 provar que um evento foi causado por um comando anterior).
+
+### Testar uma regra de automação
+
+`TestAutomationRule` (`DeviceService`, não `DeviceAdminService` — só o
+processo sandboxed tem a conexão MQTT viva necessária pra publicar de
+verdade) roda uma regra **já salva** pelo mesmo caminho de execução de um
+evento real (`internal/mqtt.Gateway.fireAutomationRule`): dedup, avaliação
+da condição, limite de disparos e, se a condição bater, publicação do
+comando de ação no device de verdade. `rule_id` identifica a regra;
+`payload` (um `Struct`, mesmo motivo do `parameters` de `PublishCommand`)
+substitui o payload que um evento real traria. A resposta nunca é um erro
+por causa do resultado em si — só `rule_id` vazio ou regra inexistente
+retornam erro (`CodeInvalidArgument`/`CodeNotFound`); "a condição não
+bateu" volta como `fired: false, reason: "condition not met"`, uma
+resposta normal.
+
+Duas coisas deliberadamente diferentes de um evento real:
+- **Não** grava uma linha em `registry_automation_events` — não existe uma
+  mensagem de verdade aceita por trás do teste, então nada deve alegar que
+  existiu uma.
+- Uma regra **desabilitada** é recusada com `reason: "rule is disabled"`
+  sem publicar nada, mesmo que a condição bateria — o pipeline real
+  (`MatchAutomationRules`) nunca dispara uma regra desabilitada, e testar
+  ignorando isso deixaria "testar" acionar hardware de verdade por engano.
+
+O limite de disparos (`internal/mqtt.Gateway`, 5 por 10s por regra) é
+**compartilhado** com disparos reais: testar repetidamente em sequência
+pode consumir a cota e atrasar por alguns segundos um disparo real
+legítimo da mesma regra. Aceitável — é a mesma proteção contra loop que já
+existia, só documentando o efeito colateral.
 
 ### Telemetria em cache
 

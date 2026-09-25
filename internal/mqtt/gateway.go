@@ -105,6 +105,8 @@ type AutomationRecorder interface {
 	MatchAutomationRules(ctx context.Context, deviceID, eventType string) ([]registry.AutomationRule, error)
 	AutomationCommandExistsForRuleAndCausation(ctx context.Context, ruleID, causationMessageID string) (bool, error)
 	CountAutomationCommandsForRuleSince(ctx context.Context, ruleID string, since time.Time) (int, error)
+	// GetAutomationRule looks up a single rule by id, for TestAutomationRule.
+	GetAutomationRule(ctx context.Context, id string) (registry.AutomationRule, error)
 }
 
 // AutomationLogger is an optional operational logging extension for
@@ -783,16 +785,19 @@ func (g *Gateway) fireAutomationRules(ctx context.Context, message Message) {
 // fireAutomationRule applies one rule's dedup, condition and firing-rate
 // checks in order - the first one that doesn't pass skips this rule
 // without affecting any other matched rule - then publishes its action.
-func (g *Gateway) fireAutomationRule(ctx context.Context, rule registry.AutomationRule, message Message) {
+// The returned (fired, reason) is purely informational: fireAutomationRules'
+// real-event loop ignores it, but TestAutomationRule (below) surfaces it
+// directly to the operator who asked for a manual test.
+func (g *Gateway) fireAutomationRule(ctx context.Context, rule registry.AutomationRule, message Message) (fired bool, reason string) {
 	exists, err := g.automationRecorder.AutomationCommandExistsForRuleAndCausation(ctx, rule.ID, message.MessageID)
 	if err != nil {
 		if logger, ok := g.logger.(AutomationLogger); ok {
 			logger.AutomationRecordFailed(ctx, "rule_dedup", err)
 		}
-		return
+		return false, fmt.Sprintf("dedup check failed: %v", err)
 	}
 	if exists {
-		return
+		return false, "duplicate"
 	}
 	if rule.ConditionJSON != "" {
 		matched, err := automationrule.Evaluate(json.RawMessage(rule.ConditionJSON), message.Payload)
@@ -800,10 +805,10 @@ func (g *Gateway) fireAutomationRule(ctx context.Context, rule registry.Automati
 			if logger, ok := g.logger.(AutomationLogger); ok {
 				logger.AutomationRecordFailed(ctx, "rule_condition", err)
 			}
-			return
+			return false, fmt.Sprintf("condition error: %v", err)
 		}
 		if !matched {
-			return
+			return false, "condition not met"
 		}
 	}
 	count, err := g.automationRecorder.CountAutomationCommandsForRuleSince(ctx, rule.ID, time.Now().UTC().Add(-ruleFiringWindow))
@@ -811,10 +816,10 @@ func (g *Gateway) fireAutomationRule(ctx context.Context, rule registry.Automati
 		if logger, ok := g.logger.(AutomationLogger); ok {
 			logger.AutomationRecordFailed(ctx, "rule_rate_limit", err)
 		}
-		return
+		return false, fmt.Sprintf("rate limit check failed: %v", err)
 	}
 	if count >= maxRuleFiringsPerRule {
-		return
+		return false, "rate limited"
 	}
 
 	g.configMu.RLock()
@@ -822,16 +827,16 @@ func (g *Gateway) fireAutomationRule(ctx context.Context, rule registry.Automati
 	g.configMu.RUnlock()
 	if !ok || device.Enabled == nil || !*device.Enabled || device.Topics.Command == "" {
 		g.recordEvent(ActivityEvent{Timestamp: time.Now().UTC(), DeviceID: rule.SourceDeviceID, Outcome: "rule_failed", Detail: rule.ID + ": action device is not enabled with a command topic"})
-		return
+		return false, "action device unavailable"
 	}
 	payload, commandID, err := transformJSONCommand(rule.ActionCommandType, []byte(rule.ActionParametersJSON))
 	if err != nil {
 		g.recordEvent(ActivityEvent{Timestamp: time.Now().UTC(), DeviceID: rule.SourceDeviceID, Topic: device.Topics.Command, Outcome: "rule_failed", Detail: rule.ID + ": " + err.Error()})
-		return
+		return false, fmt.Sprintf("invalid action parameters: %v", err)
 	}
 	if err := g.client.Publish(ctx, device.Topics.Command, payload, qosAtLeastOnce, false); err != nil {
 		g.recordEvent(ActivityEvent{Timestamp: time.Now().UTC(), DeviceID: rule.SourceDeviceID, Topic: device.Topics.Command, Outcome: "rule_failed", Detail: rule.ID + ": " + err.Error()})
-		return
+		return false, fmt.Sprintf("publish failed: %v", err)
 	}
 	g.recordEvent(ActivityEvent{Timestamp: time.Now().UTC(), DeviceID: rule.SourceDeviceID, Topic: device.Topics.Command, Outcome: "rule_fired", Detail: rule.ID})
 	g.recordAutomationCommand(ctx, registry.AutomationCommand{
@@ -844,6 +849,50 @@ func (g *Gateway) fireAutomationRule(ctx context.Context, rule registry.Automati
 		CausationDeviceID:  message.DeviceID,
 		PublishedAt:        time.Now().UTC(),
 	})
+	return true, "fired"
+}
+
+// TestAutomationRule synthesizes an event-kind message for rule's source
+// device from an operator-supplied payload and runs it through the exact
+// fireAutomationRule path a real MQTT event would: dedup, condition
+// evaluation, rate limit, and, if the condition passes, actually publishing
+// the action command to the real device. It never records an
+// AutomationEvent row - there is no real accepted message behind this, so
+// nothing should claim there was one - but a resulting fired command is
+// recorded exactly like a real one, including counting toward the shared
+// rate limit.
+//
+// A disabled rule is refused outright (reason "rule is disabled"): the real
+// pipeline (MatchAutomationRules) never fires a disabled rule, and silently
+// testing past that would let "testar" move real hardware for a rule the
+// operator explicitly turned off.
+func (g *Gateway) TestAutomationRule(ctx context.Context, ruleID string, payload []byte) (fired bool, reason string, err error) {
+	if err := ctx.Err(); err != nil {
+		return false, "", err
+	}
+	if g.automationRecorder == nil {
+		return false, "", errors.New("automation is not configured")
+	}
+	rule, err := g.automationRecorder.GetAutomationRule(ctx, ruleID)
+	if err != nil {
+		return false, "", err
+	}
+	if !rule.Enabled {
+		return false, "rule is disabled", nil
+	}
+	messageID, err := newRandomID()
+	if err != nil {
+		return false, "", err
+	}
+	message := Message{
+		DeviceID:  rule.SourceDeviceID,
+		Kind:      Event,
+		MessageID: messageID,
+		Timestamp: time.Now().UTC(),
+		Payload:   payload,
+	}
+	fired, reason = g.fireAutomationRule(ctx, rule, message)
+	return fired, reason, nil
 }
 
 // recordAutomationCommandResult best-effort correlates an inbound
@@ -887,18 +936,27 @@ func forwardsToVPS(device config.Device, kind Kind) bool {
 	}
 }
 
+// newRandomID generates a random UUID v4 without pulling in an external
+// dependency - internal/mqtt otherwise has none.
+func newRandomID() (string, error) {
+	var id [16]byte
+	if _, err := rand.Read(id[:]); err != nil {
+		return "", err
+	}
+	id[6] = (id[6] & 0x0f) | 0x40
+	id[8] = (id[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%x-%x-%x-%x-%x", id[0:4], id[4:6], id[6:8], id[8:10], id[10:16]), nil
+}
+
 func transformJSONCommand(commandType string, parameters []byte) (payload []byte, commandID string, err error) {
 	var object map[string]json.RawMessage
 	if err := json.Unmarshal(parameters, &object); err != nil || object == nil {
 		return nil, "", errors.New("route payload must be a JSON object")
 	}
-	var id [16]byte
-	if _, err := rand.Read(id[:]); err != nil {
+	commandID, err = newRandomID()
+	if err != nil {
 		return nil, "", err
 	}
-	id[6] = (id[6] & 0x0f) | 0x40
-	id[8] = (id[8] & 0x3f) | 0x80
-	commandID = fmt.Sprintf("%x-%x-%x-%x-%x", id[0:4], id[4:6], id[6:8], id[8:10], id[10:16])
 	payload, err = json.Marshal(struct {
 		CommandID  string          `json:"command_id"`
 		Type       string          `json:"type"`

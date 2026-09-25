@@ -24,6 +24,7 @@ const (
 	DeviceService_ListDeviceEvents_FullMethodName   = "/iot.gateway.api.v1.DeviceService/ListDeviceEvents"
 	DeviceService_PublishCommand_FullMethodName     = "/iot.gateway.api.v1.DeviceService/PublishCommand"
 	DeviceService_GetDeviceTelemetry_FullMethodName = "/iot.gateway.api.v1.DeviceService/GetDeviceTelemetry"
+	DeviceService_TestAutomationRule_FullMethodName = "/iot.gateway.api.v1.DeviceService/TestAutomationRule"
 )
 
 // DeviceServiceClient is the client API for DeviceService service.
@@ -46,6 +47,12 @@ type DeviceServiceClient interface {
 	// docs/api-v1.md). available=false means nothing has been received yet
 	// since this process started, not an error.
 	GetDeviceTelemetry(ctx context.Context, in *GetDeviceTelemetryRequest, opts ...grpc.CallOption) (*GetDeviceTelemetryResponse, error)
+	// TestAutomationRule runs one automation rule through the live pipeline
+	// with an operator-supplied payload standing in for the source device's
+	// event - it lives here, not on DeviceAdminService, because only this
+	// sandboxed process holds the live MQTT connection needed to actually
+	// publish the resulting action command (see docs/api-v1.md).
+	TestAutomationRule(ctx context.Context, in *TestAutomationRuleRequest, opts ...grpc.CallOption) (*TestAutomationRuleResponse, error)
 }
 
 type deviceServiceClient struct {
@@ -106,6 +113,16 @@ func (c *deviceServiceClient) GetDeviceTelemetry(ctx context.Context, in *GetDev
 	return out, nil
 }
 
+func (c *deviceServiceClient) TestAutomationRule(ctx context.Context, in *TestAutomationRuleRequest, opts ...grpc.CallOption) (*TestAutomationRuleResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(TestAutomationRuleResponse)
+	err := c.cc.Invoke(ctx, DeviceService_TestAutomationRule_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // DeviceServiceServer is the server API for DeviceService service.
 // All implementations should embed UnimplementedDeviceServiceServer
 // for forward compatibility.
@@ -126,6 +143,12 @@ type DeviceServiceServer interface {
 	// docs/api-v1.md). available=false means nothing has been received yet
 	// since this process started, not an error.
 	GetDeviceTelemetry(context.Context, *GetDeviceTelemetryRequest) (*GetDeviceTelemetryResponse, error)
+	// TestAutomationRule runs one automation rule through the live pipeline
+	// with an operator-supplied payload standing in for the source device's
+	// event - it lives here, not on DeviceAdminService, because only this
+	// sandboxed process holds the live MQTT connection needed to actually
+	// publish the resulting action command (see docs/api-v1.md).
+	TestAutomationRule(context.Context, *TestAutomationRuleRequest) (*TestAutomationRuleResponse, error)
 }
 
 // UnimplementedDeviceServiceServer should be embedded to have
@@ -149,6 +172,9 @@ func (UnimplementedDeviceServiceServer) PublishCommand(context.Context, *Publish
 }
 func (UnimplementedDeviceServiceServer) GetDeviceTelemetry(context.Context, *GetDeviceTelemetryRequest) (*GetDeviceTelemetryResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetDeviceTelemetry not implemented")
+}
+func (UnimplementedDeviceServiceServer) TestAutomationRule(context.Context, *TestAutomationRuleRequest) (*TestAutomationRuleResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method TestAutomationRule not implemented")
 }
 func (UnimplementedDeviceServiceServer) testEmbeddedByValue() {}
 
@@ -260,6 +286,24 @@ func _DeviceService_GetDeviceTelemetry_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DeviceService_TestAutomationRule_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TestAutomationRuleRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DeviceServiceServer).TestAutomationRule(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DeviceService_TestAutomationRule_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DeviceServiceServer).TestAutomationRule(ctx, req.(*TestAutomationRuleRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // DeviceService_ServiceDesc is the grpc.ServiceDesc for DeviceService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -286,6 +330,10 @@ var DeviceService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetDeviceTelemetry",
 			Handler:    _DeviceService_GetDeviceTelemetry_Handler,
+		},
+		{
+			MethodName: "TestAutomationRule",
+			Handler:    _DeviceService_TestAutomationRule_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

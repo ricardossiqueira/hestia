@@ -16,6 +16,7 @@ import (
 	apiv1 "github.com/ricardossiqueira/iot-gateway/api/gen/go/iot/gateway/api/v1"
 	"github.com/ricardossiqueira/iot-gateway/internal/devicemanifest"
 	"github.com/ricardossiqueira/iot-gateway/internal/mqtt"
+	"github.com/ricardossiqueira/iot-gateway/internal/registry"
 )
 
 // ListDevices returns every configured device, sorted by ID. It never
@@ -200,6 +201,44 @@ func (s *Server) GetDeviceTelemetry(ctx context.Context, req *connect.Request[ap
 		Available:  true,
 		Payload:    &payloadStruct,
 		ObservedAt: timestamppb.New(observedAt),
+	}), nil
+}
+
+// TestAutomationRule runs one saved automation rule through the live
+// pipeline (internal/mqtt.Gateway.TestAutomationRule) with an operator-
+// supplied payload standing in for the source device's event. Unlike
+// PublishCommand, a rejection here can mean the rule simply didn't fire
+// (wrong condition, rate limited, disabled) rather than a malformed
+// request - those come back as a normal response with fired=false and a
+// reason, not an error. Only "the rule doesn't exist" and "the request
+// itself is malformed" are errors.
+func (s *Server) TestAutomationRule(ctx context.Context, req *connect.Request[apiv1.TestAutomationRuleRequest]) (*connect.Response[apiv1.TestAutomationRuleResponse], error) {
+	ruleID := strings.TrimSpace(req.Msg.GetRuleId())
+	if ruleID == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("rule_id is required"))
+	}
+
+	payload := req.Msg.GetPayload()
+	if payload == nil {
+		payload = &structpb.Struct{}
+	}
+	payloadJSON, err := protojson.Marshal(payload)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("encode payload: %w", err))
+	}
+
+	fired, reason, err := s.ruleTester.TestAutomationRule(ctx, ruleID, payloadJSON)
+	if err != nil {
+		if errors.Is(err, registry.ErrAutomationRuleNotFound) {
+			return nil, connect.NewError(connect.CodeNotFound, err)
+		}
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+
+	return connect.NewResponse(&apiv1.TestAutomationRuleResponse{
+		Fired:    fired,
+		Reason:   reason,
+		TestedAt: timestamppb.Now(),
 	}), nil
 }
 

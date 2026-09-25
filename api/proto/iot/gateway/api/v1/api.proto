@@ -23,6 +23,12 @@ service DeviceService {
   // docs/api-v1.md). available=false means nothing has been received yet
   // since this process started, not an error.
   rpc GetDeviceTelemetry(GetDeviceTelemetryRequest) returns (GetDeviceTelemetryResponse);
+  // TestAutomationRule runs one automation rule through the live pipeline
+  // with an operator-supplied payload standing in for the source device's
+  // event - it lives here, not on DeviceAdminService, because only this
+  // sandboxed process holds the live MQTT connection needed to actually
+  // publish the resulting action command (see docs/api-v1.md).
+  rpc TestAutomationRule(TestAutomationRuleRequest) returns (TestAutomationRuleResponse);
 }
 
 // GatewayService reports the gateway's own runtime status.
@@ -385,6 +391,26 @@ message PublishCommandResponse {
   // manifest binding) - the same meaning as ListDeviceCommandsResponse's field.
   bool schema_validated = 3;
   google.protobuf.Timestamp published_at = 4;
+}
+
+message TestAutomationRuleRequest {
+  string rule_id = 1;
+  // payload is a Struct for the same reason PublishCommandRequest.parameters
+  // is (ADR-012): plain JSON in/out, no base64 for simple/curl clients.
+  google.protobuf.Struct payload = 2;
+}
+
+message TestAutomationRuleResponse {
+  // fired is true only when the condition matched and the action command
+  // was actually published to the real action device - this runs the rule
+  // through the live pipeline (internal/mqtt.Gateway.fireAutomationRule),
+  // it does not simulate it.
+  bool fired = 1;
+  // reason explains the outcome either way: "fired" on success, or why not
+  // otherwise ("condition not met", "rate limited", "rule is disabled",
+  // etc - see internal/mqtt.Gateway.fireAutomationRule).
+  string reason = 2;
+  google.protobuf.Timestamp tested_at = 3;
 }
 
 message GetDeviceTelemetryRequest {
