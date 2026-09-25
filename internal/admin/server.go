@@ -210,6 +210,38 @@ func (s *Server) RemoveRoute(ctx context.Context, id string) error {
 	return nil
 }
 
+// ListAutomationRules returns every Marco 5 automation rule. Text editing
+// (Update) is intentionally not exposed yet - see docs/device-manifests.md;
+// changing a rule today means removing and recreating it, the same model
+// routes already use.
+func (s *Server) ListAutomationRules(ctx context.Context) ([]registry.AutomationRule, error) {
+	if s.cfg.Registry == nil {
+		return nil, errors.New("listing automation rules requires the SQLite registry")
+	}
+	return s.cfg.Registry.ListAutomationRules(ctx)
+}
+
+func (s *Server) CreateAutomationRule(ctx context.Context, rule registry.AutomationRule) (registry.AutomationRule, error) {
+	if s.cfg.Registry == nil {
+		return registry.AutomationRule{}, errors.New("creating an automation rule requires the SQLite registry")
+	}
+	return s.cfg.Registry.CreateAutomationRule(ctx, rule)
+}
+
+func (s *Server) SetAutomationRuleEnabled(ctx context.Context, id string, enabled bool) (registry.AutomationRule, error) {
+	if s.cfg.Registry == nil {
+		return registry.AutomationRule{}, errors.New("editing an automation rule requires the SQLite registry")
+	}
+	return s.cfg.Registry.SetAutomationRuleEnabled(ctx, id, enabled)
+}
+
+func (s *Server) RemoveAutomationRule(ctx context.Context, id string) error {
+	if s.cfg.Registry == nil {
+		return errors.New("removing an automation rule requires the SQLite registry")
+	}
+	return s.cfg.Registry.RemoveAutomationRule(ctx, id)
+}
+
 // ListInconsistencies returns provisioning operations whose best-effort
 // compensation itself failed - see registry.Store.RecordInconsistency's
 // doc comment and recordInconsistency below. Everything provisioned and

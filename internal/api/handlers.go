@@ -65,6 +65,31 @@ func (s *Server) ListDeviceCommands(ctx context.Context, req *connect.Request[ap
 	return connect.NewResponse(&apiv1.ListDeviceCommandsResponse{DeviceId: deviceID, SchemaValidated: false}), nil
 }
 
+// ListDeviceEvents describes the events a device may emit - same shape and
+// manifest-fallback rules as ListDeviceCommands above, used by Marco 5's
+// automation rules to let an operator pick a source device's event type.
+func (s *Server) ListDeviceEvents(ctx context.Context, req *connect.Request[apiv1.ListDeviceEventsRequest]) (*connect.Response[apiv1.ListDeviceEventsResponse], error) {
+	deviceID := strings.TrimSpace(req.Msg.GetDeviceId())
+	_, ok := s.deviceByID(deviceID)
+	if !ok {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("unknown device %q", deviceID))
+	}
+	if s.manifestResolver != nil {
+		document, found, err := s.manifestResolver.ResolveDeviceManifest(ctx, deviceID)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInternal, err)
+		}
+		if found {
+			events := make([]*apiv1.EventDescriptor, 0, len(document.Capabilities.Events))
+			for _, event := range document.Capabilities.Events {
+				events = append(events, &apiv1.EventDescriptor{Type: event.Type, PayloadJson: string(event.Payload)})
+			}
+			return connect.NewResponse(&apiv1.ListDeviceEventsResponse{DeviceId: deviceID, SchemaValidated: true, Events: events}), nil
+		}
+	}
+	return connect.NewResponse(&apiv1.ListDeviceEventsResponse{DeviceId: deviceID, SchemaValidated: false}), nil
+}
+
 // commandEnvelope is the outgoing MQTT payload shape docs/mqtt.md and
 // internal/mqtt's validateCommand require: command_id (server-generated
 // UUID), type, parameters (a JSON object) - identical contract to the one

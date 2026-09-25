@@ -12,6 +12,11 @@ import "google/protobuf/timestamp.proto";
 service DeviceService {
   rpc ListDevices(ListDevicesRequest) returns (ListDevicesResponse);
   rpc ListDeviceCommands(ListDeviceCommandsRequest) returns (ListDeviceCommandsResponse);
+  // ListDeviceEvents describes the events a device may emit, the same way
+  // ListDeviceCommands describes what it accepts. Marco 5's automation
+  // rules use this to let an operator pick a source device's event type
+  // instead of typing it blind.
+  rpc ListDeviceEvents(ListDeviceEventsRequest) returns (ListDeviceEventsResponse);
   rpc PublishCommand(PublishCommandRequest) returns (PublishCommandResponse);
   // GetDeviceTelemetry returns the most recent accepted telemetry message
   // for a device, cached in memory only (no history, no persistence - see
@@ -68,6 +73,14 @@ service DeviceAdminService {
   // disagree about a device. Empty is the healthy state. See docs/api-v1.md.
   rpc ListInconsistencies(ListInconsistenciesRequest) returns (ListInconsistenciesResponse);
   rpc ResolveInconsistency(ResolveInconsistencyRequest) returns (ResolveInconsistencyResponse);
+  // Automation rules (Marco 5, docs/device-manifests.md): "when source
+  // device emits event_type, if condition passes, publish this command to
+  // action device". No Update/Get RPC yet - editing means remove and
+  // recreate, the same model routes already use.
+  rpc ListAutomationRules(ListAutomationRulesRequest) returns (ListAutomationRulesResponse);
+  rpc CreateAutomationRule(CreateAutomationRuleRequest) returns (CreateAutomationRuleResponse);
+  rpc SetAutomationRuleEnabled(SetAutomationRuleEnabledRequest) returns (SetAutomationRuleEnabledResponse);
+  rpc RemoveAutomationRule(RemoveAutomationRuleRequest) returns (RemoveAutomationRuleResponse);
 }
 
 message RegisterExistingDeviceRequest {
@@ -240,6 +253,60 @@ message ResolveInconsistencyRequest {
 
 message ResolveInconsistencyResponse {}
 
+// AutomationRule mirrors internal/registry.AutomationRule 1:1. No revision
+// history: it is edited in place (create/remove, or toggled by enabled),
+// the same mutability model Route already uses.
+message AutomationRule {
+  string id = 1;
+  bool enabled = 2;
+  string source_device_id = 3;
+  string event_type = 4;
+  // condition_json is empty when the rule has no condition (always fires).
+  // A supported subset of JSONLogic - see internal/automationrule.
+  string condition_json = 5;
+  string action_device_id = 6;
+  string action_command_type = 7;
+  string action_parameters_json = 8;
+  // action_schema_validated is false when the action device has no
+  // manifest binding - same meaning as PublishCommandResponse's field.
+  bool action_schema_validated = 9;
+  google.protobuf.Timestamp created_at = 10;
+  google.protobuf.Timestamp updated_at = 11;
+}
+
+message ListAutomationRulesRequest {}
+
+message ListAutomationRulesResponse {
+  repeated AutomationRule rules = 1;
+}
+
+message CreateAutomationRuleRequest {
+  AutomationRule rule = 1;
+}
+
+message CreateAutomationRuleResponse {
+  AutomationRule rule = 1;
+  google.protobuf.Timestamp applied_at = 2;
+}
+
+message SetAutomationRuleEnabledRequest {
+  string rule_id = 1;
+  bool enabled = 2;
+}
+
+message SetAutomationRuleEnabledResponse {
+  AutomationRule rule = 1;
+  google.protobuf.Timestamp applied_at = 2;
+}
+
+message RemoveAutomationRuleRequest {
+  string rule_id = 1;
+}
+
+message RemoveAutomationRuleResponse {
+  google.protobuf.Timestamp applied_at = 1;
+}
+
 message ListDevicesRequest {}
 
 message ListDevicesResponse {
@@ -277,6 +344,24 @@ message ListDeviceCommandsResponse {
 message CommandDescriptor {
   string type = 1;
   string parameters_json = 4;
+}
+
+message ListDeviceEventsRequest {
+  string device_id = 1;
+}
+
+message ListDeviceEventsResponse {
+  string device_id = 1;
+  // schema_validated is false when the device has no manifest binding:
+  // events is then empty - same meaning as ListDeviceCommandsResponse's field.
+  bool schema_validated = 2;
+  repeated EventDescriptor events = 3;
+}
+
+// EventDescriptor is the manifest JSON schema for one event type.
+message EventDescriptor {
+  string type = 1;
+  string payload_json = 2;
 }
 
 message PublishCommandRequest {

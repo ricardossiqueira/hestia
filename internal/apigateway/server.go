@@ -66,6 +66,10 @@ type DeviceAdmin interface {
 	RemoveDevice(ctx context.Context, id string) error
 	ListInconsistencies(ctx context.Context) ([]registry.Inconsistency, error)
 	ResolveInconsistency(ctx context.Context, id string) error
+	ListAutomationRules(ctx context.Context) ([]registry.AutomationRule, error)
+	CreateAutomationRule(ctx context.Context, rule registry.AutomationRule) (registry.AutomationRule, error)
+	SetAutomationRuleEnabled(ctx context.Context, id string, enabled bool) (registry.AutomationRule, error)
+	RemoveAutomationRule(ctx context.Context, id string) error
 }
 
 // Credentials gate every request behind HTTP Basic Auth, read from

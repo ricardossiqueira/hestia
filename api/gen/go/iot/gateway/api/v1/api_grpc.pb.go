@@ -21,6 +21,7 @@ const _ = grpc.SupportPackageIsVersion9
 const (
 	DeviceService_ListDevices_FullMethodName        = "/iot.gateway.api.v1.DeviceService/ListDevices"
 	DeviceService_ListDeviceCommands_FullMethodName = "/iot.gateway.api.v1.DeviceService/ListDeviceCommands"
+	DeviceService_ListDeviceEvents_FullMethodName   = "/iot.gateway.api.v1.DeviceService/ListDeviceEvents"
 	DeviceService_PublishCommand_FullMethodName     = "/iot.gateway.api.v1.DeviceService/PublishCommand"
 	DeviceService_GetDeviceTelemetry_FullMethodName = "/iot.gateway.api.v1.DeviceService/GetDeviceTelemetry"
 )
@@ -34,6 +35,11 @@ const (
 type DeviceServiceClient interface {
 	ListDevices(ctx context.Context, in *ListDevicesRequest, opts ...grpc.CallOption) (*ListDevicesResponse, error)
 	ListDeviceCommands(ctx context.Context, in *ListDeviceCommandsRequest, opts ...grpc.CallOption) (*ListDeviceCommandsResponse, error)
+	// ListDeviceEvents describes the events a device may emit, the same way
+	// ListDeviceCommands describes what it accepts. Marco 5's automation
+	// rules use this to let an operator pick a source device's event type
+	// instead of typing it blind.
+	ListDeviceEvents(ctx context.Context, in *ListDeviceEventsRequest, opts ...grpc.CallOption) (*ListDeviceEventsResponse, error)
 	PublishCommand(ctx context.Context, in *PublishCommandRequest, opts ...grpc.CallOption) (*PublishCommandResponse, error)
 	// GetDeviceTelemetry returns the most recent accepted telemetry message
 	// for a device, cached in memory only (no history, no persistence - see
@@ -70,6 +76,16 @@ func (c *deviceServiceClient) ListDeviceCommands(ctx context.Context, in *ListDe
 	return out, nil
 }
 
+func (c *deviceServiceClient) ListDeviceEvents(ctx context.Context, in *ListDeviceEventsRequest, opts ...grpc.CallOption) (*ListDeviceEventsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListDeviceEventsResponse)
+	err := c.cc.Invoke(ctx, DeviceService_ListDeviceEvents_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *deviceServiceClient) PublishCommand(ctx context.Context, in *PublishCommandRequest, opts ...grpc.CallOption) (*PublishCommandResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(PublishCommandResponse)
@@ -99,6 +115,11 @@ func (c *deviceServiceClient) GetDeviceTelemetry(ctx context.Context, in *GetDev
 type DeviceServiceServer interface {
 	ListDevices(context.Context, *ListDevicesRequest) (*ListDevicesResponse, error)
 	ListDeviceCommands(context.Context, *ListDeviceCommandsRequest) (*ListDeviceCommandsResponse, error)
+	// ListDeviceEvents describes the events a device may emit, the same way
+	// ListDeviceCommands describes what it accepts. Marco 5's automation
+	// rules use this to let an operator pick a source device's event type
+	// instead of typing it blind.
+	ListDeviceEvents(context.Context, *ListDeviceEventsRequest) (*ListDeviceEventsResponse, error)
 	PublishCommand(context.Context, *PublishCommandRequest) (*PublishCommandResponse, error)
 	// GetDeviceTelemetry returns the most recent accepted telemetry message
 	// for a device, cached in memory only (no history, no persistence - see
@@ -119,6 +140,9 @@ func (UnimplementedDeviceServiceServer) ListDevices(context.Context, *ListDevice
 }
 func (UnimplementedDeviceServiceServer) ListDeviceCommands(context.Context, *ListDeviceCommandsRequest) (*ListDeviceCommandsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListDeviceCommands not implemented")
+}
+func (UnimplementedDeviceServiceServer) ListDeviceEvents(context.Context, *ListDeviceEventsRequest) (*ListDeviceEventsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListDeviceEvents not implemented")
 }
 func (UnimplementedDeviceServiceServer) PublishCommand(context.Context, *PublishCommandRequest) (*PublishCommandResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method PublishCommand not implemented")
@@ -182,6 +206,24 @@ func _DeviceService_ListDeviceCommands_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DeviceService_ListDeviceEvents_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListDeviceEventsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DeviceServiceServer).ListDeviceEvents(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DeviceService_ListDeviceEvents_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DeviceServiceServer).ListDeviceEvents(ctx, req.(*ListDeviceEventsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _DeviceService_PublishCommand_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(PublishCommandRequest)
 	if err := dec(in); err != nil {
@@ -232,6 +274,10 @@ var DeviceService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListDeviceCommands",
 			Handler:    _DeviceService_ListDeviceCommands_Handler,
+		},
+		{
+			MethodName: "ListDeviceEvents",
+			Handler:    _DeviceService_ListDeviceEvents_Handler,
 		},
 		{
 			MethodName: "PublishCommand",
@@ -453,6 +499,10 @@ const (
 	DeviceAdminService_RemoveDevice_FullMethodName                      = "/iot.gateway.api.v1.DeviceAdminService/RemoveDevice"
 	DeviceAdminService_ListInconsistencies_FullMethodName               = "/iot.gateway.api.v1.DeviceAdminService/ListInconsistencies"
 	DeviceAdminService_ResolveInconsistency_FullMethodName              = "/iot.gateway.api.v1.DeviceAdminService/ResolveInconsistency"
+	DeviceAdminService_ListAutomationRules_FullMethodName               = "/iot.gateway.api.v1.DeviceAdminService/ListAutomationRules"
+	DeviceAdminService_CreateAutomationRule_FullMethodName              = "/iot.gateway.api.v1.DeviceAdminService/CreateAutomationRule"
+	DeviceAdminService_SetAutomationRuleEnabled_FullMethodName          = "/iot.gateway.api.v1.DeviceAdminService/SetAutomationRuleEnabled"
+	DeviceAdminService_RemoveAutomationRule_FullMethodName              = "/iot.gateway.api.v1.DeviceAdminService/RemoveAutomationRule"
 )
 
 // DeviceAdminServiceClient is the client API for DeviceAdminService service.
@@ -495,6 +545,14 @@ type DeviceAdminServiceClient interface {
 	// disagree about a device. Empty is the healthy state. See docs/api-v1.md.
 	ListInconsistencies(ctx context.Context, in *ListInconsistenciesRequest, opts ...grpc.CallOption) (*ListInconsistenciesResponse, error)
 	ResolveInconsistency(ctx context.Context, in *ResolveInconsistencyRequest, opts ...grpc.CallOption) (*ResolveInconsistencyResponse, error)
+	// Automation rules (Marco 5, docs/device-manifests.md): "when source
+	// device emits event_type, if condition passes, publish this command to
+	// action device". No Update/Get RPC yet - editing means remove and
+	// recreate, the same model routes already use.
+	ListAutomationRules(ctx context.Context, in *ListAutomationRulesRequest, opts ...grpc.CallOption) (*ListAutomationRulesResponse, error)
+	CreateAutomationRule(ctx context.Context, in *CreateAutomationRuleRequest, opts ...grpc.CallOption) (*CreateAutomationRuleResponse, error)
+	SetAutomationRuleEnabled(ctx context.Context, in *SetAutomationRuleEnabledRequest, opts ...grpc.CallOption) (*SetAutomationRuleEnabledResponse, error)
+	RemoveAutomationRule(ctx context.Context, in *RemoveAutomationRuleRequest, opts ...grpc.CallOption) (*RemoveAutomationRuleResponse, error)
 }
 
 type deviceAdminServiceClient struct {
@@ -665,6 +723,46 @@ func (c *deviceAdminServiceClient) ResolveInconsistency(ctx context.Context, in 
 	return out, nil
 }
 
+func (c *deviceAdminServiceClient) ListAutomationRules(ctx context.Context, in *ListAutomationRulesRequest, opts ...grpc.CallOption) (*ListAutomationRulesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListAutomationRulesResponse)
+	err := c.cc.Invoke(ctx, DeviceAdminService_ListAutomationRules_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *deviceAdminServiceClient) CreateAutomationRule(ctx context.Context, in *CreateAutomationRuleRequest, opts ...grpc.CallOption) (*CreateAutomationRuleResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateAutomationRuleResponse)
+	err := c.cc.Invoke(ctx, DeviceAdminService_CreateAutomationRule_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *deviceAdminServiceClient) SetAutomationRuleEnabled(ctx context.Context, in *SetAutomationRuleEnabledRequest, opts ...grpc.CallOption) (*SetAutomationRuleEnabledResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SetAutomationRuleEnabledResponse)
+	err := c.cc.Invoke(ctx, DeviceAdminService_SetAutomationRuleEnabled_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *deviceAdminServiceClient) RemoveAutomationRule(ctx context.Context, in *RemoveAutomationRuleRequest, opts ...grpc.CallOption) (*RemoveAutomationRuleResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RemoveAutomationRuleResponse)
+	err := c.cc.Invoke(ctx, DeviceAdminService_RemoveAutomationRule_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // DeviceAdminServiceServer is the server API for DeviceAdminService service.
 // All implementations should embed UnimplementedDeviceAdminServiceServer
 // for forward compatibility.
@@ -705,6 +803,14 @@ type DeviceAdminServiceServer interface {
 	// disagree about a device. Empty is the healthy state. See docs/api-v1.md.
 	ListInconsistencies(context.Context, *ListInconsistenciesRequest) (*ListInconsistenciesResponse, error)
 	ResolveInconsistency(context.Context, *ResolveInconsistencyRequest) (*ResolveInconsistencyResponse, error)
+	// Automation rules (Marco 5, docs/device-manifests.md): "when source
+	// device emits event_type, if condition passes, publish this command to
+	// action device". No Update/Get RPC yet - editing means remove and
+	// recreate, the same model routes already use.
+	ListAutomationRules(context.Context, *ListAutomationRulesRequest) (*ListAutomationRulesResponse, error)
+	CreateAutomationRule(context.Context, *CreateAutomationRuleRequest) (*CreateAutomationRuleResponse, error)
+	SetAutomationRuleEnabled(context.Context, *SetAutomationRuleEnabledRequest) (*SetAutomationRuleEnabledResponse, error)
+	RemoveAutomationRule(context.Context, *RemoveAutomationRuleRequest) (*RemoveAutomationRuleResponse, error)
 }
 
 // UnimplementedDeviceAdminServiceServer should be embedded to have
@@ -761,6 +867,18 @@ func (UnimplementedDeviceAdminServiceServer) ListInconsistencies(context.Context
 }
 func (UnimplementedDeviceAdminServiceServer) ResolveInconsistency(context.Context, *ResolveInconsistencyRequest) (*ResolveInconsistencyResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ResolveInconsistency not implemented")
+}
+func (UnimplementedDeviceAdminServiceServer) ListAutomationRules(context.Context, *ListAutomationRulesRequest) (*ListAutomationRulesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListAutomationRules not implemented")
+}
+func (UnimplementedDeviceAdminServiceServer) CreateAutomationRule(context.Context, *CreateAutomationRuleRequest) (*CreateAutomationRuleResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CreateAutomationRule not implemented")
+}
+func (UnimplementedDeviceAdminServiceServer) SetAutomationRuleEnabled(context.Context, *SetAutomationRuleEnabledRequest) (*SetAutomationRuleEnabledResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetAutomationRuleEnabled not implemented")
+}
+func (UnimplementedDeviceAdminServiceServer) RemoveAutomationRule(context.Context, *RemoveAutomationRuleRequest) (*RemoveAutomationRuleResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RemoveAutomationRule not implemented")
 }
 func (UnimplementedDeviceAdminServiceServer) testEmbeddedByValue() {}
 
@@ -1070,6 +1188,78 @@ func _DeviceAdminService_ResolveInconsistency_Handler(srv interface{}, ctx conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DeviceAdminService_ListAutomationRules_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListAutomationRulesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DeviceAdminServiceServer).ListAutomationRules(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DeviceAdminService_ListAutomationRules_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DeviceAdminServiceServer).ListAutomationRules(ctx, req.(*ListAutomationRulesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DeviceAdminService_CreateAutomationRule_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateAutomationRuleRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DeviceAdminServiceServer).CreateAutomationRule(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DeviceAdminService_CreateAutomationRule_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DeviceAdminServiceServer).CreateAutomationRule(ctx, req.(*CreateAutomationRuleRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DeviceAdminService_SetAutomationRuleEnabled_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetAutomationRuleEnabledRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DeviceAdminServiceServer).SetAutomationRuleEnabled(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DeviceAdminService_SetAutomationRuleEnabled_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DeviceAdminServiceServer).SetAutomationRuleEnabled(ctx, req.(*SetAutomationRuleEnabledRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DeviceAdminService_RemoveAutomationRule_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RemoveAutomationRuleRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DeviceAdminServiceServer).RemoveAutomationRule(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DeviceAdminService_RemoveAutomationRule_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DeviceAdminServiceServer).RemoveAutomationRule(ctx, req.(*RemoveAutomationRuleRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // DeviceAdminService_ServiceDesc is the grpc.ServiceDesc for DeviceAdminService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1140,6 +1330,22 @@ var DeviceAdminService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ResolveInconsistency",
 			Handler:    _DeviceAdminService_ResolveInconsistency_Handler,
+		},
+		{
+			MethodName: "ListAutomationRules",
+			Handler:    _DeviceAdminService_ListAutomationRules_Handler,
+		},
+		{
+			MethodName: "CreateAutomationRule",
+			Handler:    _DeviceAdminService_CreateAutomationRule_Handler,
+		},
+		{
+			MethodName: "SetAutomationRuleEnabled",
+			Handler:    _DeviceAdminService_SetAutomationRuleEnabled_Handler,
+		},
+		{
+			MethodName: "RemoveAutomationRule",
+			Handler:    _DeviceAdminService_RemoveAutomationRule_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

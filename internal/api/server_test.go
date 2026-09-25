@@ -133,12 +133,23 @@ func (f fakeManifestResolver) ResolveDeviceManifest(context.Context, string) (de
 // device.Profile.
 const ledManifestDocument = `{"schema_version":1,"id":"esp32-c3-led","display_name":"LED","provisioning":{"protocol":"http-nvs-v1","model":"esp32c3-led","required_protocol_version":1},"mqtt":{"topics":["command"]},"capabilities":{"commands":[{"type":"set_led","parameters":{"on":{"type":"boolean","required":true}}}],"events":[]}}`
 
+// ledManifestDocumentWithEvent additionally declares one event type, for
+// ListDeviceEvents tests - ledManifestDocument's events array is
+// deliberately empty and shared by other tests, so this is its own const
+// rather than a mutation.
+const ledManifestDocumentWithEvent = `{"schema_version":1,"id":"esp32-c3-led","display_name":"LED","provisioning":{"protocol":"http-nvs-v1","model":"esp32c3-led","required_protocol_version":1},"mqtt":{"topics":["command","event"]},"capabilities":{"commands":[{"type":"set_led","parameters":{"on":{"type":"boolean","required":true}}}],"events":[{"type":"button_pressed","payload":{"pressed":{"type":"boolean","required":true}}}]}}`
+
 // newManifestBoundServer starts a test server where every device resolves
 // to ledManifestDocument's manifest, the same shape newTestServer gives
 // every device no manifest at all (opaque fallback).
 func newManifestBoundServer(t *testing.T, publisher CommandPublisher) *httptest.Server {
 	t.Helper()
-	document, _, err := devicemanifest.Parse(ledManifestDocument)
+	return newManifestBoundServerWithDocument(t, publisher, ledManifestDocument)
+}
+
+func newManifestBoundServerWithDocument(t *testing.T, publisher CommandPublisher, manifestDocument string) *httptest.Server {
+	t.Helper()
+	document, _, err := devicemanifest.Parse(manifestDocument)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,6 +238,38 @@ func TestListDeviceCommands_Opaque(t *testing.T) {
 	}
 	if len(resp.Msg.Commands) != 0 {
 		t.Fatalf("Commands = %#v, want empty", resp.Msg.Commands)
+	}
+}
+
+func TestListDeviceEvents_WithManifest(t *testing.T) {
+	ts := newManifestBoundServerWithDocument(t, &fakePublisher{}, ledManifestDocumentWithEvent)
+	client := apiv1connect.NewDeviceServiceClient(ts.Client(), ts.URL)
+	req := connect.NewRequest(&apiv1.ListDeviceEventsRequest{DeviceId: "led-1"})
+	resp, err := client.ListDeviceEvents(context.Background(), req)
+	if err != nil {
+		t.Fatalf("ListDeviceEvents() error = %v", err)
+	}
+	if !resp.Msg.SchemaValidated {
+		t.Fatal("SchemaValidated = false, want true")
+	}
+	if len(resp.Msg.Events) != 1 || resp.Msg.Events[0].Type != "button_pressed" || resp.Msg.Events[0].PayloadJson == "" {
+		t.Fatalf("Events = %#v", resp.Msg.Events)
+	}
+}
+
+func TestListDeviceEvents_Opaque(t *testing.T) {
+	ts := newTestServer(t, &fakePublisher{}, fakeStatus{}, fakeTelemetry{}, fakeQueue{})
+	client := apiv1connect.NewDeviceServiceClient(ts.Client(), ts.URL)
+	req := connect.NewRequest(&apiv1.ListDeviceEventsRequest{DeviceId: "opaque-1"})
+	resp, err := client.ListDeviceEvents(context.Background(), req)
+	if err != nil {
+		t.Fatalf("ListDeviceEvents() error = %v", err)
+	}
+	if resp.Msg.SchemaValidated {
+		t.Fatal("SchemaValidated = true, want false")
+	}
+	if len(resp.Msg.Events) != 0 {
+		t.Fatalf("Events = %#v, want empty", resp.Msg.Events)
 	}
 }
 

@@ -97,6 +97,16 @@ type fakeDeviceAdmin struct {
 	listInconsistenciesErr  error
 	resolveInconsistencyErr error
 	resolvedInconsistencyID string
+
+	rules             []registry.AutomationRule
+	listRulesErr      error
+	createdRule       registry.AutomationRule
+	createRuleErr     error
+	setRuleEnabled    registry.AutomationRule
+	setRuleEnabledErr error
+	setRuleEnabledID  string
+	removedRuleErr    error
+	removedRuleID     string
 }
 
 func (f *fakeDeviceAdmin) RegisterExistingDevice(ctx context.Context, id, template string) (config.Device, error) {
@@ -202,6 +212,33 @@ func (f *fakeDeviceAdmin) ResolveInconsistency(ctx context.Context, id string) e
 	defer f.mu.Unlock()
 	f.resolvedInconsistencyID = id
 	return f.resolveInconsistencyErr
+}
+
+func (f *fakeDeviceAdmin) ListAutomationRules(ctx context.Context) ([]registry.AutomationRule, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.rules, f.listRulesErr
+}
+
+func (f *fakeDeviceAdmin) CreateAutomationRule(ctx context.Context, rule registry.AutomationRule) (registry.AutomationRule, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.createdRule = rule
+	return f.createdRule, f.createRuleErr
+}
+
+func (f *fakeDeviceAdmin) SetAutomationRuleEnabled(ctx context.Context, id string, enabled bool) (registry.AutomationRule, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.setRuleEnabledID = id
+	return f.setRuleEnabled, f.setRuleEnabledErr
+}
+
+func (f *fakeDeviceAdmin) RemoveAutomationRule(ctx context.Context, id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.removedRuleID = id
+	return f.removedRuleErr
 }
 
 func newTestGateway(t *testing.T, backendURL string, allowedOrigins []string) *httptest.Server {
@@ -720,6 +757,101 @@ func TestDeviceAdminService_ResolveInconsistency_NotFound(t *testing.T) {
 	ts := newTestGatewayWithAdmin(t, backend.URL, nil, fake)
 
 	_, err := connectClient(ts).ResolveInconsistency(context.Background(), authedRequest(&apiv1.ResolveInconsistencyRequest{Id: "ghost"}))
+	if connect.CodeOf(err) != connect.CodeNotFound {
+		t.Errorf("code = %v, want NotFound", connect.CodeOf(err))
+	}
+}
+
+func TestDeviceAdminService_CreateAndListAutomationRules(t *testing.T) {
+	backend, _ := newFakeInternalAPI(t)
+	createdAt := time.Date(2026, time.September, 24, 12, 0, 0, 0, time.UTC)
+	rule := registry.AutomationRule{
+		ID: "led1-to-led2", Enabled: true, SourceDeviceID: "led-1", EventType: "button_pressed",
+		ActionDeviceID: "led-2", ActionCommandType: "set_led", ActionParametersJSON: `{"on":true}`,
+		ActionSchemaValidated: true, CreatedAt: createdAt, UpdatedAt: createdAt,
+	}
+	fake := &fakeDeviceAdmin{rules: []registry.AutomationRule{rule}, createdRule: rule}
+	ts := newTestGatewayWithAdmin(t, backend.URL, nil, fake)
+
+	list, err := connectClient(ts).ListAutomationRules(context.Background(), authedRequest(&apiv1.ListAutomationRulesRequest{}))
+	if err != nil {
+		t.Fatalf("ListAutomationRules() error = %v", err)
+	}
+	if len(list.Msg.GetRules()) != 1 || list.Msg.GetRules()[0].GetId() != rule.ID || list.Msg.GetRules()[0].GetActionCommandType() != rule.ActionCommandType {
+		t.Fatalf("rules = %#v", list.Msg.GetRules())
+	}
+
+	created, err := connectClient(ts).CreateAutomationRule(context.Background(), authedRequest(&apiv1.CreateAutomationRuleRequest{Rule: &apiv1.AutomationRule{
+		Id: rule.ID, Enabled: rule.Enabled, SourceDeviceId: rule.SourceDeviceID, EventType: rule.EventType,
+		ActionDeviceId: rule.ActionDeviceID, ActionCommandType: rule.ActionCommandType, ActionParametersJson: rule.ActionParametersJSON,
+	}}))
+	if err != nil {
+		t.Fatalf("CreateAutomationRule() error = %v", err)
+	}
+	if created.Msg.GetAppliedAt() == nil || fake.createdRule.ID != rule.ID {
+		t.Fatalf("response = %#v, createdRule = %#v", created.Msg, fake.createdRule)
+	}
+}
+
+func TestDeviceAdminService_CreateAutomationRuleAlreadyExists(t *testing.T) {
+	backend, _ := newFakeInternalAPI(t)
+	fake := &fakeDeviceAdmin{createRuleErr: registry.ErrAutomationRuleAlreadyExists}
+	ts := newTestGatewayWithAdmin(t, backend.URL, nil, fake)
+
+	_, err := connectClient(ts).CreateAutomationRule(context.Background(), authedRequest(&apiv1.CreateAutomationRuleRequest{Rule: &apiv1.AutomationRule{
+		Id: "dup", SourceDeviceId: "led-1", EventType: "x", ActionDeviceId: "led-2", ActionCommandType: "set_led", ActionParametersJson: "{}",
+	}}))
+	if connect.CodeOf(err) != connect.CodeAlreadyExists {
+		t.Errorf("code = %v, want AlreadyExists", connect.CodeOf(err))
+	}
+}
+
+func TestDeviceAdminService_SetAutomationRuleEnabled(t *testing.T) {
+	backend, _ := newFakeInternalAPI(t)
+	rule := registry.AutomationRule{ID: "led1-to-led2", Enabled: false}
+	fake := &fakeDeviceAdmin{setRuleEnabled: rule}
+	ts := newTestGatewayWithAdmin(t, backend.URL, nil, fake)
+
+	resp, err := connectClient(ts).SetAutomationRuleEnabled(context.Background(), authedRequest(&apiv1.SetAutomationRuleEnabledRequest{RuleId: "led1-to-led2", Enabled: false}))
+	if err != nil {
+		t.Fatalf("SetAutomationRuleEnabled() error = %v", err)
+	}
+	if resp.Msg.GetRule().GetEnabled() || fake.setRuleEnabledID != "led1-to-led2" {
+		t.Fatalf("response = %#v, setRuleEnabledID = %q", resp.Msg, fake.setRuleEnabledID)
+	}
+}
+
+func TestDeviceAdminService_SetAutomationRuleEnabledNotFound(t *testing.T) {
+	backend, _ := newFakeInternalAPI(t)
+	fake := &fakeDeviceAdmin{setRuleEnabledErr: registry.ErrAutomationRuleNotFound}
+	ts := newTestGatewayWithAdmin(t, backend.URL, nil, fake)
+
+	_, err := connectClient(ts).SetAutomationRuleEnabled(context.Background(), authedRequest(&apiv1.SetAutomationRuleEnabledRequest{RuleId: "missing", Enabled: true}))
+	if connect.CodeOf(err) != connect.CodeNotFound {
+		t.Errorf("code = %v, want NotFound", connect.CodeOf(err))
+	}
+}
+
+func TestDeviceAdminService_RemoveAutomationRule(t *testing.T) {
+	backend, _ := newFakeInternalAPI(t)
+	fake := &fakeDeviceAdmin{}
+	ts := newTestGatewayWithAdmin(t, backend.URL, nil, fake)
+
+	_, err := connectClient(ts).RemoveAutomationRule(context.Background(), authedRequest(&apiv1.RemoveAutomationRuleRequest{RuleId: "led1-to-led2"}))
+	if err != nil {
+		t.Fatalf("RemoveAutomationRule() error = %v", err)
+	}
+	if fake.removedRuleID != "led1-to-led2" {
+		t.Errorf("removedRuleID = %q, want led1-to-led2", fake.removedRuleID)
+	}
+}
+
+func TestDeviceAdminService_RemoveAutomationRuleNotFound(t *testing.T) {
+	backend, _ := newFakeInternalAPI(t)
+	fake := &fakeDeviceAdmin{removedRuleErr: registry.ErrAutomationRuleNotFound}
+	ts := newTestGatewayWithAdmin(t, backend.URL, nil, fake)
+
+	_, err := connectClient(ts).RemoveAutomationRule(context.Background(), authedRequest(&apiv1.RemoveAutomationRuleRequest{RuleId: "missing"}))
 	if connect.CodeOf(err) != connect.CodeNotFound {
 		t.Errorf("code = %v, want NotFound", connect.CodeOf(err))
 	}

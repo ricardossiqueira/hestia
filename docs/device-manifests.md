@@ -214,7 +214,14 @@ nunca receberão credenciais ou endereços uns dos outros.
   janela de tempo (5 em 10s, constante fixa), já que o protocolo não
   permite provar uma cadeia causal evento→comando→evento sem mudança de
   firmware.
-- [ ] Só então construir a UI dedicada de automações.
+- [x] Só então construir a UI dedicada de automações. `DeviceAdminService`
+  ganhou `ListAutomationRules`/`CreateAutomationRule`/
+  `SetAutomationRuleEnabled`/`RemoveAutomationRule` (sem `Update`/`Get`
+  — mesma filosofia de `Route`, mudar é remover e recriar) e
+  `DeviceService` ganhou `ListDeviceEvents`. `gateway-web`'s `/automations`
+  tem formulário visual de condição (subconjunto de JSONLogic, com
+  fallback pra JSON cru) e reaproveita o formulário de parâmetros já usado
+  pra publicar comando. Ver `gateway-web/docs/spec.md`'s Marco 5.
 
 ## Critério de conclusão da primeira etapa
 

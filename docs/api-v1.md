@@ -123,6 +123,7 @@ Regras:
 | --- | --- | --- |
 | `ListDevices` | `DeviceService` | Lista todos os dispositivos cadastrados, habilitados ou não. |
 | `ListDeviceCommands` | `DeviceService` | Descreve os comandos que um dispositivo aceita (schema Protobuf). |
+| `ListDeviceEvents` | `DeviceService` | Descreve os eventos que um dispositivo pode emitir (schema Protobuf) — mesmo fallback opaco de `ListDeviceCommands`. |
 | `PublishCommand` | `DeviceService` | Publica um comando, validado por schema quando o dispositivo tem manifest vinculado. |
 | `GetDeviceTelemetry` | `DeviceService` | Devolve a última mensagem `telemetry` aceita de um device, em cache (sem histórico). |
 | `GetStatus` | `GatewayService` | Espelha `internal/mqtt.Snapshot`: sessão MQTT, contadores, sem payloads. |
@@ -137,6 +138,10 @@ Regras:
 | `RemoveDevice` | `DeviceAdminService` | Revoga a credencial Mosquitto e remove o device do registry SQLite. |
 | `ListInconsistencies` | `DeviceAdminService` | Lista provisionamentos cuja compensação (rollback) também falhou. |
 | `ResolveInconsistency` | `DeviceAdminService` | Marca uma inconsistência como resolvida, sem tocar registry ou broker. |
+| `ListAutomationRules` | `DeviceAdminService` | Lista as regras de automação (Marco 5) persistidas no SQLite. |
+| `CreateAutomationRule` | `DeviceAdminService` | Cria uma regra evento → condição → ação. |
+| `SetAutomationRuleEnabled` | `DeviceAdminService` | Habilita/desabilita uma regra sem alterar o resto. |
+| `RemoveAutomationRule` | `DeviceAdminService` | Remove uma regra pelo ID. |
 
 `DeviceAdminService` é atendido **diretamente** pelo processo `iot-gateway
 admin` — não passa pelo reverse proxy que `DeviceService`/`GatewayService`
@@ -164,6 +169,28 @@ curl -u <usuario>:<senha> \
   -d '{"route":{"id":"orangepi-monitor-to-monitor","sourceTopic":"devices/orangepi-monitor/telemetry","destinationTopic":"devices/monitor/command","commandType":"render_system_status","qos":1,"retain":false}}' \
   http://<orange-pi>:<porta>/iot.gateway.api.v1.DeviceAdminService/CreateRoute
 ```
+
+### Regras de automação
+
+`CreateAutomationRule` recebe `rule` com `id`, `source_device_id`,
+`event_type`, `condition_json` (opcional — vazio significa "sempre
+dispara"; um subconjunto de JSONLogic, ver
+`docs/device-manifests.md` Marco 5 e `internal/automationrule`),
+`action_device_id`, `action_command_type` e `action_parameters_json`.
+A origem deve ser um device habilitado com tópico `event`; a ação, um
+device habilitado com tópico `command`. Quando qualquer um dos dois lados
+tem manifest vinculado, `event_type`/`action_parameters_json` são
+validados contra os eventos/comandos declarados (mesma validação que
+`PublishCommand` já faz); sem manifest, caem no mesmo fallback opaco.
+
+Sem revisão nem RPC de edição: mudar uma regra é remover e recriar, o
+mesmo modelo de `Route`. A execução (`internal/mqtt.Gateway.
+fireAutomationRules`) roda de forma síncrona quando um evento é aceito —
+consulta o SQLite direto por device+tipo de evento a cada evento, sem
+cache — e nunca passa pela outbox (não há consumidor VPS ainda). Dedup é
+por `event_id`+regra; "prevenção de ciclo" é um limite de disparos por
+regra numa janela de tempo, não detecção causal (o protocolo não permite
+provar que um evento foi causado por um comando anterior).
 
 ### Telemetria em cache
 

@@ -65,6 +65,26 @@ func routeFromProto(route *apiv1.Route) (config.Route, error) {
 	}, nil
 }
 
+func automationRuleToProto(rule registry.AutomationRule) *apiv1.AutomationRule {
+	return &apiv1.AutomationRule{
+		Id: rule.ID, Enabled: rule.Enabled, SourceDeviceId: rule.SourceDeviceID, EventType: rule.EventType,
+		ConditionJson: rule.ConditionJSON, ActionDeviceId: rule.ActionDeviceID, ActionCommandType: rule.ActionCommandType,
+		ActionParametersJson: rule.ActionParametersJSON, ActionSchemaValidated: rule.ActionSchemaValidated,
+		CreatedAt: timestamppb.New(rule.CreatedAt), UpdatedAt: timestamppb.New(rule.UpdatedAt),
+	}
+}
+
+func automationRuleFromProto(rule *apiv1.AutomationRule) (registry.AutomationRule, error) {
+	if rule == nil {
+		return registry.AutomationRule{}, errors.New("rule is required")
+	}
+	return registry.AutomationRule{
+		ID: rule.GetId(), Enabled: rule.GetEnabled(), SourceDeviceID: rule.GetSourceDeviceId(), EventType: rule.GetEventType(),
+		ConditionJSON: rule.GetConditionJson(), ActionDeviceID: rule.GetActionDeviceId(), ActionCommandType: rule.GetActionCommandType(),
+		ActionParametersJSON: rule.GetActionParametersJson(),
+	}, nil
+}
+
 func manifestToProto(manifest registry.DeviceManifest) *apiv1.DeviceManifest {
 	return &apiv1.DeviceManifest{
 		Id: manifest.ID, DisplayName: manifest.DisplayName, Revision: manifest.Revision,
@@ -322,4 +342,57 @@ func (s *Server) ResolveInconsistency(ctx context.Context, req *connect.Request[
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	return connect.NewResponse(&apiv1.ResolveInconsistencyResponse{}), nil
+}
+
+// ListAutomationRules returns every Marco 5 automation rule
+// (docs/device-manifests.md).
+func (s *Server) ListAutomationRules(ctx context.Context, _ *connect.Request[apiv1.ListAutomationRulesRequest]) (*connect.Response[apiv1.ListAutomationRulesResponse], error) {
+	rules, err := s.cfg.Admin.ListAutomationRules(ctx)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	response := &apiv1.ListAutomationRulesResponse{Rules: make([]*apiv1.AutomationRule, 0, len(rules))}
+	for _, rule := range rules {
+		response.Rules = append(response.Rules, automationRuleToProto(rule))
+	}
+	return connect.NewResponse(response), nil
+}
+
+// CreateAutomationRule changes only the SQLite policy the execution engine
+// (internal/mqtt.Gateway.fireAutomationRules) queries directly per accepted
+// event - this RPC never restarts a service.
+func (s *Server) CreateAutomationRule(ctx context.Context, req *connect.Request[apiv1.CreateAutomationRuleRequest]) (*connect.Response[apiv1.CreateAutomationRuleResponse], error) {
+	rule, err := automationRuleFromProto(req.Msg.GetRule())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	created, err := s.cfg.Admin.CreateAutomationRule(ctx, rule)
+	if err != nil {
+		if errors.Is(err, registry.ErrAutomationRuleAlreadyExists) {
+			return nil, connect.NewError(connect.CodeAlreadyExists, err)
+		}
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	return connect.NewResponse(&apiv1.CreateAutomationRuleResponse{Rule: automationRuleToProto(created), AppliedAt: timestamppb.Now()}), nil
+}
+
+func (s *Server) SetAutomationRuleEnabled(ctx context.Context, req *connect.Request[apiv1.SetAutomationRuleEnabledRequest]) (*connect.Response[apiv1.SetAutomationRuleEnabledResponse], error) {
+	rule, err := s.cfg.Admin.SetAutomationRuleEnabled(ctx, req.Msg.GetRuleId(), req.Msg.GetEnabled())
+	if err != nil {
+		if errors.Is(err, registry.ErrAutomationRuleNotFound) {
+			return nil, connect.NewError(connect.CodeNotFound, err)
+		}
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	return connect.NewResponse(&apiv1.SetAutomationRuleEnabledResponse{Rule: automationRuleToProto(rule), AppliedAt: timestamppb.Now()}), nil
+}
+
+func (s *Server) RemoveAutomationRule(ctx context.Context, req *connect.Request[apiv1.RemoveAutomationRuleRequest]) (*connect.Response[apiv1.RemoveAutomationRuleResponse], error) {
+	if err := s.cfg.Admin.RemoveAutomationRule(ctx, req.Msg.GetRuleId()); err != nil {
+		if errors.Is(err, registry.ErrAutomationRuleNotFound) {
+			return nil, connect.NewError(connect.CodeNotFound, err)
+		}
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	return connect.NewResponse(&apiv1.RemoveAutomationRuleResponse{AppliedAt: timestamppb.Now()}), nil
 }
