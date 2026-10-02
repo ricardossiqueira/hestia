@@ -2,15 +2,21 @@
 
 ## Current milestone
 
-**Marco 3 - secure device session client (in progress).** Updated 2026-10-01.
+**Marco 3 - secure registration transaction (in progress).** Updated 2026-10-01.
 
 - Closed the deterministic HKDF salt/info contract with `iot-device-core`.
 - Added a device-facing X25519/HKDF/AES-GCM client that validates Ed25519
   device identity signatures, encrypts provisioning settings with bound AAD,
   verifies the signed confirmation and wipes the session key after use.
 - Added an in-process HTTP device test for the pair/provision protocol.
-- Next integration step is injecting this client into the privileged
-  registration coordinator, where DynSec credentials and activation live.
+- Added the privileged registration coordinator. It persists a pending
+  manifest binding, creates a disabled DynSec identity, sends the password
+  only in the encrypted session, then enables DynSec and activates the
+  registry binding after the device's signed persistence confirmation.
+- Delivery failures revoke the new credential and remove the pending binding;
+  failures after device persistence remain visibly pending for recovery.
+- Next integration step is mounting this coordinator in the authenticated v2
+  registration endpoint and gateway composition root.
 
 **Marco 2 - v2 MQTT automation runtime (complete).** Updated 2026-10-01.
 

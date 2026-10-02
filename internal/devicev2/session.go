@@ -47,10 +47,10 @@ type SessionClient struct {
 }
 
 type pairingRequest struct {
-	Version                    int    `json:"version"`
-	Suite                      string `json:"suite"`
-	GatewayNonce               string `json:"gateway_nonce"`
-	GatewayEphemeralPublicKey  string `json:"gateway_ephemeral_public_key"`
+	Version                   int    `json:"version"`
+	Suite                     string `json:"suite"`
+	GatewayNonce              string `json:"gateway_nonce"`
+	GatewayEphemeralPublicKey string `json:"gateway_ephemeral_public_key"`
 }
 
 type pairingResponse struct {
@@ -90,6 +90,13 @@ type ProvisionSettings struct {
 	MQTTPort       uint16
 	MQTTUsername   string
 	MQTTPassword   string
+}
+
+// SecureProvisioner is the narrow capability the privileged registration
+// coordinator needs. It intentionally exposes neither session keys nor MQTT
+// passwords after the device has confirmed persistence.
+type SecureProvisioner interface {
+	PairAndProvision(context.Context, Announcement, DeviceInfo, ProvisionSettings) error
 }
 
 // Session is short-lived and single-use. Its key is wiped after Provision,
@@ -222,6 +229,17 @@ func (c SessionClient) Provision(ctx context.Context, session *Session, settings
 		return err
 	}
 	return nil
+}
+
+// PairAndProvision is the one-shot coordinator-facing operation. Any failure
+// after Pair consumes the local key through Session.Close, so a retry always
+// starts from a new physical pairing operation.
+func (c SessionClient) PairAndProvision(ctx context.Context, announcement Announcement, info DeviceInfo, settings ProvisionSettings) error {
+	session, err := c.Pair(ctx, announcement, info)
+	if err != nil {
+		return err
+	}
+	return c.Provision(ctx, session, settings)
 }
 
 func (c SessionClient) httpClient() *http.Client {
