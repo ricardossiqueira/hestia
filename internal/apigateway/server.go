@@ -68,6 +68,7 @@ type DeviceAdmin interface {
 	ResolveInconsistency(ctx context.Context, id string) error
 	ListAutomationRules(ctx context.Context) ([]registry.AutomationRule, error)
 	CreateAutomationRule(ctx context.Context, rule registry.AutomationRule) (registry.AutomationRule, error)
+	UpdateAutomationRule(ctx context.Context, rule registry.AutomationRule) (registry.AutomationRule, error)
 	SetAutomationRuleEnabled(ctx context.Context, id string, enabled bool) (registry.AutomationRule, error)
 	RemoveAutomationRule(ctx context.Context, id string) error
 }
@@ -106,6 +107,9 @@ type Config struct {
 	// Admin answers DeviceAdminService directly - see the DeviceAdmin
 	// doc comment above.
 	Admin DeviceAdmin
+	// DeviceV2 is the authenticated JSON RPC adapter for the device platform
+	// v2. It is optional while deployments roll out the new coordinator.
+	DeviceV2 http.Handler
 }
 
 // Server is the public-facing Connect-RPC edge: auth + CORS + a reverse
@@ -151,6 +155,9 @@ func New(cfg Config, logger *slog.Logger) (*Server, error) {
 	mux.Handle("/iot.gateway.api.v1.GatewayService/", proxy)
 	adminPath, adminHandler := apiv1connect.NewDeviceAdminServiceHandler(s)
 	mux.Handle(adminPath, adminHandler)
+	if cfg.DeviceV2 != nil {
+		mux.Handle("/iot.gateway.api.v2.DevicePlatformService/", cfg.DeviceV2)
+	}
 
 	// cors wraps basicAuth, not the reverse: a browser's CORS preflight
 	// (OPTIONS) never carries the Authorization header being negotiated,

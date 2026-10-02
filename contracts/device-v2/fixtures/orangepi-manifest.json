@@ -1,0 +1,1 @@
+{"schema_version":2,"manifest_id":"orangepi-monitor","display_name":"Orange Pi Monitor","model":"orangepi-monitor","protocol_version":1,"mqtt":{"publish":[{"channel":"telemetry","schema":{}}],"subscribe":[]}}

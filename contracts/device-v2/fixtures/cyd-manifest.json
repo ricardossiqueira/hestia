@@ -1,0 +1,1 @@
+{"schema_version":2,"manifest_id":"cyd-monitor","display_name":"CYD Monitor","model":"cyd-monitor","protocol_version":1,"mqtt":{"publish":[],"subscribe":[{"channel":"command","commands":[{"type":"render_system_status","parameters":{"timestamp":{"type":"string","required":true}}}]}]}}

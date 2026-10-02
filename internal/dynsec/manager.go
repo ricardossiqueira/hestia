@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/ricardossiqueira/iot-gateway/internal/devicev2"
 )
 
 // Controller executes one serialized DynSec control request. Serialisation is
@@ -67,6 +69,13 @@ func (m *Manager) Provision(ctx context.Context, id string, suffixes []string) (
 		return "", fmt.Errorf("create client %q: %w", id, err)
 	}
 	return password, nil
+}
+
+// ProvisionV2 derives the only allowed MQTT grants directly from the v2
+// manifest. Callers must not supply topic suffixes beside this method.
+func (m *Manager) ProvisionV2(ctx context.Context, id string, manifest devicev2.Manifest) (string, error) {
+	publish, subscribe := manifest.Channels()
+	return m.Provision(ctx, id, append(publish, subscribe...))
 }
 
 func (m *Manager) Revoke(ctx context.Context, id string) error {
