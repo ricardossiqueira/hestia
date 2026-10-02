@@ -15,7 +15,18 @@ import (
 
 const apiV2Manifest = `{"schema_version":2,"manifest_id":"test-led","display_name":"Test LED","model":"test-led","protocol_version":1,"mqtt":{"publish":[{"channel":"state","retained":true,"schema":{}}],"subscribe":[{"channel":"command","commands":[{"type":"set_led","parameters":{}}]}]}}`
 
-func TestDeviceV2APIRegistersReadyDiscovery(t *testing.T) {
+type v2RegistrarFake struct {
+	entry  devicev2.DiscoveryEntry
+	device registry.V2Device
+}
+
+func (f *v2RegistrarFake) Register(_ context.Context, entry devicev2.DiscoveryEntry, deviceID string) (registry.V2Device, error) {
+	f.entry = entry
+	f.device.DeviceID = deviceID
+	return f.device, nil
+}
+
+func TestDeviceV2APIRegistersPairingDiscoveryThroughRegistrar(t *testing.T) {
 	ctx := context.Background()
 	store, err := registry.Open(ctx, filepath.Join(t.TempDir(), "registry.db"))
 	if err != nil {
@@ -27,12 +38,13 @@ func TestDeviceV2APIRegistersReadyDiscovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	inbox := devicev2.NewInbox(0)
-	announcement := devicev2.Announcement{DeviceUID: "test-uid", Host: "192.0.2.10", Port: 8080, Model: "test-led", Protocol: "iot-device-v1", Firmware: "2.0.0", ManifestSHA256: hash, Pairing: false}
+	announcement := devicev2.Announcement{DeviceUID: "test-uid", Host: "192.0.2.10", Port: 8080, Model: "test-led", Protocol: "iot-device-v1", Firmware: "2.0.0", ManifestSHA256: hash, Pairing: true}
 	if err := inbox.Observe(announcement); err != nil {
 		t.Fatal(err)
 	}
-	inbox.MarkInspected("test-uid", devicev2.DeviceInfo{DeviceUID: "test-uid", Model: "test-led", FirmwareVersion: "2.0.0", Manifest: json.RawMessage(canonical), ManifestSHA256: hash, IdentityPublicKey: "public", PairingRequired: false}, nil)
-	api := DeviceV2API{Inbox: inbox, Registry: store}
+	inbox.MarkInspected("test-uid", devicev2.DeviceInfo{DeviceUID: "test-uid", Model: "test-led", FirmwareVersion: "2.0.0", Manifest: json.RawMessage(canonical), ManifestSHA256: hash, IdentityPublicKey: "public", PairingRequired: true}, nil)
+	registrar := &v2RegistrarFake{device: registry.V2Device{DeviceUID: "test-uid", ManifestID: "test-led", ManifestRevision: 1, ManifestSHA256: hash, FirmwareVersion: "2.0.0", IdentityPublicKey: "public", DesiredState: "active", ActiveState: "active"}}
+	api := DeviceV2API{Inbox: inbox, Registry: store, Registrar: registrar}
 	list := httptest.NewRecorder()
 	api.ServeHTTP(list, httptest.NewRequest(http.MethodPost, "/iot.gateway.api.v2.DevicePlatformService/ListDiscovery", nil))
 	if list.Code != http.StatusOK {
@@ -44,9 +56,10 @@ func TestDeviceV2APIRegistersReadyDiscovery(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("register status=%d body=%s", response.Code, response.Body.String())
 	}
-	get := httptest.NewRecorder()
-	api.ServeHTTP(get, httptest.NewRequest(http.MethodPost, "/iot.gateway.api.v2.DevicePlatformService/GetDevice", strings.NewReader(`{"deviceId":"led-sala"}`)))
-	if get.Code != http.StatusOK || !strings.Contains(get.Body.String(), `"deviceId":"led-sala"`) {
-		t.Fatalf("get status=%d body=%s", get.Code, get.Body.String())
+	if registrar.entry.DeviceUID != "test-uid" || registrar.device.DeviceID != "led-sala" {
+		t.Fatalf("registrar entry=%#v device=%#v", registrar.entry, registrar.device)
+	}
+	if !strings.Contains(response.Body.String(), `"activeState":"active"`) {
+		t.Fatalf("register body=%s", response.Body.String())
 	}
 }

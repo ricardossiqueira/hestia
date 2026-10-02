@@ -18,8 +18,16 @@ import (
 // secret-bearing provision request or broker password. The root/admin process
 // supplies a discovery inbox populated by its mDNS adapter.
 type DeviceV2API struct {
-	Inbox    *devicev2.Inbox
-	Registry *registry.Store
+	Inbox     *devicev2.Inbox
+	Registry  *registry.Store
+	Registrar V2DeviceRegistrar
+}
+
+// V2DeviceRegistrar is the privileged transaction behind the authenticated
+// edge. The HTTP layer never handles a broker credential or a pairing key.
+// admin.V2RegistrationCoordinator satisfies this capability in runAdmin.
+type V2DeviceRegistrar interface {
+	Register(context.Context, devicev2.DiscoveryEntry, string) (registry.V2Device, error)
 }
 
 func (a DeviceV2API) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -65,7 +73,7 @@ func (a DeviceV2API) register(ctx context.Context, w http.ResponseWriter, r *htt
 		v2Error(w, http.StatusBadRequest, "invalid registration request")
 		return
 	}
-	if a.Inbox == nil || a.Registry == nil {
+	if a.Inbox == nil || a.Registrar == nil {
 		v2Error(w, http.StatusServiceUnavailable, "device platform is unavailable")
 		return
 	}
@@ -81,23 +89,18 @@ func (a DeviceV2API) register(ctx context.Context, w http.ResponseWriter, r *htt
 		v2Error(w, http.StatusNotFound, "discovered device not found")
 		return
 	}
-	if found.State != devicev2.ReadyToRegister || found.Info == nil {
-		v2Error(w, http.StatusConflict, "device is not ready to register; complete pairing first")
+	if found.State != devicev2.PairingRequired || found.Info == nil {
+		v2Error(w, http.StatusConflict, "device is not ready for secure pairing")
 		return
 	}
-	manifest, canonical, hash, err := devicev2.Parse(string(found.Info.Manifest))
+	manifest, _, hash, err := devicev2.Parse(string(found.Info.Manifest))
 	if err != nil || hash != found.ManifestSHA256 {
 		v2Error(w, http.StatusBadRequest, "invalid discovered manifest")
 		return
 	}
-	accepted, err := a.Registry.AcceptV2Manifest(ctx, canonical, fingerprint(found.Info.IdentityPublicKey))
+	device, err := a.Registrar.Register(ctx, *found, request.DeviceID)
 	if err != nil {
-		v2Error(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	device, err := a.Registry.RegisterV2Device(ctx, registry.V2Device{DeviceID: request.DeviceID, DeviceUID: found.DeviceUID, ManifestID: manifest.ManifestID, ManifestRevision: accepted.Revision, ManifestSHA256: accepted.SHA256, FirmwareVersion: found.Info.FirmwareVersion, IdentityPublicKey: found.Info.IdentityPublicKey})
-	if err != nil {
-		v2Error(w, http.StatusBadRequest, err.Error())
+		v2Error(w, http.StatusConflict, err.Error())
 		return
 	}
 	a.Inbox.MarkRegistered(found.DeviceUID)

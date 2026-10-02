@@ -15,8 +15,11 @@
   registry binding after the device's signed persistence confirmation.
 - Delivery failures revoke the new credential and remove the pending binding;
   failures after device persistence remain visibly pending for recovery.
-- Next integration step is mounting this coordinator in the authenticated v2
-  registration endpoint and gateway composition root.
+- The authenticated v2 registration endpoint now accepts only a
+  `pairing_required` discovery entry and delegates the whole operation to the
+  privileged coordinator; it cannot create a pending binding on its own.
+- Next integration step is composing the inbox, mDNS browser and coordinator
+  in `runAdmin`, so the authenticated endpoint receives live LAN discoveries.
 
 **Marco 2 - v2 MQTT automation runtime (complete).** Updated 2026-10-01.
 
