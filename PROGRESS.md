@@ -2,6 +2,12 @@
 
 ## Current milestone
 
+**Deployment repair — DeviceAdmin automation update (complete).** Updated 2026-10-01.
+
+- Restored the `admin.Server.UpdateAutomationRule` implementation required by
+  the public `apigateway.DeviceAdmin` contract, so the Linux admin binary can
+  compile the generated UpdateAutomationRule RPC surface.
+
 **Marco 3 - secure registration transaction (in progress).** Updated 2026-10-01.
 
 - Closed the deterministic HKDF salt/info contract with `iot-device-core`.

@@ -210,10 +210,7 @@ func (s *Server) RemoveRoute(ctx context.Context, id string) error {
 	return nil
 }
 
-// ListAutomationRules returns every Marco 5 automation rule. Text editing
-// (Update) is intentionally not exposed yet - see docs/device-manifests.md;
-// changing a rule today means removing and recreating it, the same model
-// routes already use.
+// ListAutomationRules returns every saved automation rule.
 func (s *Server) ListAutomationRules(ctx context.Context) ([]registry.AutomationRule, error) {
 	if s.cfg.Registry == nil {
 		return nil, errors.New("listing automation rules requires the SQLite registry")
@@ -226,6 +223,13 @@ func (s *Server) CreateAutomationRule(ctx context.Context, rule registry.Automat
 		return registry.AutomationRule{}, errors.New("creating an automation rule requires the SQLite registry")
 	}
 	return s.cfg.Registry.CreateAutomationRule(ctx, rule)
+}
+
+func (s *Server) UpdateAutomationRule(ctx context.Context, rule registry.AutomationRule) (registry.AutomationRule, error) {
+	if s.cfg.Registry == nil {
+		return registry.AutomationRule{}, errors.New("updating an automation rule requires the SQLite registry")
+	}
+	return s.cfg.Registry.UpdateAutomationRule(ctx, rule)
 }
 
 func (s *Server) SetAutomationRuleEnabled(ctx context.Context, id string, enabled bool) (registry.AutomationRule, error) {
