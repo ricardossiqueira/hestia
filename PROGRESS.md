@@ -149,3 +149,7 @@ Still pending for this front:
 - Added a focused regression test for that authority formatting. This applies
   to device-info inspection, pairing and encrypted provisioning alike.
 - Verified with `go test ./internal/devicev2 -count=1`.
+- The two gateway fixes (`5481dad`, `24da582`) were pushed to `origin/main`.
+  The Orange Pi must pull and reinstall the admin binary before the live inbox
+  gains periodic rebrowse; until then a healthy device will still expire after
+  90 seconds.
