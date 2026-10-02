@@ -21,8 +21,11 @@
 - Added the DNS-SD/mDNS adapter for `_iot-device._tcp.local`; it parses the
   contracted TXT fields into untrusted sightings and inspects each device
   before the inbox exposes it as eligible for pairing.
-- Next integration step is composing the inbox, browser and coordinator in
-  `runAdmin`, so the authenticated endpoint receives live LAN discoveries.
+- `runAdmin` now composes the inbox, mDNS browser, authenticated v2 endpoint
+  and secure registration coordinator. Registration is deliberately exposed
+  only when DynSec and a LAN-reachable MQTT host are configured.
+- Next integration step is a real-device end-to-end run, then connecting the
+  C core to each firmware's HTTP, crypto, storage and MQTT adapters.
 
 **Marco 2 - v2 MQTT automation runtime (complete).** Updated 2026-10-01.
 

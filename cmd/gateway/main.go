@@ -23,6 +23,7 @@ import (
 	"github.com/ricardossiqueira/iot-gateway/internal/api"
 	"github.com/ricardossiqueira/iot-gateway/internal/apigateway"
 	"github.com/ricardossiqueira/iot-gateway/internal/config"
+	"github.com/ricardossiqueira/iot-gateway/internal/devicev2"
 	"github.com/ricardossiqueira/iot-gateway/internal/diagnostics"
 	"github.com/ricardossiqueira/iot-gateway/internal/dynsec"
 	gatewaymqtt "github.com/ricardossiqueira/iot-gateway/internal/mqtt"
@@ -372,12 +373,13 @@ func runAdmin(args []string, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "admin DynSec setup failed: IOT_GATEWAY_DYNSEC_URL must target the same broker endpoint as mqtt.url")
 		return 1
 	}
+	deviceMQTTHost := strings.TrimSpace(os.Getenv("IOT_GATEWAY_DEVICE_MQTT_HOST"))
 	adminEngine, err := admin.New(admin.Config{
 		ConfigPath:       *configPath,
 		ProvisionScript:  *provisionScript,
 		Credentials:      credentials,
 		Registry:         deviceRegistry,
-		DeviceBrokerHost: strings.TrimSpace(os.Getenv("IOT_GATEWAY_DEVICE_MQTT_HOST")),
+		DeviceBrokerHost: deviceMQTTHost,
 		DeviceBrokerPort: mqttPort(cfg.MQTT.URL),
 		RequestTimeout:   adminRequestTimeout,
 	})
@@ -395,12 +397,23 @@ func runAdmin(args []string, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "IOT_GATEWAY_API_USERNAME and IOT_GATEWAY_API_PASSWORD must both be set")
 		return 1
 	}
+	discoveryInbox := devicev2.NewInbox(0)
+	deviceV2 := apigateway.DeviceV2API{Inbox: discoveryInbox, Registry: deviceRegistry}
+	if manager, ok := credentials.(*dynsec.Manager); ok && deviceMQTTHost != "" {
+		deviceV2.Registrar = admin.V2RegistrationCoordinator{
+			Registry: deviceRegistry, Credentials: manager, Provisioner: devicev2.SessionClient{},
+			MQTTBrokerHost: deviceMQTTHost, MQTTBrokerPort: mqttPort(cfg.MQTT.URL),
+		}
+	} else {
+		logger.Warn("v2 registration is unavailable until DynSec and IOT_GATEWAY_DEVICE_MQTT_HOST are configured")
+	}
 	apigatewayServer, err := apigateway.New(apigateway.Config{
 		Address:        cfg.API.Address,
 		InternalAPIURL: "http://" + cfg.API.InternalAddress,
 		Credentials:    apigateway.Credentials{Username: apiUsername, Password: apiPassword},
 		AllowedOrigins: cfg.API.AllowedOrigins,
 		Admin:          adminEngine,
+		DeviceV2:       deviceV2,
 	}, logger)
 	if err != nil {
 		fmt.Fprintf(stderr, "api gateway setup failed: %v\n", err)
@@ -413,6 +426,11 @@ func runAdmin(args []string, stderr io.Writer) int {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	go func() {
+		if err := (devicev2.MDNSBrowser{Inspector: devicev2.HTTPInspector{}}).Run(ctx, discoveryInbox); err != nil && ctx.Err() == nil {
+			logger.Error("v2 mDNS discovery stopped", "error", err)
+		}
+	}()
 	logger.Info("admin process running", "api_address", cfg.API.Address)
 	<-ctx.Done()
 	logger.Info("admin process stopping")
