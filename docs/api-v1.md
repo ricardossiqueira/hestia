@@ -1,5 +1,19 @@
 # Contrato da API local v1
 
+> **Status: a maior parte deste documento descreve RPCs removidos (ver
+> `docs/decisions.md` ADR-017).** `DeviceService` e `DeviceAdminService`
+> inteiros foram removidos - devices, automações, rotas, manifests,
+> inconsistências e telemetria (seções "Rotas locais", "Regras de
+> automação", "Testar uma regra de automação", "Telemetria em cache",
+> "Manifest, validação e fallback opaco" e "Administração de dispositivos"
+> abaixo descrevem código que não existe mais). O que continua ativo é só
+> `GatewayService` (`GetStatus`, `GetQueueSummary` - seção "Resumo da fila
+> (outbox)", `GetRecentEvents` - seção "Atividade recente"), que já era
+> infraestrutura compartilhada entre V1 e V2, não um conceito de device. O
+> device platform v2 (`DeviceV2API`, consumido por `gateway-web`) é o único
+> caminho de administração hoje. Mantido como referência histórica, não como
+> documentação ativa do que sobrou.
+
 ## Objetivo
 
 Este documento descreve a API local: listagem de dispositivos cadastrados,

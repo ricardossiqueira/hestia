@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/ricardossiqueira/iot-gateway/internal/config"
 	"github.com/ricardossiqueira/iot-gateway/internal/registry"
 )
 
@@ -33,7 +32,7 @@ func setupV2Runtime(t *testing.T, sourceOnly bool) (*registry.Store, *fakeClient
 		registerV2RuntimeDevice(t, store, "cyd-target", "uid-target", cyd, "key-target")
 	}
 	client := &fakeClient{}
-	gateway, err := New(config.Config{}, client, &recordingLogger{}, nil, nil)
+	gateway, err := New(client, &recordingLogger{})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http/httptest"
 	"strings"
 	"sync"
@@ -11,16 +10,12 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
-	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	apiv1 "github.com/ricardossiqueira/iot-gateway/api/gen/go/iot/gateway/api/v1"
 	"github.com/ricardossiqueira/iot-gateway/api/gen/go/iot/gateway/api/v1/apiv1connect"
-	"github.com/ricardossiqueira/iot-gateway/internal/config"
-	"github.com/ricardossiqueira/iot-gateway/internal/devicemanifest"
 	"github.com/ricardossiqueira/iot-gateway/internal/mqtt"
 	"github.com/ricardossiqueira/iot-gateway/internal/outbox"
-	"github.com/ricardossiqueira/iot-gateway/internal/registry"
 )
 
 type publishCall struct {
@@ -32,16 +27,6 @@ type fakePublisher struct {
 	mu    sync.Mutex
 	calls []publishCall
 	err   error
-}
-
-func (f *fakePublisher) PublishCommand(ctx context.Context, deviceID string, payload []byte) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.err != nil {
-		return f.err
-	}
-	f.calls = append(f.calls, publishCall{deviceID: deviceID, payload: append([]byte(nil), payload...)})
-	return nil
 }
 
 func (f *fakePublisher) PublishRaw(ctx context.Context, topic string, payload []byte) error {
@@ -72,21 +57,6 @@ type fakeStatus struct {
 
 func (f fakeStatus) Snapshot() mqtt.Snapshot { return f.snap }
 
-// fakeTelemetry is keyed by device ID; a missing key means "not received
-// yet", the same as internal/mqtt.Gateway.LastTelemetry's ok=false.
-type fakeTelemetry map[string]struct {
-	payload    []byte
-	observedAt time.Time
-}
-
-func (f fakeTelemetry) LastTelemetry(deviceID string) ([]byte, time.Time, bool) {
-	entry, ok := f[deviceID]
-	if !ok {
-		return nil, time.Time{}, false
-	}
-	return entry.payload, entry.observedAt, true
-}
-
 type fakeQueue struct {
 	snap outbox.Snapshot
 	err  error
@@ -111,117 +81,18 @@ func (f *fakeEvents) RecentEvents(filter mqtt.EventFilter) ([]mqtt.ActivityEvent
 	return f.events, f.hasMore
 }
 
-type testAutomationRuleCall struct {
-	ruleID  string
-	payload []byte
-}
-
-// fakeRuleTester stands in for internal/mqtt.Gateway.TestAutomationRule.
-// err takes priority over fired/reason, matching how the real method
-// returns either an error (rule not found, context cancelled) or a
-// (fired, reason) outcome, never both.
-type fakeRuleTester struct {
-	mu     sync.Mutex
-	calls  []testAutomationRuleCall
-	fired  bool
-	reason string
-	err    error
-}
-
-func (f *fakeRuleTester) TestAutomationRule(_ context.Context, ruleID string, payload []byte) (bool, string, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.calls = append(f.calls, testAutomationRuleCall{ruleID: ruleID, payload: append([]byte(nil), payload...)})
-	if f.err != nil {
-		return false, "", f.err
-	}
-	return f.fired, f.reason, nil
-}
-
-func testDevices() []config.Device {
-	enabled := true
-	return []config.Device{
-		{
-			ID:      "led-1",
-			Type:    "esp32",
-			Enabled: &enabled,
-			Topics:  config.Topics{Command: "devices/led-1/command"},
-		},
-		{
-			ID:      "opaque-1",
-			Type:    "esp32",
-			Enabled: &enabled,
-			Topics:  config.Topics{Command: "devices/opaque-1/command"},
-		},
-	}
-}
-
-type fakeManifestResolver struct {
-	document devicemanifest.Document
-	found    bool
-	err      error
-}
-
-func (f fakeManifestResolver) ResolveDeviceManifest(context.Context, string) (devicemanifest.Document, bool, error) {
-	return f.document, f.found, f.err
-}
-
-// ledManifestDocument is a published-manifest stand-in for the retired
-// led.v1 compiled profile: one required boolean parameter on set_led,
-// exactly what the tests below need to exercise schema validation without
-// device.Profile.
-const ledManifestDocument = `{"schema_version":1,"id":"esp32-c3-led","display_name":"LED","provisioning":{"protocol":"http-nvs-v1","model":"esp32c3-led","required_protocol_version":1},"mqtt":{"topics":["command"]},"capabilities":{"commands":[{"type":"set_led","parameters":{"on":{"type":"boolean","required":true}}}],"events":[]}}`
-
-// ledManifestDocumentWithEvent additionally declares one event type, for
-// ListDeviceEvents tests - ledManifestDocument's events array is
-// deliberately empty and shared by other tests, so this is its own const
-// rather than a mutation.
-const ledManifestDocumentWithEvent = `{"schema_version":1,"id":"esp32-c3-led","display_name":"LED","provisioning":{"protocol":"http-nvs-v1","model":"esp32c3-led","required_protocol_version":1},"mqtt":{"topics":["command","event"]},"capabilities":{"commands":[{"type":"set_led","parameters":{"on":{"type":"boolean","required":true}}}],"events":[{"type":"button_pressed","payload":{"pressed":{"type":"boolean","required":true}}}]}}`
-
-// newManifestBoundServer starts a test server where every device resolves
-// to ledManifestDocument's manifest, the same shape newTestServer gives
-// every device no manifest at all (opaque fallback).
-func newManifestBoundServer(t *testing.T, publisher CommandPublisher) *httptest.Server {
-	t.Helper()
-	return newManifestBoundServerWithDocument(t, publisher, ledManifestDocument)
-}
-
-func newManifestBoundServerWithDocument(t *testing.T, publisher CommandPublisher, manifestDocument string) *httptest.Server {
-	t.Helper()
-	document, _, err := devicemanifest.Parse(manifestDocument)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cfg := Config{
-		Address: "127.0.0.1:0", RequestTimeout: time.Second,
-		Registry:         config.Config{Devices: testDevices()},
-		ManifestResolver: fakeManifestResolver{document: document, found: true},
-	}
-	srv, err := New(cfg, publisher, fakeStatus{}, fakeTelemetry{}, fakeQueue{}, &fakeEvents{}, &fakeRuleTester{}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ts := httptest.NewServer(srv.http.Handler)
-	t.Cleanup(ts.Close)
-	return ts
-}
-
 // newTestServer starts an httptest server directly on the Server's
 // http.Handler (bypassing Start/net.Listen, which would bind a real port)
 // so tests stay fast and hermetic. This is safe because server_test.go
 // lives in package api and can reach the unexported s.http field. No auth
 // is exercised here any more (ADR-013): this package is loopback-only and
 // trusts its caller (internal/apigateway's reverse proxy) unconditionally.
-// events is variadic so every existing call site (there are many) stays
-// unchanged - most tests here don't care about the activity log at all.
-func newTestServer(t *testing.T, publisher *fakePublisher, status fakeStatus, telemetry fakeTelemetry, queue fakeQueue, events ...mqtt.ActivityEvent) *httptest.Server {
+// events is variadic so every existing call site stays unchanged - most
+// tests here don't care about the activity log at all.
+func newTestServer(t *testing.T, publisher *fakePublisher, status fakeStatus, queue fakeQueue, events ...mqtt.ActivityEvent) *httptest.Server {
 	t.Helper()
-	cfg := Config{
-		Address:        "127.0.0.1:0",
-		RequestTimeout: time.Second,
-		Registry:       config.Config{Devices: testDevices()},
-	}
-	srv, err := New(cfg, publisher, status, telemetry, queue, &fakeEvents{events: events}, &fakeRuleTester{}, nil)
+	cfg := Config{Address: "127.0.0.1:0", RequestTimeout: time.Second}
+	srv, err := New(cfg, publisher, status, queue, &fakeEvents{events: events}, nil)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -230,299 +101,9 @@ func newTestServer(t *testing.T, publisher *fakePublisher, status fakeStatus, te
 	return ts
 }
 
-func TestListDevices(t *testing.T) {
-	ts := newTestServer(t, &fakePublisher{}, fakeStatus{}, fakeTelemetry{}, fakeQueue{})
-	client := apiv1connect.NewDeviceServiceClient(ts.Client(), ts.URL)
-	resp, err := client.ListDevices(context.Background(), connect.NewRequest(&apiv1.ListDevicesRequest{}))
-	if err != nil {
-		t.Fatalf("ListDevices() error = %v", err)
-	}
-	if len(resp.Msg.Devices) != 2 {
-		t.Fatalf("len(Devices) = %d, want 2", len(resp.Msg.Devices))
-	}
-	if resp.Msg.Devices[0].Id != "led-1" {
-		t.Errorf("Devices[0] = %#v", resp.Msg.Devices[0])
-	}
-	if resp.Msg.Devices[1].Id != "opaque-1" {
-		t.Errorf("Devices[1] = %#v", resp.Msg.Devices[1])
-	}
-}
-
-func TestListDeviceCommands_WithManifest(t *testing.T) {
-	ts := newManifestBoundServer(t, &fakePublisher{})
-	client := apiv1connect.NewDeviceServiceClient(ts.Client(), ts.URL)
-	req := connect.NewRequest(&apiv1.ListDeviceCommandsRequest{DeviceId: "led-1"})
-	resp, err := client.ListDeviceCommands(context.Background(), req)
-	if err != nil {
-		t.Fatalf("ListDeviceCommands() error = %v", err)
-	}
-	if !resp.Msg.SchemaValidated {
-		t.Fatal("SchemaValidated = false, want true")
-	}
-	if len(resp.Msg.Commands) != 1 || resp.Msg.Commands[0].Type != "set_led" || resp.Msg.Commands[0].ParametersJson == "" {
-		t.Fatalf("Commands = %#v", resp.Msg.Commands)
-	}
-}
-
-func TestListDeviceCommands_Opaque(t *testing.T) {
-	ts := newTestServer(t, &fakePublisher{}, fakeStatus{}, fakeTelemetry{}, fakeQueue{})
-	client := apiv1connect.NewDeviceServiceClient(ts.Client(), ts.URL)
-	req := connect.NewRequest(&apiv1.ListDeviceCommandsRequest{DeviceId: "opaque-1"})
-	resp, err := client.ListDeviceCommands(context.Background(), req)
-	if err != nil {
-		t.Fatalf("ListDeviceCommands() error = %v", err)
-	}
-	if resp.Msg.SchemaValidated {
-		t.Fatal("SchemaValidated = true, want false")
-	}
-	if len(resp.Msg.Commands) != 0 {
-		t.Fatalf("Commands = %#v, want empty", resp.Msg.Commands)
-	}
-}
-
-func TestListDeviceEvents_WithManifest(t *testing.T) {
-	ts := newManifestBoundServerWithDocument(t, &fakePublisher{}, ledManifestDocumentWithEvent)
-	client := apiv1connect.NewDeviceServiceClient(ts.Client(), ts.URL)
-	req := connect.NewRequest(&apiv1.ListDeviceEventsRequest{DeviceId: "led-1"})
-	resp, err := client.ListDeviceEvents(context.Background(), req)
-	if err != nil {
-		t.Fatalf("ListDeviceEvents() error = %v", err)
-	}
-	if !resp.Msg.SchemaValidated {
-		t.Fatal("SchemaValidated = false, want true")
-	}
-	if len(resp.Msg.Events) != 1 || resp.Msg.Events[0].Type != "button_pressed" || resp.Msg.Events[0].PayloadJson == "" {
-		t.Fatalf("Events = %#v", resp.Msg.Events)
-	}
-}
-
-func TestListDeviceEvents_Opaque(t *testing.T) {
-	ts := newTestServer(t, &fakePublisher{}, fakeStatus{}, fakeTelemetry{}, fakeQueue{})
-	client := apiv1connect.NewDeviceServiceClient(ts.Client(), ts.URL)
-	req := connect.NewRequest(&apiv1.ListDeviceEventsRequest{DeviceId: "opaque-1"})
-	resp, err := client.ListDeviceEvents(context.Background(), req)
-	if err != nil {
-		t.Fatalf("ListDeviceEvents() error = %v", err)
-	}
-	if resp.Msg.SchemaValidated {
-		t.Fatal("SchemaValidated = true, want false")
-	}
-	if len(resp.Msg.Events) != 0 {
-		t.Fatalf("Events = %#v, want empty", resp.Msg.Events)
-	}
-}
-
-func TestPublishCommand_UsesBoundManifest(t *testing.T) {
-	publisher := &fakePublisher{}
-	document, _, err := devicemanifest.Parse(`{"schema_version":1,"id":"led","display_name":"LED","provisioning":{"protocol":"http-nvs-v1","model":"esp32","required_protocol_version":1},"mqtt":{"topics":["command"]},"capabilities":{"commands":[{"type":"blink","parameters":{"times":{"type":"integer","required":true}}}],"events":[]}}`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cfg := Config{Address: "127.0.0.1:0", RequestTimeout: time.Second, Registry: config.Config{Devices: testDevices()}, ManifestResolver: fakeManifestResolver{document: document, found: true}}
-	srv, err := New(cfg, publisher, fakeStatus{}, fakeTelemetry{}, fakeQueue{}, &fakeEvents{}, &fakeRuleTester{}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ts := httptest.NewServer(srv.http.Handler)
-	t.Cleanup(ts.Close)
-	client := apiv1connect.NewDeviceServiceClient(ts.Client(), ts.URL)
-	params, _ := structpb.NewStruct(map[string]any{"times": 3})
-	response, err := client.PublishCommand(context.Background(), connect.NewRequest(&apiv1.PublishCommandRequest{DeviceId: "led-1", Type: "blink", Parameters: params}))
-	if err != nil || !response.Msg.GetSchemaValidated() || publisher.callCount() != 1 {
-		t.Fatalf("response=%#v err=%v calls=%d", response.Msg, err, publisher.callCount())
-	}
-	_, err = client.PublishCommand(context.Background(), connect.NewRequest(&apiv1.PublishCommandRequest{DeviceId: "led-1", Type: "set_led"}))
-	if connect.CodeOf(err) != connect.CodeInvalidArgument {
-		t.Fatalf("code=%v", connect.CodeOf(err))
-	}
-}
-
-func newRuleTestServer(t *testing.T, tester *fakeRuleTester) *httptest.Server {
-	t.Helper()
-	cfg := Config{Address: "127.0.0.1:0", RequestTimeout: time.Second, Registry: config.Config{Devices: testDevices()}}
-	srv, err := New(cfg, &fakePublisher{}, fakeStatus{}, fakeTelemetry{}, fakeQueue{}, &fakeEvents{}, tester, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ts := httptest.NewServer(srv.http.Handler)
-	t.Cleanup(ts.Close)
-	return ts
-}
-
-func TestTestAutomationRule_ForwardsRuleIDAndPayload(t *testing.T) {
-	tester := &fakeRuleTester{fired: true, reason: "fired"}
-	ts := newRuleTestServer(t, tester)
-	client := apiv1connect.NewDeviceServiceClient(ts.Client(), ts.URL)
-	payload, _ := structpb.NewStruct(map[string]any{"pressed": true})
-
-	response, err := client.TestAutomationRule(context.Background(), connect.NewRequest(&apiv1.TestAutomationRuleRequest{RuleId: "led1-to-led2", Payload: payload}))
-	if err != nil {
-		t.Fatalf("TestAutomationRule() error = %v", err)
-	}
-	if !response.Msg.GetFired() || response.Msg.GetReason() != "fired" || response.Msg.GetTestedAt() == nil {
-		t.Errorf("response = %#v", response.Msg)
-	}
-	if len(tester.calls) != 1 || tester.calls[0].ruleID != "led1-to-led2" {
-		t.Fatalf("calls = %#v", tester.calls)
-	}
-	if !strings.Contains(string(tester.calls[0].payload), `"pressed":true`) {
-		t.Errorf("payload sent to tester = %s, want it to contain pressed:true", tester.calls[0].payload)
-	}
-}
-
-func TestTestAutomationRule_ConditionNotMet(t *testing.T) {
-	tester := &fakeRuleTester{fired: false, reason: "condition not met"}
-	ts := newRuleTestServer(t, tester)
-	client := apiv1connect.NewDeviceServiceClient(ts.Client(), ts.URL)
-
-	response, err := client.TestAutomationRule(context.Background(), connect.NewRequest(&apiv1.TestAutomationRuleRequest{RuleId: "led1-to-led2"}))
-	if err != nil {
-		t.Fatalf("TestAutomationRule() error = %v", err)
-	}
-	if response.Msg.GetFired() || response.Msg.GetReason() != "condition not met" {
-		t.Errorf("response = %#v, want fired=false reason=\"condition not met\"", response.Msg)
-	}
-}
-
-func TestTestAutomationRule_UnknownRuleReturnsNotFound(t *testing.T) {
-	tester := &fakeRuleTester{err: fmt.Errorf("%w: %q", registry.ErrAutomationRuleNotFound, "no-such-rule")}
-	ts := newRuleTestServer(t, tester)
-	client := apiv1connect.NewDeviceServiceClient(ts.Client(), ts.URL)
-
-	_, err := client.TestAutomationRule(context.Background(), connect.NewRequest(&apiv1.TestAutomationRuleRequest{RuleId: "no-such-rule"}))
-	if connect.CodeOf(err) != connect.CodeNotFound {
-		t.Fatalf("code = %v, want CodeNotFound", connect.CodeOf(err))
-	}
-}
-
-func TestTestAutomationRule_RequiresRuleID(t *testing.T) {
-	ts := newRuleTestServer(t, &fakeRuleTester{})
-	client := apiv1connect.NewDeviceServiceClient(ts.Client(), ts.URL)
-
-	_, err := client.TestAutomationRule(context.Background(), connect.NewRequest(&apiv1.TestAutomationRuleRequest{}))
-	if connect.CodeOf(err) != connect.CodeInvalidArgument {
-		t.Fatalf("code = %v, want CodeInvalidArgument", connect.CodeOf(err))
-	}
-}
-
-func TestPublishCommand_Success_SchemaValidated(t *testing.T) {
-	publisher := &fakePublisher{}
-	ts := newManifestBoundServer(t, publisher)
-	client := apiv1connect.NewDeviceServiceClient(ts.Client(), ts.URL)
-	params, _ := structpb.NewStruct(map[string]any{"on": true})
-	req := connect.NewRequest(&apiv1.PublishCommandRequest{DeviceId: "led-1", Type: "set_led", Parameters: params})
-	resp, err := client.PublishCommand(context.Background(), req)
-	if err != nil {
-		t.Fatalf("PublishCommand() error = %v", err)
-	}
-	if !resp.Msg.SchemaValidated {
-		t.Error("SchemaValidated = false, want true")
-	}
-	if resp.Msg.CommandId == "" || resp.Msg.PublishedAt == nil {
-		t.Errorf("response = %#v", resp.Msg)
-	}
-	if publisher.callCount() != 1 {
-		t.Fatalf("publisher calls = %d, want 1", publisher.callCount())
-	}
-	call := publisher.lastCall()
-	if call.deviceID != "led-1" {
-		t.Errorf("published deviceID = %q", call.deviceID)
-	}
-	if !strings.Contains(string(call.payload), `"on":true`) {
-		t.Errorf("payload = %s, want canonical on:true", call.payload)
-	}
-	if !strings.Contains(string(call.payload), resp.Msg.CommandId) {
-		t.Errorf("payload command_id does not match response command_id: %s", call.payload)
-	}
-}
-
-func TestPublishCommand_SchemaRejection_WrongType(t *testing.T) {
-	publisher := &fakePublisher{}
-	ts := newManifestBoundServer(t, publisher)
-	client := apiv1connect.NewDeviceServiceClient(ts.Client(), ts.URL)
-	params, _ := structpb.NewStruct(map[string]any{"on": "sim"})
-	req := connect.NewRequest(&apiv1.PublishCommandRequest{DeviceId: "led-1", Type: "set_led", Parameters: params})
-	_, err := client.PublishCommand(context.Background(), req)
-	if err == nil {
-		t.Fatal("PublishCommand() error = nil, want schema rejection")
-	}
-	if connect.CodeOf(err) != connect.CodeInvalidArgument {
-		t.Errorf("code = %v, want InvalidArgument", connect.CodeOf(err))
-	}
-	if publisher.callCount() != 0 {
-		t.Fatalf("publisher calls = %d, want 0 (nothing should publish)", publisher.callCount())
-	}
-}
-
-func TestPublishCommand_SchemaRejection_MissingField(t *testing.T) {
-	publisher := &fakePublisher{}
-	ts := newManifestBoundServer(t, publisher)
-	client := apiv1connect.NewDeviceServiceClient(ts.Client(), ts.URL)
-	req := connect.NewRequest(&apiv1.PublishCommandRequest{DeviceId: "led-1", Type: "set_led", Parameters: &structpb.Struct{}})
-	_, err := client.PublishCommand(context.Background(), req)
-	if err == nil {
-		t.Fatal("PublishCommand() error = nil, want schema rejection")
-	}
-	if connect.CodeOf(err) != connect.CodeInvalidArgument {
-		t.Errorf("code = %v, want InvalidArgument", connect.CodeOf(err))
-	}
-	if publisher.callCount() != 0 {
-		t.Fatalf("publisher calls = %d, want 0", publisher.callCount())
-	}
-}
-
-func TestPublishCommand_OpaqueFallback(t *testing.T) {
-	publisher := &fakePublisher{}
-	ts := newTestServer(t, publisher, fakeStatus{}, fakeTelemetry{}, fakeQueue{})
-	client := apiv1connect.NewDeviceServiceClient(ts.Client(), ts.URL)
-	params, _ := structpb.NewStruct(map[string]any{"ligado": true})
-	req := connect.NewRequest(&apiv1.PublishCommandRequest{DeviceId: "opaque-1", Type: "set_output", Parameters: params})
-	resp, err := client.PublishCommand(context.Background(), req)
-	if err != nil {
-		t.Fatalf("PublishCommand() error = %v", err)
-	}
-	if resp.Msg.SchemaValidated {
-		t.Error("SchemaValidated = true, want false (no profile)")
-	}
-	if publisher.callCount() != 1 {
-		t.Fatalf("publisher calls = %d, want 1", publisher.callCount())
-	}
-	if !strings.Contains(string(publisher.lastCall().payload), `"ligado":true`) {
-		t.Errorf("payload = %s, want opaque passthrough", publisher.lastCall().payload)
-	}
-}
-
-func TestPublishCommand_UnknownDevice(t *testing.T) {
-	ts := newTestServer(t, &fakePublisher{}, fakeStatus{}, fakeTelemetry{}, fakeQueue{})
-	client := apiv1connect.NewDeviceServiceClient(ts.Client(), ts.URL)
-	req := connect.NewRequest(&apiv1.PublishCommandRequest{DeviceId: "nope", Type: "set_led"})
-	_, err := client.PublishCommand(context.Background(), req)
-	if err == nil {
-		t.Fatal("PublishCommand() error = nil, want unknown device rejection")
-	}
-	if connect.CodeOf(err) != connect.CodeInvalidArgument {
-		t.Errorf("code = %v, want InvalidArgument", connect.CodeOf(err))
-	}
-}
-
-func TestPublishCommand_PublisherError(t *testing.T) {
-	publisher := &fakePublisher{err: errors.New(`device "led-1" is disabled`)}
-	ts := newTestServer(t, publisher, fakeStatus{}, fakeTelemetry{}, fakeQueue{})
-	client := apiv1connect.NewDeviceServiceClient(ts.Client(), ts.URL)
-	params, _ := structpb.NewStruct(map[string]any{"on": true})
-	req := connect.NewRequest(&apiv1.PublishCommandRequest{DeviceId: "led-1", Type: "set_led", Parameters: params})
-	_, err := client.PublishCommand(context.Background(), req)
-	if err == nil {
-		t.Fatal("PublishCommand() error = nil, want publisher error surfaced")
-	}
-	if connect.CodeOf(err) != connect.CodeInvalidArgument {
-		t.Errorf("code = %v, want InvalidArgument", connect.CodeOf(err))
-	}
-}
-
 func TestHandleV2PublishCommand_Success(t *testing.T) {
 	publisher := &fakePublisher{}
-	ts := newTestServer(t, publisher, fakeStatus{}, fakeTelemetry{}, fakeQueue{})
+	ts := newTestServer(t, publisher, fakeStatus{}, fakeQueue{})
 	body := `{"topic":"devices/led-sala/command","payload":{"command_id":"5c1f7b1e-3b7e-4a1a-8f4a-5a5c1f7b1e3b","type":"set_led","parameters":{"on":true}}}`
 	resp, err := ts.Client().Post(ts.URL+"/internal/v2/publish-command", "application/json", strings.NewReader(body))
 	if err != nil {
@@ -541,7 +122,7 @@ func TestHandleV2PublishCommand_Success(t *testing.T) {
 }
 
 func TestHandleV2PublishCommand_MissingTopicIsBadRequest(t *testing.T) {
-	ts := newTestServer(t, &fakePublisher{}, fakeStatus{}, fakeTelemetry{}, fakeQueue{})
+	ts := newTestServer(t, &fakePublisher{}, fakeStatus{}, fakeQueue{})
 	resp, err := ts.Client().Post(ts.URL+"/internal/v2/publish-command", "application/json", strings.NewReader(`{"payload":{"a":1}}`))
 	if err != nil {
 		t.Fatalf("POST error = %v", err)
@@ -554,7 +135,7 @@ func TestHandleV2PublishCommand_MissingTopicIsBadRequest(t *testing.T) {
 
 func TestHandleV2PublishCommand_PublisherErrorIsBadGateway(t *testing.T) {
 	publisher := &fakePublisher{err: errors.New("broker unreachable")}
-	ts := newTestServer(t, publisher, fakeStatus{}, fakeTelemetry{}, fakeQueue{})
+	ts := newTestServer(t, publisher, fakeStatus{}, fakeQueue{})
 	resp, err := ts.Client().Post(ts.URL+"/internal/v2/publish-command", "application/json", strings.NewReader(`{"topic":"devices/led-sala/command","payload":{"a":1}}`))
 	if err != nil {
 		t.Fatalf("POST error = %v", err)
@@ -580,7 +161,7 @@ func TestGetStatus(t *testing.T) {
 		OutboxDiscarded:      1,
 		OutboxFailed:         0,
 	}}
-	ts := newTestServer(t, &fakePublisher{}, status, fakeTelemetry{}, fakeQueue{})
+	ts := newTestServer(t, &fakePublisher{}, status, fakeQueue{})
 	client := apiv1connect.NewGatewayServiceClient(ts.Client(), ts.URL)
 	resp, err := client.GetStatus(context.Background(), connect.NewRequest(&apiv1.GetStatusRequest{}))
 	if err != nil {
@@ -600,55 +181,8 @@ func TestGetStatus(t *testing.T) {
 	}
 }
 
-func TestGetDeviceTelemetryReturnsCachedPayload(t *testing.T) {
-	observedAt := time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC)
-	telemetry := fakeTelemetry{"led-1": {payload: []byte(`{"cpu_pct":12.5}`), observedAt: observedAt}}
-	ts := newTestServer(t, &fakePublisher{}, fakeStatus{}, telemetry, fakeQueue{})
-	client := apiv1connect.NewDeviceServiceClient(ts.Client(), ts.URL)
-
-	resp, err := client.GetDeviceTelemetry(context.Background(), connect.NewRequest(&apiv1.GetDeviceTelemetryRequest{DeviceId: "led-1"}))
-	if err != nil {
-		t.Fatalf("GetDeviceTelemetry() error = %v", err)
-	}
-	if !resp.Msg.Available {
-		t.Fatal("Available = false, want true")
-	}
-	if got := resp.Msg.Payload.AsMap()["cpu_pct"]; got != 12.5 {
-		t.Errorf("Payload[cpu_pct] = %v, want 12.5", got)
-	}
-	if resp.Msg.ObservedAt == nil || !resp.Msg.ObservedAt.AsTime().Equal(observedAt) {
-		t.Errorf("ObservedAt = %v, want %v", resp.Msg.ObservedAt, observedAt)
-	}
-}
-
-func TestGetDeviceTelemetryAvailableFalseWhenNothingReceivedYet(t *testing.T) {
-	ts := newTestServer(t, &fakePublisher{}, fakeStatus{}, fakeTelemetry{}, fakeQueue{})
-	client := apiv1connect.NewDeviceServiceClient(ts.Client(), ts.URL)
-
-	resp, err := client.GetDeviceTelemetry(context.Background(), connect.NewRequest(&apiv1.GetDeviceTelemetryRequest{DeviceId: "led-1"}))
-	if err != nil {
-		t.Fatalf("GetDeviceTelemetry() error = %v", err)
-	}
-	if resp.Msg.Available {
-		t.Fatal("Available = true, want false when no telemetry was cached")
-	}
-}
-
-func TestGetDeviceTelemetryRejectsUnknownDevice(t *testing.T) {
-	ts := newTestServer(t, &fakePublisher{}, fakeStatus{}, fakeTelemetry{}, fakeQueue{})
-	client := apiv1connect.NewDeviceServiceClient(ts.Client(), ts.URL)
-
-	_, err := client.GetDeviceTelemetry(context.Background(), connect.NewRequest(&apiv1.GetDeviceTelemetryRequest{DeviceId: "ghost"}))
-	if err == nil {
-		t.Fatal("GetDeviceTelemetry() error = nil, want unknown device rejected")
-	}
-	if connect.CodeOf(err) != connect.CodeInvalidArgument {
-		t.Errorf("code = %v, want InvalidArgument", connect.CodeOf(err))
-	}
-}
-
 func TestGetQueueSummaryEmpty(t *testing.T) {
-	ts := newTestServer(t, &fakePublisher{}, fakeStatus{}, fakeTelemetry{}, fakeQueue{snap: outbox.Snapshot{}})
+	ts := newTestServer(t, &fakePublisher{}, fakeStatus{}, fakeQueue{snap: outbox.Snapshot{}})
 	client := apiv1connect.NewGatewayServiceClient(ts.Client(), ts.URL)
 
 	resp, err := client.GetQueueSummary(context.Background(), connect.NewRequest(&apiv1.GetQueueSummaryRequest{}))
@@ -669,7 +203,7 @@ func TestGetQueueSummaryWithPendingMessages(t *testing.T) {
 		Stats:            outbox.Stats{Messages: 3, PayloadBytes: 512},
 		OldestEnqueuedAt: &oldest,
 	}
-	ts := newTestServer(t, &fakePublisher{}, fakeStatus{}, fakeTelemetry{}, fakeQueue{snap: snap})
+	ts := newTestServer(t, &fakePublisher{}, fakeStatus{}, fakeQueue{snap: snap})
 	client := apiv1connect.NewGatewayServiceClient(ts.Client(), ts.URL)
 
 	resp, err := client.GetQueueSummary(context.Background(), connect.NewRequest(&apiv1.GetQueueSummaryRequest{}))
@@ -685,7 +219,7 @@ func TestGetQueueSummaryWithPendingMessages(t *testing.T) {
 }
 
 func TestGetQueueSummaryPropagatesStoreError(t *testing.T) {
-	ts := newTestServer(t, &fakePublisher{}, fakeStatus{}, fakeTelemetry{}, fakeQueue{err: errors.New("outbox unavailable")})
+	ts := newTestServer(t, &fakePublisher{}, fakeStatus{}, fakeQueue{err: errors.New("outbox unavailable")})
 	client := apiv1connect.NewGatewayServiceClient(ts.Client(), ts.URL)
 
 	_, err := client.GetQueueSummary(context.Background(), connect.NewRequest(&apiv1.GetQueueSummaryRequest{}))
@@ -698,7 +232,7 @@ func TestGetQueueSummaryPropagatesStoreError(t *testing.T) {
 }
 
 func TestGetRecentEventsEmpty(t *testing.T) {
-	ts := newTestServer(t, &fakePublisher{}, fakeStatus{}, fakeTelemetry{}, fakeQueue{})
+	ts := newTestServer(t, &fakePublisher{}, fakeStatus{}, fakeQueue{})
 	client := apiv1connect.NewGatewayServiceClient(ts.Client(), ts.URL)
 
 	resp, err := client.GetRecentEvents(context.Background(), connect.NewRequest(&apiv1.GetRecentEventsRequest{}))
@@ -712,9 +246,9 @@ func TestGetRecentEventsEmpty(t *testing.T) {
 
 func TestGetRecentEventsReturnsGatewayActivity(t *testing.T) {
 	when := time.Date(2026, 9, 24, 10, 0, 0, 0, time.UTC)
-	ts := newTestServer(t, &fakePublisher{}, fakeStatus{}, fakeTelemetry{}, fakeQueue{},
+	ts := newTestServer(t, &fakePublisher{}, fakeStatus{}, fakeQueue{},
 		mqtt.ActivityEvent{Timestamp: when, DeviceID: "led-1", Kind: "state", Topic: "devices/led-1/state", Outcome: "accepted"},
-		mqtt.ActivityEvent{Timestamp: when, DeviceID: "led-1", Topic: "devices/display/command", Outcome: "route_published", Detail: "status-to-display"},
+		mqtt.ActivityEvent{Timestamp: when, DeviceID: "led-1", Topic: "devices/display/command", Outcome: "v2_rule_fired", Detail: "status-to-display"},
 	)
 	client := apiv1connect.NewGatewayServiceClient(ts.Client(), ts.URL)
 
@@ -732,7 +266,7 @@ func TestGetRecentEventsReturnsGatewayActivity(t *testing.T) {
 	if events[0].GetTimestamp() == nil || !events[0].GetTimestamp().AsTime().Equal(when) {
 		t.Errorf("events[0].Timestamp = %v, want %v", events[0].GetTimestamp(), when)
 	}
-	if events[1].GetOutcome() != "route_published" || events[1].GetDetail() != "status-to-display" || events[1].GetKind() != "" {
+	if events[1].GetOutcome() != "v2_rule_fired" || events[1].GetDetail() != "status-to-display" || events[1].GetKind() != "" {
 		t.Errorf("events[1] = %#v", events[1])
 	}
 }
@@ -778,12 +312,8 @@ func TestGetRecentEventsSurfacesHasMore(t *testing.T) {
 // it builds its own *fakeEvents internally.
 func newTestServerWithEvents(t *testing.T, events *fakeEvents) *httptest.Server {
 	t.Helper()
-	cfg := Config{
-		Address:        "127.0.0.1:0",
-		RequestTimeout: time.Second,
-		Registry:       config.Config{Devices: testDevices()},
-	}
-	srv, err := New(cfg, &fakePublisher{}, fakeStatus{}, fakeTelemetry{}, fakeQueue{}, events, &fakeRuleTester{}, nil)
+	cfg := Config{Address: "127.0.0.1:0", RequestTimeout: time.Second}
+	srv, err := New(cfg, &fakePublisher{}, fakeStatus{}, fakeQueue{}, events, nil)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}

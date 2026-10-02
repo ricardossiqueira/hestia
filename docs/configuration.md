@@ -1,6 +1,6 @@
 # Configuração declarativa
 
-O arquivo principal será mantido localmente no Orange Pi, por padrão em `config/gateway.yaml`. Ele é a fonte de verdade dos dispositivos aceitos e das permissões de encaminhamento.
+O arquivo principal será mantido localmente no Orange Pi, por padrão em `config/gateway.yaml`. Ele declara identidade do gateway, conexão MQTT, armazenamento, diagnóstico e a API opcional - devices e automações vivem no registry SQLite, administrados via `gateway-web`/`DeviceV2API` (`internal/apigateway/device_v2.go`), não neste arquivo.
 
 Credenciais e chaves **não** devem entrar em arquivos versionados. O YAML referencia variáveis de ambiente ou caminhos de arquivos locais protegidos.
 
@@ -32,32 +32,12 @@ storage:
 diagnostics:
   address: 127.0.0.1:8080
   request_timeout: 2s
-
-devices:
-  - id: esp32-sala
-    type: esp32
-    enabled: true
-    topics:
-      telemetry: devices/esp32-sala/telemetry
-      state: devices/esp32-sala/state
-      event: devices/esp32-sala/event
-      command: devices/esp32-sala/command
-      command_result: devices/esp32-sala/command-result
-    forwarding:
-      telemetry_to_vps: true
-      state_to_vps: true
-      events_to_vps: true
-      commands_from_vps: true
 ```
 
-## Regras de validação planejadas
+## Regras de validação
 
-- `gateway.id` e cada `devices[].id` são obrigatórios e únicos.
-- Todos os tópicos devem começar com `devices/<device-id>/`.
-- Um tópico não pode pertencer a mais de um dispositivo.
-- Dispositivos desabilitados não recebem nem originam tráfego encaminhado.
+- `gateway.id` é obrigatório.
 - A outbox deve ter limites de quantidade, bytes e idade para proteger o armazenamento.
-- Mudanças no YAML serão aplicadas por reinício no MVP; recarga sem reinício é uma melhoria futura.
 
 ## Execução MQTT local
 
@@ -70,11 +50,7 @@ export MQTT_GATEWAY_PASSWORD='senha-local'
 iot-gateway run --config config/gateway.yaml
 ```
 
-O processo assina somente os tópicos inbound (`telemetry`, `state`, `event` e `command_result`) dos dispositivos com `enabled: true`. O tópico `command` é exclusivamente de saída. Para testar a rota de comando, use `iot-gateway publish-test-command --config config/gateway.yaml --device esp32-sala`; ele cria um comando `gateway_test` com UUID novo, QoS 1 e `retain=false`.
-
-IDs sao unicos e os topicos seguem a rota canonica exata `devices/<device-id>/<tipo>`. Assim, a unicidade dos topicos entre dispositivos decorre diretamente dos IDs unicos; nao ha topicos genericos nem curingas na configuracao.
-
-`devices[].enabled` e obrigatorio, inclusive quando o dispositivo estiver desabilitado.
+O processo assina os tópicos dos devices V2 ativos no registry (`devices/<device-id>/<canal>`), carregados por `EnableV2Runtime` a partir das manifest bindings - ver `internal/registry`/`internal/devicev2`. Não há mais tópicos declarados neste YAML.
 
 ## Diagnóstico operacional local
 
@@ -96,27 +72,21 @@ curl --fail http://127.0.0.1:8080/healthz
 curl http://127.0.0.1:8080/status
 ```
 
-## Rotas locais genéricas
+## Rotas locais (removidas)
 
-Rotas conectam tópicos de dispositivos já declarados, sem associar o gateway a modelos ou funções específicas de hardware. A origem precisa ser um tópico inbound habilitado (`telemetry`, `state`, `event` ou `command_result`) e o destino precisa ser um tópico `command` habilitado.
-
-```yaml
-routes:
-  - id: status-para-display
-    source_topic: devices/orangepi-monitor/telemetry
-    destination_topic: devices/cyd-monitor/command
-    transform:
-      type: json_command
-      command_type: render_system_status
-    qos: 1
-    retain: false
-```
-
-`json_command` é uma transformação genérica: ela preserva o objeto JSON de origem em `parameters`, cria um novo `command_id` UUID v4 e define `type` pelo valor declarativo de `command_type`. O gateway não contém conhecimento de `orangepi-monitor`, `cyd-monitor` ou qualquer tipo de comando concreto.
+O modelo de rotas locais (`routes:` neste YAML, conectando o tópico inbound de
+um device V1 ao tópico `command` de outro) foi removido junto com o resto do
+V1 - ver a ADR de remoção em [decisions.md](decisions.md). Não há ainda um
+equivalente para devices V2; a direção combinada é tratar tudo como device V2
+(incluindo `orangepi-monitor`/`cyd-monitor`, hoje ainda não migrados) e usar
+automações para ligar uma saída a um comando, não um conceito de rota
+separado.
 
 ## Cadastro de um ESP32
 
 Checklist completo (credencial MQTT, ACL, YAML, firmware, verificação) em
 [device-onboarding.md](device-onboarding.md). O mecanismo de conexão em si
 (Wi-Fi, descoberta do broker, MQTT) está em
-[device-connection.md](device-connection.md).
+[device-connection.md](device-connection.md). Ambos documentam o fluxo V1 -
+o onboarding de devices V2 é feito por descoberta/pareamento via
+`gateway-web`, não por edição manual do YAML.

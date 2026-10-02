@@ -1,5 +1,16 @@
-# Registry operacional em SQLite
+# Registry operacional em SQLite (V1, removido)
 
+> **Status: removido (ver `docs/decisions.md` ADR-017).** Este documento
+> descreve o registry V1 (`config.Device`/`Route`, `registry_devices`/
+> `registry_routes`, import do YAML via `Store.Seed`, `DeviceAdminService`) -
+> todo esse código foi removido junto com o resto do V1. O registry SQLite em
+> si continua existindo (`internal/registry.Store`), só sem as tabelas/métodos
+> V1; o device platform v2 (`registry.V2Device`/`V2AutomationRule`) é o único
+> modelo de política ativo hoje. Mantido como referência histórica do desenho
+> original, não como documentação ativa.
+
+> Texto original abaixo, para contexto histórico:
+>
 > **Status: migracao em andamento.** O registry SQLite e a aplicacao dinamica
 > da politica MQTT ja existem. O adaptador DynSec esta no gateway; a ativacao
 > no Orange Pi e o cutover dos devices seguem `dynsec-migration.md`. O

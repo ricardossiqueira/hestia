@@ -4,22 +4,25 @@
 //
 // It is the ONLY process that binds api.address, the LAN-reachable port
 // gateway-web and any other client talk to. It authenticates (HTTP Basic)
-// and applies CORS once, at this edge, then either answers a request
-// itself (DeviceAdminService - registering, enabling/disabling and
-// removing devices, delegated to internal/admin's *Server via the
-// DeviceAdmin interface below) or reverse-proxies it (DeviceService,
-// GatewayService) to internal/api, which runs inside the sandboxed
-// `iot-gateway run` process and binds only api.internal_address, a
-// loopback address unreachable from the LAN.
+// and applies CORS once, at this edge, then reverse-proxies GatewayService
+// to internal/api, which runs inside the sandboxed `iot-gateway run`
+// process and binds only api.internal_address, a loopback address
+// unreachable from the LAN. V2's device platform (DeviceV2) is served
+// directly at this edge too - see device_v2.go.
 //
-// Why the split exists at all: internal/api needs the sandboxed process's
-// live MQTT connection to publish a command (ADR-009), but DeviceAdminService
-// needs root to write gateway.yaml, touch Mosquitto's files and restart
-// services (ADR-008) - two capabilities that must never live in the same
-// process. Two processes cannot bind the same port, so one of them has to
-// be a proxy for the other; ADR-013 records why this one (root) is the one
-// holding the public port, not the sandboxed one. It was already the LAN
-// listener at the time (a JSON/HTML UI on :8081, retired since - ADR-015).
+// This package used to also answer DeviceAdminService directly (V1's
+// register/enable-disable/remove/routes/manifests/automations surface,
+// delegated to internal/admin's *Server) - retired once the V2 device
+// platform fully covered it; see docs/decisions.md's V1-removal ADR.
+//
+// Why the proxy split exists at all: internal/api needs the sandboxed
+// process's live MQTT connection to publish a command (ADR-009), but admin
+// operations need root to touch Mosquitto/systemd (ADR-008) - two
+// capabilities that must never live in the same process. Two processes
+// cannot bind the same port, so one of them has to be a proxy for the
+// other; ADR-013 records why this one (root) is the one holding the public
+// port, not the sandboxed one. It was already the LAN listener at the time
+// (a JSON/HTML UI on :8081, retired since - ADR-015).
 package apigateway
 
 import (
@@ -35,43 +38,7 @@ import (
 	"net/url"
 	"strings"
 	"time"
-
-	"github.com/ricardossiqueira/iot-gateway/api/gen/go/iot/gateway/api/v1/apiv1connect"
-	"github.com/ricardossiqueira/iot-gateway/internal/config"
-	"github.com/ricardossiqueira/iot-gateway/internal/registry"
 )
-
-// DeviceAdmin is the one capability this package needs to answer
-// DeviceAdminService directly (instead of proxying it) - satisfied
-// structurally by *admin.Server (internal/admin), the same pattern
-// internal/api uses for CommandPublisher/StatusProvider. Declared here,
-// not imported from internal/admin, so this package depends on a
-// capability, not a concrete type - internal/admin and internal/apigateway
-// happen to run in the same OS process today (both constructed by
-// cmd/gateway's runAdmin), but nothing here assumes that.
-type DeviceAdmin interface {
-	RegisterExistingDevice(ctx context.Context, id, template string) (config.Device, error)
-	ListRoutes(ctx context.Context) ([]config.Route, error)
-	CreateRoute(ctx context.Context, route config.Route) error
-	RemoveRoute(ctx context.Context, id string) error
-	ListPublishedDeviceManifests(ctx context.Context) ([]registry.DeviceManifest, error)
-	GetPublishedDeviceManifest(ctx context.Context, id string) (registry.DeviceManifest, error)
-	ListDeviceManifestBindings(ctx context.Context) ([]registry.DeviceManifestBinding, error)
-	MigrateDeviceToManifest(ctx context.Context, deviceID, manifestID, actor string) (config.Device, error)
-	CreateDeviceManifestDraft(ctx context.Context, document, actor string) (registry.DeviceManifest, error)
-	CreateDeviceManifestRevisionDraft(ctx context.Context, id, document, actor string) (registry.DeviceManifest, error)
-	PublishDeviceManifest(ctx context.Context, id string, revision uint64, actor string) (registry.DeviceManifest, error)
-	ProvisionDeviceByIP(ctx context.Context, id, manifestID, address string) (config.Device, string, error)
-	SetDeviceEnabled(ctx context.Context, id string, enabled bool) (config.Device, error)
-	RemoveDevice(ctx context.Context, id string) error
-	ListInconsistencies(ctx context.Context) ([]registry.Inconsistency, error)
-	ResolveInconsistency(ctx context.Context, id string) error
-	ListAutomationRules(ctx context.Context) ([]registry.AutomationRule, error)
-	CreateAutomationRule(ctx context.Context, rule registry.AutomationRule) (registry.AutomationRule, error)
-	UpdateAutomationRule(ctx context.Context, rule registry.AutomationRule) (registry.AutomationRule, error)
-	SetAutomationRuleEnabled(ctx context.Context, id string, enabled bool) (registry.AutomationRule, error)
-	RemoveAutomationRule(ctx context.Context, id string) error
-}
 
 // Credentials gate every request behind HTTP Basic Auth, read from
 // environment variables by cmd/gateway (IOT_GATEWAY_API_USERNAME/
@@ -82,33 +49,23 @@ type Credentials struct {
 	Password string
 }
 
-type authenticatedActorKey struct{}
-
-func authenticatedActor(ctx context.Context) string {
-	actor, _ := ctx.Value(authenticatedActorKey{}).(string)
-	return actor
-}
-
 // Config is everything the public API edge needs to run.
 type Config struct {
 	// Address is api.address - the public, LAN-reachable listener.
 	Address string
 	// InternalAPIURL is where internal/api is listening, e.g.
 	// "http://127.0.0.1:8083" (built from api.internal_address by the
-	// caller). Every DeviceService/GatewayService request is reverse-
-	// proxied here unchanged, Authorization header included (internal/api
-	// ignores it - loopback is its trust boundary, see its package doc -
-	// but there is no reason to strip it either).
+	// caller). Every GatewayService request is reverse-proxied here
+	// unchanged, Authorization header included (internal/api ignores it -
+	// loopback is its trust boundary, see its package doc - but there is no
+	// reason to strip it either).
 	InternalAPIURL string
 	Credentials    Credentials
 	// AllowedOrigins is api.cors_allowed_origins passed through unchanged.
 	// Empty means CORS is off - see cors' doc comment.
 	AllowedOrigins []string
-	// Admin answers DeviceAdminService directly - see the DeviceAdmin
-	// doc comment above.
-	Admin DeviceAdmin
 	// DeviceV2 is the authenticated JSON RPC adapter for the device platform
-	// v2. It is optional while deployments roll out the new coordinator.
+	// v2.
 	DeviceV2 http.Handler
 }
 
@@ -135,9 +92,6 @@ func New(cfg Config, logger *slog.Logger) (*Server, error) {
 	if cfg.Credentials.Username == "" || cfg.Credentials.Password == "" {
 		return nil, errors.New("apigateway username and password are required")
 	}
-	if cfg.Admin == nil {
-		return nil, errors.New("apigateway admin is required")
-	}
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -151,10 +105,7 @@ func New(cfg Config, logger *slog.Logger) (*Server, error) {
 	}
 
 	mux := http.NewServeMux()
-	mux.Handle("/iot.gateway.api.v1.DeviceService/", proxy)
 	mux.Handle("/iot.gateway.api.v1.GatewayService/", proxy)
-	adminPath, adminHandler := apiv1connect.NewDeviceAdminServiceHandler(s)
-	mux.Handle(adminPath, adminHandler)
 	if cfg.DeviceV2 != nil {
 		mux.Handle("/iot.gateway.api.v2.DevicePlatformService/", cfg.DeviceV2)
 	}
@@ -261,7 +212,7 @@ func basicAuth(creds Credentials, next http.Handler) http.Handler {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 			return
 		}
-		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), authenticatedActorKey{}, username)))
+		next.ServeHTTP(w, r)
 	})
 }
 

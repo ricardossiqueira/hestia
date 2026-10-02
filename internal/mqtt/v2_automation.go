@@ -54,12 +54,6 @@ func (g *Gateway) EnableV2Runtime(ctx context.Context, store V2AutomationStore) 
 		return errors.New("MQTT gateway is closed")
 	}
 	g.configMu.Lock()
-	for topic := range routes {
-		if _, collision := g.routes[topic]; collision {
-			g.configMu.Unlock()
-			return fmt.Errorf("v2 topic %q collides with legacy MQTT policy", topic)
-		}
-	}
 	old := make(map[string]struct{}, len(g.v2Topics))
 	for _, topic := range g.v2Topics {
 		old[topic] = struct{}{}

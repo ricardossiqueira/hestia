@@ -3,7 +3,6 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -32,9 +31,7 @@ import (
 )
 
 const (
-	testCommandTimeout         = 10 * time.Second
 	diagnosticsShutdownTimeout = 5 * time.Second
-	adminRequestTimeout        = 30 * time.Second
 	apiShutdownTimeout         = 5 * time.Second
 	apiRequestTimeout          = 10 * time.Second
 	apigatewayShutdownTimeout  = 5 * time.Second
@@ -56,8 +53,6 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runGateway(args[1:], stderr)
 	case "healthcheck":
 		return runHealthcheck(args[1:], stdout, stderr)
-	case "publish-test-command":
-		return runPublishTestCommand(args[1:], stderr, gatewaymqtt.NewPahoClient)
 	case "admin":
 		return runAdmin(args[1:], stderr)
 	default:
@@ -65,8 +60,6 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 }
-
-type mqttClientFactory func(config.MQTT, gatewaymqtt.Credentials) (gatewaymqtt.Client, error)
 
 func runValidate(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("validate", flag.ContinueOnError)
@@ -178,16 +171,6 @@ func runGateway(args []string, stderr io.Writer) int {
 		return 1
 	}
 	defer func() { _ = deviceRegistry.Close() }()
-	if _, err := deviceRegistry.Seed(context.Background(), cfg.Devices, cfg.Routes); err != nil {
-		fmt.Fprintf(stderr, "registry import failed: %v\n", err)
-		return 1
-	}
-	snapshot, err := deviceRegistry.Snapshot(context.Background())
-	if err != nil {
-		fmt.Fprintf(stderr, "registry read failed: %v\n", err)
-		return 1
-	}
-	cfg.Devices, cfg.Routes = snapshot.Devices, snapshot.Routes
 	credentials, err := gatewaymqtt.ResolveCredentials(cfg.MQTT, os.Getenv)
 	if err != nil {
 		fmt.Fprintf(stderr, "MQTT credentials are invalid: %v\n", err)
@@ -204,17 +187,18 @@ func runGateway(args []string, stderr io.Writer) int {
 		return 1
 	}
 	defer func() { _ = store.Close() }()
-	runtimeSnapshot := snapshot
-	runtimeConfig := cfg
 	logger := slog.New(slog.NewTextHandler(stderr, nil))
-	gateway, err := gatewaymqtt.New(runtimeConfig, client, gatewaymqtt.NewSlogLogger(logger), store, deviceRegistry)
+	gateway, err := gatewaymqtt.New(client, gatewaymqtt.NewSlogLogger(logger))
 	if err != nil {
 		fmt.Fprintf(stderr, "MQTT gateway setup failed: %v\n", err)
 		return 1
 	}
-	// V2 has an isolated manifest-derived runtime. It is loaded before Start
-	// so every already-active binding gets its declared output subscriptions;
-	// the provisioning coordinator refreshes it after later activation.
+	// V2's runtime is loaded before Start so every already-active binding
+	// gets its declared output subscriptions. Note: unlike V1's registry
+	// watcher (removed along with it), nothing currently re-calls this while
+	// the gateway is already running - a newly activated v2 device needs a
+	// restart to pick up its subscriptions. Pre-existing V2 limitation, not
+	// something this change fixes.
 	if err := gateway.EnableV2Runtime(context.Background(), deviceRegistry); err != nil {
 		fmt.Fprintf(stderr, "v2 MQTT runtime setup failed: %v\n", err)
 		return 1
@@ -226,7 +210,6 @@ func runGateway(args []string, stderr io.Writer) int {
 		gateway.Close()
 		return 1
 	}
-	go watchRegistry(ctx, deviceRegistry, cfg, runtimeSnapshot.Revision, gateway, logger)
 	diagnosticsServer, err := diagnostics.New(cfg.Diagnostics, gateway, store)
 	if err != nil {
 		fmt.Fprintf(stderr, "diagnostics setup failed: %v\n", err)
@@ -252,12 +235,9 @@ func runGateway(args []string, stderr io.Writer) int {
 	var apiServer *api.Server
 	if cfg.API != nil {
 		apiServer, err = api.New(api.Config{
-			Address:          cfg.API.InternalAddress,
-			RequestTimeout:   apiRequestTimeout,
-			Registry:         runtimeConfig,
-			DeviceProvider:   gateway,
-			ManifestResolver: deviceRegistry,
-		}, gateway, gateway, gateway, store, gateway, gateway, logger)
+			Address:        cfg.API.InternalAddress,
+			RequestTimeout: apiRequestTimeout,
+		}, gateway, gateway, store, gateway, logger)
 		if err != nil {
 			fmt.Fprintf(stderr, "api setup failed: %v\n", err)
 			gateway.Close()
@@ -289,37 +269,6 @@ func runGateway(args []string, stderr io.Writer) int {
 	return 0
 }
 
-// watchRegistry turns a durable registry revision into a live MQTT policy.
-// Polling keeps the two process topology simple: the admin process and the
-// sandboxed gateway only share SQLite, not a privileged in-process channel.
-func watchRegistry(ctx context.Context, store *registry.Store, base config.Config, revision uint64, gateway *gatewaymqtt.Gateway, logger *slog.Logger) {
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			snapshot, err := store.Snapshot(ctx)
-			if err != nil {
-				logger.Error("read device registry", "error", err)
-				continue
-			}
-			if snapshot.Revision == revision {
-				continue
-			}
-			updated := base
-			updated.Devices, updated.Routes = snapshot.Devices, snapshot.Routes
-			if err := gateway.Apply(ctx, updated); err != nil {
-				logger.Error("apply device registry revision", "revision", snapshot.Revision, "error", err)
-				continue
-			}
-			revision = snapshot.Revision
-			logger.Info("applied device registry revision", "revision", revision)
-		}
-	}
-}
-
 // runAdmin is the root-privileged process that serves DeviceAdminService
 // and reverse-proxies DeviceService/GatewayService to the sandboxed `run`
 // process - see internal/admin's package doc and docs/decisions.md
@@ -331,7 +280,6 @@ func runAdmin(args []string, stderr io.Writer) int {
 	flags := flag.NewFlagSet("admin", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	configPath := flags.String("config", "config/gateway.yaml", "path to the YAML configuration file")
-	provisionScript := flags.String("provision-script", "deploy/mosquitto-provision-device.sh", "path to the Mosquitto provisioning script")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
@@ -360,10 +308,6 @@ func runAdmin(args []string, stderr io.Writer) int {
 		return 1
 	}
 	defer func() { _ = deviceRegistry.Close() }()
-	if _, err := deviceRegistry.Seed(context.Background(), cfg.Devices, cfg.Routes); err != nil {
-		fmt.Fprintf(stderr, "admin registry import failed: %v\n", err)
-		return 1
-	}
 	credentials, dynsecURL, err := dynsecCredentialsFromEnvironment()
 	if err != nil {
 		fmt.Fprintf(stderr, "admin DynSec setup failed: %v\n", err)
@@ -374,19 +318,6 @@ func runAdmin(args []string, stderr io.Writer) int {
 		return 1
 	}
 	deviceMQTTHost := strings.TrimSpace(os.Getenv("IOT_GATEWAY_DEVICE_MQTT_HOST"))
-	adminEngine, err := admin.New(admin.Config{
-		ConfigPath:       *configPath,
-		ProvisionScript:  *provisionScript,
-		Credentials:      credentials,
-		Registry:         deviceRegistry,
-		DeviceBrokerHost: deviceMQTTHost,
-		DeviceBrokerPort: mqttPort(cfg.MQTT.URL),
-		RequestTimeout:   adminRequestTimeout,
-	})
-	if err != nil {
-		fmt.Fprintf(stderr, "admin setup failed: %v\n", err)
-		return 1
-	}
 
 	// Credentials are env-only, never a flag: a flag value would leak into
 	// `ps` output and shell history the way the MQTT credentials
@@ -402,9 +333,9 @@ func runAdmin(args []string, stderr io.Writer) int {
 		Inbox: discoveryInbox, Registry: deviceRegistry,
 		CommandPublisher: apigateway.InternalCommandPublisher{BaseURL: "http://" + cfg.API.InternalAddress},
 	}
-	if manager, ok := credentials.(*dynsec.Manager); ok && deviceMQTTHost != "" {
+	if credentials != nil && deviceMQTTHost != "" {
 		deviceV2.Registrar = admin.V2RegistrationCoordinator{
-			Registry: deviceRegistry, Credentials: manager, Provisioner: devicev2.SessionClient{},
+			Registry: deviceRegistry, Credentials: credentials, Provisioner: devicev2.SessionClient{},
 			MQTTBrokerHost: deviceMQTTHost, MQTTBrokerPort: mqttPort(cfg.MQTT.URL),
 		}
 	} else {
@@ -415,7 +346,6 @@ func runAdmin(args []string, stderr io.Writer) int {
 		InternalAPIURL: "http://" + cfg.API.InternalAddress,
 		Credentials:    apigateway.Credentials{Username: apiUsername, Password: apiPassword},
 		AllowedOrigins: cfg.API.AllowedOrigins,
-		Admin:          adminEngine,
 		DeviceV2:       deviceV2,
 	}, logger)
 	if err != nil {
@@ -462,11 +392,13 @@ func mqttPort(rawURL string) uint16 {
 	return uint16(port)
 }
 
-// dynsecCredentialsFromEnvironment is intentionally opt-in during migration.
-// An unset URL preserves the legacy script path until the Orange Pi has a
-// validated DynSec broker. The password is read from a root-owned credential
-// file, never from YAML, SQLite, a command-line flag, or process arguments.
-func dynsecCredentialsFromEnvironment() (admin.CredentialStore, string, error) {
+// dynsecCredentialsFromEnvironment is opt-in: an unset URL means v2
+// registration stays unavailable until the Orange Pi has a validated DynSec
+// broker configured (the only credential path left since the legacy
+// password_file/acl_file editor was retired alongside V1). The password is
+// read from a root-owned credential file, never from YAML, SQLite, a
+// command-line flag, or process arguments.
+func dynsecCredentialsFromEnvironment() (*dynsec.Manager, string, error) {
 	brokerURL := os.Getenv("IOT_GATEWAY_DYNSEC_URL")
 	if brokerURL == "" {
 		return nil, "", nil
@@ -508,95 +440,6 @@ func sameMQTTEndpoint(left, right string) bool {
 	return strings.EqualFold(leftURL.Hostname(), rightURL.Hostname()) && leftPort == rightPort
 }
 
-func runPublishTestCommand(args []string, stderr io.Writer, newClient mqttClientFactory) int {
-	flags := flag.NewFlagSet("publish-test-command", flag.ContinueOnError)
-	flags.SetOutput(stderr)
-	configPath := flags.String("config", "config/gateway.yaml", "path to the YAML configuration file")
-	deviceID := flags.String("device", "", "ID of the enabled target device")
-	if err := flags.Parse(args); err != nil {
-		return 2
-	}
-	if flags.NArg() != 0 || *deviceID == "" {
-		printUsage(stderr)
-		return 2
-	}
-	cfg, err := config.Load(*configPath)
-	if err != nil {
-		fmt.Fprintf(stderr, "configuration is invalid: %v\n", err)
-		return 1
-	}
-	deviceRegistry, err := registry.Open(context.Background(), cfg.Storage.SQLitePath)
-	if err != nil {
-		fmt.Fprintf(stderr, "registry setup failed: %v\n", err)
-		return 1
-	}
-	defer func() { _ = deviceRegistry.Close() }()
-	if _, err := deviceRegistry.Seed(context.Background(), cfg.Devices, cfg.Routes); err != nil {
-		fmt.Fprintf(stderr, "registry import failed: %v\n", err)
-		return 1
-	}
-	snapshot, err := deviceRegistry.Snapshot(context.Background())
-	if err != nil {
-		fmt.Fprintf(stderr, "registry read failed: %v\n", err)
-		return 1
-	}
-	cfg.Devices, cfg.Routes = snapshot.Devices, snapshot.Routes
-	credentials, err := gatewaymqtt.ResolveCredentials(cfg.MQTT, os.Getenv)
-	if err != nil {
-		fmt.Fprintf(stderr, "MQTT credentials are invalid: %v\n", err)
-		return 1
-	}
-	client, err := newClient(cfg.MQTT, credentials)
-	if err != nil {
-		fmt.Fprintf(stderr, "MQTT client setup failed: %v\n", err)
-		return 1
-	}
-	gateway, err := gatewaymqtt.NewCommandPublisher(cfg, client, gatewaymqtt.NewSlogLogger(slog.New(slog.NewTextHandler(stderr, nil))))
-	if err != nil {
-		fmt.Fprintf(stderr, "MQTT gateway setup failed: %v\n", err)
-		return 1
-	}
-	defer gateway.Close()
-	signalCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	ctx, cancel := context.WithTimeout(signalCtx, testCommandTimeout)
-	defer cancel()
-	if err := gateway.Start(ctx); err != nil {
-		fmt.Fprintf(stderr, "MQTT gateway failed to start: %v\n", err)
-		return 1
-	}
-	payload, err := newTestCommandPayload()
-	if err != nil {
-		fmt.Fprintf(stderr, "failed to create test command: %v\n", err)
-		return 1
-	}
-	if err := gateway.PublishCommand(ctx, *deviceID, payload); err != nil {
-		fmt.Fprintf(stderr, "failed to publish test command: %v\n", err)
-		return 1
-	}
-	fmt.Fprintf(stderr, "test command published to device %q\n", *deviceID)
-	return 0
-}
-
-func newTestCommandPayload() ([]byte, error) {
-	var id [16]byte
-	if _, err := rand.Read(id[:]); err != nil {
-		return nil, err
-	}
-	id[6] = (id[6] & 0x0f) | 0x40
-	id[8] = (id[8] & 0x3f) | 0x80
-	command := struct {
-		CommandID  string         `json:"command_id"`
-		Type       string         `json:"type"`
-		Parameters map[string]any `json:"parameters"`
-	}{
-		CommandID:  fmt.Sprintf("%x-%x-%x-%x-%x", id[0:4], id[4:6], id[6:8], id[8:10], id[10:16]),
-		Type:       "gateway_test",
-		Parameters: map[string]any{},
-	}
-	return json.Marshal(command)
-}
-
 func openOutbox(cfg config.Config) (*outbox.Store, error) {
 	return outbox.Open(context.Background(), cfg.Storage.SQLitePath, outbox.Options{
 		MaxMessages: cfg.Storage.MaxOutboxMessages,
@@ -606,5 +449,5 @@ func openOutbox(cfg config.Config) (*outbox.Store, error) {
 }
 
 func printUsage(stderr io.Writer) {
-	fmt.Fprintln(stderr, "usage: iot-gateway <validate|run|healthcheck|publish-test-command|admin> --config <path>")
+	fmt.Fprintln(stderr, "usage: iot-gateway <validate|run|healthcheck|admin> --config <path>")
 }

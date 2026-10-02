@@ -43,19 +43,3 @@ diagnostics:
 #   cors_allowed_origins:
 #     - http://localhost:5173
 #     - http://127.0.0.1:5173
-
-devices:
-  - id: esp32-sala
-    type: esp32
-    enabled: true
-    topics:
-      telemetry: devices/esp32-sala/telemetry
-      state: devices/esp32-sala/state
-      event: devices/esp32-sala/event
-      command: devices/esp32-sala/command
-      command_result: devices/esp32-sala/command-result
-    forwarding:
-      telemetry_to_vps: true
-      state_to_vps: true
-      events_to_vps: true
-      commands_from_vps: true

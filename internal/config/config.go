@@ -20,15 +20,16 @@ import (
 
 var idPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
 
-// Config is the complete gateway configuration file.
+// Config is the complete gateway configuration file. Devices and Routes (the
+// V1 device/routing policy) were retired along with the rest of V1 - see
+// docs/decisions.md's V1-removal ADR; the V2 device platform's policy lives
+// entirely in the SQLite registry, not here.
 type Config struct {
 	Gateway     Gateway     `yaml:"gateway"`
 	MQTT        MQTT        `yaml:"mqtt"`
 	Storage     Storage     `yaml:"storage"`
 	Diagnostics Diagnostics `yaml:"diagnostics"`
 	API         *API        `yaml:"api"`
-	Devices     []Device    `yaml:"devices"`
-	Routes      []Route     `yaml:"routes"`
 }
 
 type Gateway struct {
@@ -153,49 +154,6 @@ func (d *Duration) UnmarshalYAML(value *yaml.Node) error {
 
 func (d Duration) TimeDuration() time.Duration { return time.Duration(d) }
 
-type Device struct {
-	ID         string     `yaml:"id"`
-	Type       string     `yaml:"type"`
-	Enabled    *bool      `yaml:"enabled"`
-	Topics     Topics     `yaml:"topics"`
-	Forwarding Forwarding `yaml:"forwarding"`
-}
-
-// Topics uses omitempty on encode only (Parse never encodes) so that
-// internal/admin can marshal a device with only the topics it actually
-// uses, matching docs/device-onboarding.md's own examples instead of
-// emitting all five keys with empty strings.
-type Topics struct {
-	Telemetry     string `yaml:"telemetry,omitempty"`
-	State         string `yaml:"state,omitempty"`
-	Event         string `yaml:"event,omitempty"`
-	Command       string `yaml:"command,omitempty"`
-	CommandResult string `yaml:"command_result,omitempty"`
-}
-
-type Forwarding struct {
-	TelemetryToVPS  bool `yaml:"telemetry_to_vps"`
-	StateToVPS      bool `yaml:"state_to_vps"`
-	EventsToVPS     bool `yaml:"events_to_vps"`
-	CommandsFromVPS bool `yaml:"commands_from_vps"`
-}
-
-// Route declares a device-agnostic local MQTT route.
-type Route struct {
-	ID               string         `yaml:"id"`
-	SourceTopic      string         `yaml:"source_topic"`
-	DestinationTopic string         `yaml:"destination_topic"`
-	Transform        RouteTransform `yaml:"transform"`
-	QoS              byte           `yaml:"qos"`
-	Retain           bool           `yaml:"retain"`
-}
-
-// RouteTransform describes a generic payload conversion.
-type RouteTransform struct {
-	Type        string `yaml:"type"`
-	CommandType string `yaml:"command_type"`
-}
-
 // Load reads, parses and validates a YAML configuration file.
 func Load(path string) (Config, error) {
 	contents, err := os.ReadFile(filepath.Clean(path))
@@ -278,45 +236,6 @@ func (c Config) Validate() error {
 		if err := validateAPI(*c.API); err != nil {
 			return err
 		}
-	}
-	deviceIDs := make(map[string]struct{}, len(c.Devices))
-	topicOwners := make(map[string]string)
-	inboundTopics := make(map[string]bool)
-	commandTopics := make(map[string]bool)
-	for index, device := range c.Devices {
-		prefix := fmt.Sprintf("devices[%d]", index)
-		if err := ValidateDeviceID(prefix+".id", device.ID); err != nil {
-			return err
-		}
-		if _, exists := deviceIDs[device.ID]; exists {
-			return fmt.Errorf("duplicate device ID %q", device.ID)
-		}
-		deviceIDs[device.ID] = struct{}{}
-		if strings.TrimSpace(device.Type) == "" {
-			return fmt.Errorf("%s.type is required", prefix)
-		}
-		if device.Enabled == nil {
-			return fmt.Errorf("%s.enabled is required", prefix)
-		}
-		if err := validateTopics(prefix, device, topicOwners); err != nil {
-			return err
-		}
-		if err := validateForwarding(prefix, device); err != nil {
-			return err
-		}
-		if *device.Enabled {
-			for _, topic := range []string{device.Topics.Telemetry, device.Topics.State, device.Topics.Event, device.Topics.CommandResult} {
-				if topic != "" {
-					inboundTopics[topic] = true
-				}
-			}
-			if device.Topics.Command != "" {
-				commandTopics[device.Topics.Command] = true
-			}
-		}
-	}
-	if err := validateRoutes(c.Routes, inboundTopics, commandTopics); err != nil {
-		return err
 	}
 	return nil
 }
@@ -413,40 +332,10 @@ func validateOrigin(origin string) error {
 	return nil
 }
 
-func validateRoutes(routes []Route, inboundTopics, commandTopics map[string]bool) error {
-	ids := make(map[string]struct{}, len(routes))
-	for index, route := range routes {
-		prefix := fmt.Sprintf("routes[%d]", index)
-		if err := ValidateDeviceID(prefix+".id", route.ID); err != nil {
-			return err
-		}
-		if _, exists := ids[route.ID]; exists {
-			return fmt.Errorf("duplicate route ID %q", route.ID)
-		}
-		ids[route.ID] = struct{}{}
-		if !inboundTopics[route.SourceTopic] {
-			return fmt.Errorf("%s.source_topic must reference an enabled inbound device topic", prefix)
-		}
-		if !commandTopics[route.DestinationTopic] {
-			return fmt.Errorf("%s.destination_topic must reference an enabled command topic", prefix)
-		}
-		if route.QoS > 2 {
-			return fmt.Errorf("%s.qos must be between 0 and 2", prefix)
-		}
-		if route.Transform.Type != "json_command" {
-			return fmt.Errorf("%s.transform.type must be json_command", prefix)
-		}
-		if strings.TrimSpace(route.Transform.CommandType) == "" {
-			return fmt.Errorf("%s.transform.command_type is required", prefix)
-		}
-	}
-	return nil
-}
-
 // ValidateDeviceID enforces the same ID rule this package uses for every
-// gateway/device/route identifier - exported so internal/admin can apply
-// the identical rule before provisioning a device through the API,
-// instead of duplicating the regex and risking it drifting from what
+// gateway/device/rule identifier it is handed - exported so other packages
+// (e.g. internal/registry's V2 rule validation) can apply the identical
+// rule instead of duplicating the regex and risking it drifting from what
 // `iot-gateway validate` actually accepts.
 func ValidateDeviceID(field, id string) error {
 	if strings.TrimSpace(id) == "" {
@@ -483,64 +372,3 @@ func validateMQTT(mqtt MQTT) error {
 	return nil
 }
 
-func validateTopics(prefix string, device Device, owners map[string]string) error {
-	topics := []struct {
-		name   string
-		value  string
-		suffix string
-	}{
-		{"telemetry", device.Topics.Telemetry, "telemetry"},
-		{"state", device.Topics.State, "state"},
-		{"event", device.Topics.Event, "event"},
-		{"command", device.Topics.Command, "command"},
-		{"command_result", device.Topics.CommandResult, "command-result"},
-	}
-
-	count := 0
-	for _, topic := range topics {
-		if topic.value == "" {
-			continue
-		}
-		count++
-		field := prefix + ".topics." + topic.name
-		if strings.ContainsAny(topic.value, "+#") {
-			return fmt.Errorf("%s must not contain MQTT wildcards", field)
-		}
-		if owner, exists := owners[topic.value]; exists {
-			return fmt.Errorf("%s topic %q is also assigned to %s", field, topic.value, owner)
-		}
-		devicePrefix := "devices/" + device.ID + "/"
-		if !strings.HasPrefix(topic.value, devicePrefix) {
-			return fmt.Errorf("%s must start with %q", field, devicePrefix)
-		}
-		expected := devicePrefix + topic.suffix
-		if topic.value != expected {
-			return fmt.Errorf("%s must be %q", field, expected)
-		}
-		owners[topic.value] = field
-	}
-	if count == 0 {
-		return fmt.Errorf("%s.topics must define at least one topic", prefix)
-	}
-	return nil
-}
-
-func validateForwarding(prefix string, device Device) error {
-	checks := []struct {
-		enabled bool
-		topic   string
-		field   string
-		kind    string
-	}{
-		{device.Forwarding.TelemetryToVPS, device.Topics.Telemetry, "telemetry_to_vps", "telemetry"},
-		{device.Forwarding.StateToVPS, device.Topics.State, "state_to_vps", "state"},
-		{device.Forwarding.EventsToVPS, device.Topics.Event, "events_to_vps", "event"},
-		{device.Forwarding.CommandsFromVPS, device.Topics.Command, "commands_from_vps", "command"},
-	}
-	for _, check := range checks {
-		if check.enabled && check.topic == "" {
-			return fmt.Errorf("%s.forwarding.%s requires a %s topic", prefix, check.field, check.kind)
-		}
-	}
-	return nil
-}

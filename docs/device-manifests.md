@@ -1,5 +1,15 @@
-# Manifests de dispositivos e provisionamento genérico
+# Manifests de dispositivos e provisionamento genérico (V1, removido)
 
+> **Status: removido (ver `docs/decisions.md` ADR-017).** Este documento
+> descreve o sistema de manifests V1 (`internal/devicemanifest`,
+> `registry.DeviceManifest`, draft/publish via `DeviceAdminService`) - todo o
+> código foi removido junto com o resto do V1. O manifest V2
+> (`internal/devicev2.Manifest`) é um conceito diferente: autodescrito pelo
+> próprio device e só observado, nunca editado manualmente. Mantido como
+> referência histórica das decisões de design, não como documentação ativa.
+
+> Texto original abaixo, para contexto histórico:
+>
 > **Status: proposta aprovada; implementação ainda não iniciada.**
 >
 > Este documento é o checklist de acompanhamento para substituir templates,

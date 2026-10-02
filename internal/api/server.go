@@ -1,10 +1,8 @@
-// Package api implements the Connect-RPC server that exposes device
-// listing, command-schema discovery, command publishing and gateway status.
-// Unlike internal/commandapi (which it replaced), parameters are validated
-// against the schema declared in the manifest revision bound to a device
-// (see internal/devicemanifest and docs/device-manifests.md) before being
-// published to MQTT, and a client can discover what a device accepts
-// instead of guessing.
+// Package api implements the Connect-RPC server that exposes gateway status
+// and the loopback-only V2 command-publish endpoint. It used to also expose
+// V1's device listing/command-schema discovery/command publishing
+// (DeviceService) - retired once the V2 device platform fully covered
+// device commands and automation; see docs/decisions.md's V1-removal ADR.
 //
 // Since docs/decisions.md ADR-013, this server is loopback-only and does
 // its own neither auth nor CORS: it is never reached directly from the LAN
@@ -17,8 +15,8 @@
 //
 // Same New/Start/Shutdown shape as the rest of this project's HTTP
 // servers, embedded inside the already-running `iot-gateway run` process
-// so PublishCommand reuses the gateway's already-connected MQTT client
-// (see ADR-009, unchanged from internal/commandapi).
+// so PublishRaw/handleV2PublishCommand reuses the gateway's already-
+// connected MQTT client (see ADR-009, unchanged from internal/commandapi).
 package api
 
 import (
@@ -28,13 +26,10 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"sort"
 	"strings"
 	"time"
 
 	"github.com/ricardossiqueira/iot-gateway/api/gen/go/iot/gateway/api/v1/apiv1connect"
-	"github.com/ricardossiqueira/iot-gateway/internal/config"
-	"github.com/ricardossiqueira/iot-gateway/internal/devicemanifest"
 	"github.com/ricardossiqueira/iot-gateway/internal/mqtt"
 	"github.com/ricardossiqueira/iot-gateway/internal/outbox"
 )
@@ -45,10 +40,9 @@ import (
 // imported from internal/mqtt, so this package depends on a capability, not
 // a concrete type - same pattern as internal/commandapi.CommandPublisher.
 type CommandPublisher interface {
-	PublishCommand(ctx context.Context, deviceID string, payload []byte) error
 	// PublishRaw publishes an already-validated command envelope straight to
-	// a topic, bypassing config.Device entirely - see handleV2PublishCommand
-	// below and *mqtt.Gateway.PublishRaw's doc comment for why v2 needs this.
+	// a topic - see handleV2PublishCommand below and *mqtt.Gateway.PublishRaw's
+	// doc comment for why v2 needs this.
 	PublishRaw(ctx context.Context, topic string, payload []byte) error
 }
 
@@ -58,47 +52,18 @@ type StatusProvider interface {
 	Snapshot() mqtt.Snapshot
 }
 
-// TelemetryProvider is the one capability this package needs to serve
-// GetDeviceTelemetry - satisfied structurally by *mqtt.Gateway already,
-// same pattern as CommandPublisher/StatusProvider above.
-type TelemetryProvider interface {
-	LastTelemetry(deviceID string) ([]byte, time.Time, bool)
-}
-
 // QueueProvider is the one capability this package needs to serve
-// GetQueueSummary - satisfied structurally by *outbox.Store directly. Unlike
-// CommandPublisher/StatusProvider/TelemetryProvider above, this one is not
-// backed by *mqtt.Gateway: the outbox is its own component, and this
-// interface names only the read this package actually needs from it.
-// EventProvider is the one capability this package needs to serve
-// GetRecentEvents - satisfied structurally by *mqtt.Gateway already, same
-// pattern as CommandPublisher/StatusProvider/TelemetryProvider.
-type EventProvider interface {
-	RecentEvents(filter mqtt.EventFilter) (events []mqtt.ActivityEvent, hasMore bool)
-}
-
-// AutomationRuleTester is the one capability this package needs to serve
-// TestAutomationRule - satisfied structurally by *mqtt.Gateway already, same
-// pattern as CommandPublisher/StatusProvider/TelemetryProvider. It lives on
-// DeviceService (not DeviceAdminService's registry-only CRUD) because it
-// needs the live MQTT connection only this sandboxed process holds.
-type AutomationRuleTester interface {
-	TestAutomationRule(ctx context.Context, ruleID string, payload []byte) (fired bool, reason string, err error)
-}
-
+// GetQueueSummary - satisfied structurally by *outbox.Store directly, since
+// the outbox is its own component, not backed by *mqtt.Gateway.
 type QueueProvider interface {
 	Snapshot(ctx context.Context) (outbox.Snapshot, error)
 }
 
-type DeviceProvider interface {
-	Devices() []config.Device
-}
-
-// DeviceManifestResolver supplies the immutable manifest revision pinned to
-// an instance. A missing binding means the device follows the legacy profile
-// path during the migration.
-type DeviceManifestResolver interface {
-	ResolveDeviceManifest(context.Context, string) (devicemanifest.Document, bool, error)
+// EventProvider is the one capability this package needs to serve
+// GetRecentEvents - satisfied structurally by *mqtt.Gateway already, same
+// pattern as CommandPublisher/StatusProvider.
+type EventProvider interface {
+	RecentEvents(filter mqtt.EventFilter) (events []mqtt.ActivityEvent, hasMore bool)
 }
 
 // Config is everything the API server needs to run.
@@ -107,36 +72,21 @@ type Config struct {
 	// internal/apigateway's reverse proxy (same host) ever connects to.
 	Address        string
 	RequestTimeout time.Duration
-	// Registry is the already loaded and validated gateway configuration.
-	// It is read by value here (never re-read from disk), preserving the
-	// sandboxed gateway process's read-only posture.
-	Registry config.Config
-	// DeviceProvider supersedes Registry.Devices for live reads after a
-	// registry revision is applied.
-	DeviceProvider   DeviceProvider
-	ManifestResolver DeviceManifestResolver
 }
 
 // Server is the loopback-only Connect-RPC server (gRPC, gRPC-Web and
 // HTTP/JSON on one port).
 type Server struct {
-	cfg        Config
-	publisher  CommandPublisher
-	status     StatusProvider
-	telemetry  TelemetryProvider
-	queue      QueueProvider
-	events     EventProvider
-	ruleTester AutomationRuleTester
-	logger     *slog.Logger
-	http       *http.Server
-
-	devices          map[string]config.Device
-	deviceList       []config.Device
-	deviceProvider   DeviceProvider
-	manifestResolver DeviceManifestResolver
+	cfg       Config
+	publisher CommandPublisher
+	status    StatusProvider
+	queue     QueueProvider
+	events    EventProvider
+	logger    *slog.Logger
+	http      *http.Server
 }
 
-func New(cfg Config, publisher CommandPublisher, status StatusProvider, telemetry TelemetryProvider, queue QueueProvider, events EventProvider, ruleTester AutomationRuleTester, logger *slog.Logger) (*Server, error) {
+func New(cfg Config, publisher CommandPublisher, status StatusProvider, queue QueueProvider, events EventProvider, logger *slog.Logger) (*Server, error) {
 	if strings.TrimSpace(cfg.Address) == "" {
 		return nil, errors.New("api address is required")
 	}
@@ -146,17 +96,11 @@ func New(cfg Config, publisher CommandPublisher, status StatusProvider, telemetr
 	if status == nil {
 		return nil, errors.New("api status provider is required")
 	}
-	if telemetry == nil {
-		return nil, errors.New("api telemetry provider is required")
-	}
 	if queue == nil {
 		return nil, errors.New("api queue provider is required")
 	}
 	if events == nil {
 		return nil, errors.New("api event provider is required")
-	}
-	if ruleTester == nil {
-		return nil, errors.New("api automation rule tester is required")
 	}
 	if cfg.RequestTimeout <= 0 {
 		cfg.RequestTimeout = 10 * time.Second
@@ -165,32 +109,16 @@ func New(cfg Config, publisher CommandPublisher, status StatusProvider, telemetr
 		logger = slog.Default()
 	}
 
-	deviceList := make([]config.Device, len(cfg.Registry.Devices))
-	copy(deviceList, cfg.Registry.Devices)
-	sort.Slice(deviceList, func(i, j int) bool { return deviceList[i].ID < deviceList[j].ID })
-	devices := make(map[string]config.Device, len(deviceList))
-	for _, d := range deviceList {
-		devices[d.ID] = d
-	}
-
 	s := &Server{
-		cfg:              cfg,
-		publisher:        publisher,
-		status:           status,
-		telemetry:        telemetry,
-		queue:            queue,
-		events:           events,
-		ruleTester:       ruleTester,
-		logger:           logger,
-		devices:          devices,
-		deviceList:       deviceList,
-		deviceProvider:   cfg.DeviceProvider,
-		manifestResolver: cfg.ManifestResolver,
+		cfg:       cfg,
+		publisher: publisher,
+		status:    status,
+		queue:     queue,
+		events:    events,
+		logger:    logger,
 	}
 
 	mux := http.NewServeMux()
-	devicePath, deviceHandler := apiv1connect.NewDeviceServiceHandler(s)
-	mux.Handle(devicePath, deviceHandler)
 	gatewayPath, gatewayHandler := apiv1connect.NewGatewayServiceHandler(s)
 	mux.Handle(gatewayPath, gatewayHandler)
 	mux.HandleFunc("/internal/v2/publish-command", s.handleV2PublishCommand)
@@ -227,26 +155,4 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		return fmt.Errorf("shutdown api server: %w", err)
 	}
 	return nil
-}
-
-func (s *Server) deviceByID(id string) (config.Device, bool) {
-	if s.deviceProvider != nil {
-		for _, device := range s.deviceProvider.Devices() {
-			if device.ID == id {
-				return device, true
-			}
-		}
-		return config.Device{}, false
-	}
-	d, ok := s.devices[id]
-	return d, ok
-}
-
-func (s *Server) currentDevices() []config.Device {
-	if s.deviceProvider != nil {
-		return s.deviceProvider.Devices()
-	}
-	devices := make([]config.Device, len(s.deviceList))
-	copy(devices, s.deviceList)
-	return devices
 }

@@ -6,6 +6,7 @@ require (
 	connectrpc.com/connect v1.21.0
 	github.com/eclipse/paho.mqtt.golang v1.5.1
 	github.com/google/uuid v1.6.0
+	github.com/grandcat/zeroconf v1.0.0
 	google.golang.org/grpc v1.75.1
 	google.golang.org/protobuf v1.36.12
 	gopkg.in/yaml.v3 v3.0.1
@@ -16,7 +17,6 @@ require (
 	github.com/cenkalti/backoff v2.2.1+incompatible // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
-	github.com/grandcat/zeroconf v1.0.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/miekg/dns v1.1.27 // indirect
 	github.com/ncruces/go-strftime v0.1.9 // indirect
