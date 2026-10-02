@@ -44,6 +44,16 @@ func (f *fakePublisher) PublishCommand(ctx context.Context, deviceID string, pay
 	return nil
 }
 
+func (f *fakePublisher) PublishRaw(ctx context.Context, topic string, payload []byte) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.err != nil {
+		return f.err
+	}
+	f.calls = append(f.calls, publishCall{deviceID: topic, payload: append([]byte(nil), payload...)})
+	return nil
+}
+
 func (f *fakePublisher) callCount() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -507,6 +517,51 @@ func TestPublishCommand_PublisherError(t *testing.T) {
 	}
 	if connect.CodeOf(err) != connect.CodeInvalidArgument {
 		t.Errorf("code = %v, want InvalidArgument", connect.CodeOf(err))
+	}
+}
+
+func TestHandleV2PublishCommand_Success(t *testing.T) {
+	publisher := &fakePublisher{}
+	ts := newTestServer(t, publisher, fakeStatus{}, fakeTelemetry{}, fakeQueue{})
+	body := `{"topic":"devices/led-sala/command","payload":{"command_id":"5c1f7b1e-3b7e-4a1a-8f4a-5a5c1f7b1e3b","type":"set_led","parameters":{"on":true}}}`
+	resp, err := ts.Client().Post(ts.URL+"/internal/v2/publish-command", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST error = %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 204 {
+		t.Fatalf("status = %d, want 204", resp.StatusCode)
+	}
+	if publisher.callCount() != 1 {
+		t.Fatalf("publisher calls = %d, want 1", publisher.callCount())
+	}
+	if call := publisher.lastCall(); call.deviceID != "devices/led-sala/command" {
+		t.Errorf("topic = %q", call.deviceID)
+	}
+}
+
+func TestHandleV2PublishCommand_MissingTopicIsBadRequest(t *testing.T) {
+	ts := newTestServer(t, &fakePublisher{}, fakeStatus{}, fakeTelemetry{}, fakeQueue{})
+	resp, err := ts.Client().Post(ts.URL+"/internal/v2/publish-command", "application/json", strings.NewReader(`{"payload":{"a":1}}`))
+	if err != nil {
+		t.Fatalf("POST error = %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 400 {
+		t.Fatalf("status = %d, want 400", resp.StatusCode)
+	}
+}
+
+func TestHandleV2PublishCommand_PublisherErrorIsBadGateway(t *testing.T) {
+	publisher := &fakePublisher{err: errors.New("broker unreachable")}
+	ts := newTestServer(t, publisher, fakeStatus{}, fakeTelemetry{}, fakeQueue{})
+	resp, err := ts.Client().Post(ts.URL+"/internal/v2/publish-command", "application/json", strings.NewReader(`{"topic":"devices/led-sala/command","payload":{"a":1}}`))
+	if err != nil {
+		t.Fatalf("POST error = %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 502 {
+		t.Fatalf("status = %d, want 502", resp.StatusCode)
 	}
 }
 

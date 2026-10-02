@@ -445,6 +445,46 @@ func TestGatewayPublishCommandRecordsWithoutCausation(t *testing.T) {
 	}
 }
 
+func TestGatewayPublishRawSkipsDeviceLookup(t *testing.T) {
+	client := &fakeClient{}
+	gateway, err := New(testConfig(), client, &recordingLogger{}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := gateway.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	// "led-sala" is not in testConfig()'s devices at all - PublishRaw must
+	// not care, unlike PublishCommand.
+	if err := gateway.PublishRaw(context.Background(), "devices/led-sala/command", validCommand()); err != nil {
+		t.Fatal(err)
+	}
+	if len(client.published) != 1 {
+		t.Fatalf("published = %#v, want 1 message", client.published)
+	}
+	got := client.published[0]
+	if got.topic != "devices/led-sala/command" || got.qos != qosAtLeastOnce || got.retain {
+		t.Errorf("published = %#v", got)
+	}
+}
+
+func TestGatewayPublishRawRejectsInvalidEnvelope(t *testing.T) {
+	client := &fakeClient{}
+	gateway, err := New(testConfig(), client, &recordingLogger{}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := gateway.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := gateway.PublishRaw(context.Background(), "devices/led-sala/command", []byte(`{"not":"a command"}`)); err == nil {
+		t.Fatal("PublishRaw() error = nil, want invalid envelope rejection")
+	}
+	if len(client.published) != 0 {
+		t.Fatalf("published = %#v, want nothing", client.published)
+	}
+}
+
 func TestGatewayCorrelatesCommandResultWhenCommandIDPresent(t *testing.T) {
 	client := &fakeClient{}
 	recorder := &fakeAutomationRecorder{resultMatch: true}

@@ -141,6 +141,7 @@ Regras:
 | `ResolveInconsistency` | `DeviceAdminService` | Marca uma inconsistência como resolvida, sem tocar registry ou broker. |
 | `ListAutomationRules` | `DeviceAdminService` | Lista as regras de automação (Marco 5) persistidas no SQLite. |
 | `CreateAutomationRule` | `DeviceAdminService` | Cria uma regra evento → condição → ação. |
+| `UpdateAutomationRule` | `DeviceAdminService` | Atualiza uma regra preservando o ID e a data de criação. |
 | `SetAutomationRuleEnabled` | `DeviceAdminService` | Habilita/desabilita uma regra sem alterar o resto. |
 | `RemoveAutomationRule` | `DeviceAdminService` | Remove uma regra pelo ID. |
 
@@ -184,8 +185,8 @@ tem manifest vinculado, `event_type`/`action_parameters_json` são
 validados contra os eventos/comandos declarados (mesma validação que
 `PublishCommand` já faz); sem manifest, caem no mesmo fallback opaco.
 
-Sem revisão nem RPC de edição: mudar uma regra é remover e recriar, o
-mesmo modelo de `Route`. A execução (`internal/mqtt.Gateway.
+As regras são atualizadas em lugar por `UpdateAutomationRule`; o ID e a
+data de criação permanecem estáveis. A execução (`internal/mqtt.Gateway.
 fireAutomationRules`) roda de forma síncrona quando um evento é aceito —
 consulta o SQLite direto por device+tipo de evento a cada evento, sem
 cache — e nunca passa pela outbox (não há consumidor VPS ainda). Dedup é

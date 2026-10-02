@@ -81,10 +81,10 @@ service DeviceAdminService {
   rpc ResolveInconsistency(ResolveInconsistencyRequest) returns (ResolveInconsistencyResponse);
   // Automation rules (Marco 5, docs/device-manifests.md): "when source
   // device emits event_type, if condition passes, publish this command to
-  // action device". No Update/Get RPC yet - editing means remove and
-  // recreate, the same model routes already use.
+  // action device". Rules are edited in place; their ID is immutable.
   rpc ListAutomationRules(ListAutomationRulesRequest) returns (ListAutomationRulesResponse);
   rpc CreateAutomationRule(CreateAutomationRuleRequest) returns (CreateAutomationRuleResponse);
+  rpc UpdateAutomationRule(UpdateAutomationRuleRequest) returns (UpdateAutomationRuleResponse);
   rpc SetAutomationRuleEnabled(SetAutomationRuleEnabledRequest) returns (SetAutomationRuleEnabledResponse);
   rpc RemoveAutomationRule(RemoveAutomationRuleRequest) returns (RemoveAutomationRuleResponse);
 }
@@ -291,6 +291,15 @@ message CreateAutomationRuleRequest {
 }
 
 message CreateAutomationRuleResponse {
+  AutomationRule rule = 1;
+  google.protobuf.Timestamp applied_at = 2;
+}
+
+message UpdateAutomationRuleRequest {
+  AutomationRule rule = 1;
+}
+
+message UpdateAutomationRuleResponse {
   AutomationRule rule = 1;
   google.protobuf.Timestamp applied_at = 2;
 }

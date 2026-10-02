@@ -46,6 +46,10 @@ import (
 // a concrete type - same pattern as internal/commandapi.CommandPublisher.
 type CommandPublisher interface {
 	PublishCommand(ctx context.Context, deviceID string, payload []byte) error
+	// PublishRaw publishes an already-validated command envelope straight to
+	// a topic, bypassing config.Device entirely - see handleV2PublishCommand
+	// below and *mqtt.Gateway.PublishRaw's doc comment for why v2 needs this.
+	PublishRaw(ctx context.Context, topic string, payload []byte) error
 }
 
 // StatusProvider is the one capability this package needs to serve
@@ -189,6 +193,7 @@ func New(cfg Config, publisher CommandPublisher, status StatusProvider, telemetr
 	mux.Handle(devicePath, deviceHandler)
 	gatewayPath, gatewayHandler := apiv1connect.NewGatewayServiceHandler(s)
 	mux.Handle(gatewayPath, gatewayHandler)
+	mux.HandleFunc("/internal/v2/publish-command", s.handleV2PublishCommand)
 
 	s.http = &http.Server{
 		Addr:              cfg.Address,

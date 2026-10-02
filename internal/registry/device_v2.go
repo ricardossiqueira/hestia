@@ -90,7 +90,12 @@ func (s *Store) AcceptV2Manifest(ctx context.Context, raw, issuerFingerprint str
 }
 
 // RegisterV2Device creates a pending binding to an accepted manifest. Calling
-// it again for an identical UID is rejected: operator intent is explicit.
+// it again for an identical UID is rejected while that binding is live:
+// operator intent is explicit. A binding the coordinator already gave up on
+// (desired_state='removed', left behind by a failed registration - see
+// V2RegistrationCoordinator.Register's cleanup paths, none of which delete
+// the row) does not block a fresh attempt; it is cleared here instead,
+// since nothing else in this package ever removes that row.
 func (s *Store) RegisterV2Device(ctx context.Context, device V2Device) (V2Device, error) {
 	if s == nil || s.db == nil {
 		return V2Device{}, errors.New("registry store is closed")
@@ -104,10 +109,13 @@ func (s *Store) RegisterV2Device(ctx context.Context, device V2Device) (V2Device
 	}
 	defer func() { _ = tx.Rollback() }()
 	var found int
-	if err := tx.QueryRowContext(ctx, `SELECT 1 FROM registry_v2_devices WHERE device_id=? OR device_uid=?`, device.DeviceID, device.DeviceUID).Scan(&found); err == nil {
+	if err := tx.QueryRowContext(ctx, `SELECT 1 FROM registry_v2_devices WHERE (device_id=? OR device_uid=?) AND desired_state!='removed'`, device.DeviceID, device.DeviceUID).Scan(&found); err == nil {
 		return V2Device{}, fmt.Errorf("%w: %s", ErrV2DeviceAlreadyExists, device.DeviceID)
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return V2Device{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM registry_v2_devices WHERE (device_id=? OR device_uid=?) AND desired_state='removed'`, device.DeviceID, device.DeviceUID); err != nil {
+		return V2Device{}, fmt.Errorf("clear removed device binding: %w", err)
 	}
 	var hash string
 	if err := tx.QueryRowContext(ctx, `SELECT manifest_sha256 FROM registry_v2_manifests WHERE manifest_id=? AND revision=? AND state='accepted'`, device.ManifestID, device.ManifestRevision).Scan(&hash); errors.Is(err, sql.ErrNoRows) {

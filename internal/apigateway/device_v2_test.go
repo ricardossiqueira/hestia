@@ -63,3 +63,119 @@ func TestDeviceV2APIRegistersPairingDiscoveryThroughRegistrar(t *testing.T) {
 		t.Fatalf("register body=%s", response.Body.String())
 	}
 }
+
+const apiV2LEDManifest = `{"schema_version":2,"manifest_id":"test-led-cmd","display_name":"Test LED","model":"test-led-cmd","protocol_version":1,"mqtt":{"publish":[],"subscribe":[{"channel":"command","commands":[{"type":"set_led","parameters":{"on":{"type":"boolean","required":true}}}]}]}}`
+
+type v2CommandPublisherFake struct {
+	topic   string
+	payload []byte
+	err     error
+}
+
+func (f *v2CommandPublisherFake) Publish(_ context.Context, topic string, payload []byte) error {
+	if f.err != nil {
+		return f.err
+	}
+	f.topic, f.payload = topic, append([]byte(nil), payload...)
+	return nil
+}
+
+func registerTestV2Device(t *testing.T, store *registry.Store, deviceID string) {
+	t.Helper()
+	manifest, err := store.AcceptV2Manifest(context.Background(), apiV2LEDManifest, "lab-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.RegisterV2Device(context.Background(), registry.V2Device{
+		DeviceID: deviceID, DeviceUID: "uid-" + deviceID, ManifestID: manifest.ManifestID,
+		ManifestRevision: manifest.Revision, ManifestSHA256: manifest.SHA256,
+		FirmwareVersion: "0.1.0", IdentityPublicKey: "public-key",
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDeviceV2APIPublishCommandSendsValidatedEnvelope(t *testing.T) {
+	ctx := context.Background()
+	store, err := registry.Open(ctx, filepath.Join(t.TempDir(), "registry.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	registerTestV2Device(t, store, "led-sala")
+	publisher := &v2CommandPublisherFake{}
+	api := DeviceV2API{Registry: store, CommandPublisher: publisher}
+	request := httptest.NewRequest(http.MethodPost, "/iot.gateway.api.v2.DevicePlatformService/PublishCommand", strings.NewReader(`{"deviceId":"led-sala","type":"set_led","parameters":{"on":true}}`))
+	response := httptest.NewRecorder()
+	api.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	if publisher.topic != "devices/led-sala/command" {
+		t.Errorf("topic=%q", publisher.topic)
+	}
+	if !strings.Contains(string(publisher.payload), `"on":true`) {
+		t.Errorf("payload=%s", publisher.payload)
+	}
+	if !strings.Contains(response.Body.String(), `"commandId"`) {
+		t.Errorf("response body=%s", response.Body.String())
+	}
+}
+
+func TestDeviceV2APIPublishCommandRejectsUndeclaredCommand(t *testing.T) {
+	ctx := context.Background()
+	store, err := registry.Open(ctx, filepath.Join(t.TempDir(), "registry.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	registerTestV2Device(t, store, "led-sala")
+	publisher := &v2CommandPublisherFake{}
+	api := DeviceV2API{Registry: store, CommandPublisher: publisher}
+	request := httptest.NewRequest(http.MethodPost, "/iot.gateway.api.v2.DevicePlatformService/PublishCommand", strings.NewReader(`{"deviceId":"led-sala","type":"reboot","parameters":{}}`))
+	response := httptest.NewRecorder()
+	api.ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	if publisher.topic != "" {
+		t.Fatalf("publisher should not have been called, got topic=%q", publisher.topic)
+	}
+}
+
+func TestDeviceV2APIPublishCommandRejectsInvalidParameters(t *testing.T) {
+	ctx := context.Background()
+	store, err := registry.Open(ctx, filepath.Join(t.TempDir(), "registry.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	registerTestV2Device(t, store, "led-sala")
+	publisher := &v2CommandPublisherFake{}
+	api := DeviceV2API{Registry: store, CommandPublisher: publisher}
+	request := httptest.NewRequest(http.MethodPost, "/iot.gateway.api.v2.DevicePlatformService/PublishCommand", strings.NewReader(`{"deviceId":"led-sala","type":"set_led","parameters":{}}`))
+	response := httptest.NewRecorder()
+	api.ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	if publisher.topic != "" {
+		t.Fatalf("publisher should not have been called, got topic=%q", publisher.topic)
+	}
+}
+
+func TestDeviceV2APIPublishCommandUnknownDevice(t *testing.T) {
+	ctx := context.Background()
+	store, err := registry.Open(ctx, filepath.Join(t.TempDir(), "registry.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	api := DeviceV2API{Registry: store, CommandPublisher: &v2CommandPublisherFake{}}
+	request := httptest.NewRequest(http.MethodPost, "/iot.gateway.api.v2.DevicePlatformService/PublishCommand", strings.NewReader(`{"deviceId":"nope","type":"set_led","parameters":{"on":true}}`))
+	response := httptest.NewRecorder()
+	api.ServeHTTP(response, request)
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+}

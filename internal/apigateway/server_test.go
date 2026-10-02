@@ -102,6 +102,8 @@ type fakeDeviceAdmin struct {
 	listRulesErr      error
 	createdRule       registry.AutomationRule
 	createRuleErr     error
+	updatedRule       registry.AutomationRule
+	updateRuleErr     error
 	setRuleEnabled    registry.AutomationRule
 	setRuleEnabledErr error
 	setRuleEnabledID  string
@@ -225,6 +227,13 @@ func (f *fakeDeviceAdmin) CreateAutomationRule(ctx context.Context, rule registr
 	defer f.mu.Unlock()
 	f.createdRule = rule
 	return f.createdRule, f.createRuleErr
+}
+
+func (f *fakeDeviceAdmin) UpdateAutomationRule(ctx context.Context, rule registry.AutomationRule) (registry.AutomationRule, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.updatedRule = rule
+	return f.updatedRule, f.updateRuleErr
 }
 
 func (f *fakeDeviceAdmin) SetAutomationRuleEnabled(ctx context.Context, id string, enabled bool) (registry.AutomationRule, error) {
@@ -803,6 +812,29 @@ func TestDeviceAdminService_CreateAutomationRuleAlreadyExists(t *testing.T) {
 	}}))
 	if connect.CodeOf(err) != connect.CodeAlreadyExists {
 		t.Errorf("code = %v, want AlreadyExists", connect.CodeOf(err))
+	}
+}
+
+func TestDeviceAdminService_UpdateAutomationRule(t *testing.T) {
+	backend, _ := newFakeInternalAPI(t)
+	rule := registry.AutomationRule{
+		ID: "led1-to-led2", Enabled: true, SourceDeviceID: "led-1", EventType: "button_released",
+		ConditionJSON:  `{"==":[{"var":"pressed"},false]}`,
+		ActionDeviceID: "led-2", ActionCommandType: "set_led", ActionParametersJSON: `{"on":false}`,
+	}
+	fake := &fakeDeviceAdmin{updatedRule: rule}
+	ts := newTestGatewayWithAdmin(t, backend.URL, nil, fake)
+
+	updated, err := connectClient(ts).UpdateAutomationRule(context.Background(), authedRequest(&apiv1.UpdateAutomationRuleRequest{Rule: &apiv1.AutomationRule{
+		Id: rule.ID, Enabled: rule.Enabled, SourceDeviceId: rule.SourceDeviceID, EventType: rule.EventType,
+		ConditionJson: rule.ConditionJSON, ActionDeviceId: rule.ActionDeviceID, ActionCommandType: rule.ActionCommandType,
+		ActionParametersJson: rule.ActionParametersJSON,
+	}}))
+	if err != nil {
+		t.Fatalf("UpdateAutomationRule() error = %v", err)
+	}
+	if updated.Msg.GetRule().GetEventType() != rule.EventType || fake.updatedRule.ActionParametersJSON != rule.ActionParametersJSON {
+		t.Errorf("response = %#v, updatedRule = %#v", updated.Msg, fake.updatedRule)
 	}
 }
 

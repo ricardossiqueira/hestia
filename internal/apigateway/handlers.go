@@ -376,6 +376,23 @@ func (s *Server) CreateAutomationRule(ctx context.Context, req *connect.Request[
 	return connect.NewResponse(&apiv1.CreateAutomationRuleResponse{Rule: automationRuleToProto(created), AppliedAt: timestamppb.Now()}), nil
 }
 
+// UpdateAutomationRule replaces a rule's mutable trigger, condition, action
+// and enabled state while retaining its stable ID and creation timestamp.
+func (s *Server) UpdateAutomationRule(ctx context.Context, req *connect.Request[apiv1.UpdateAutomationRuleRequest]) (*connect.Response[apiv1.UpdateAutomationRuleResponse], error) {
+	rule, err := automationRuleFromProto(req.Msg.GetRule())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	updated, err := s.cfg.Admin.UpdateAutomationRule(ctx, rule)
+	if err != nil {
+		if errors.Is(err, registry.ErrAutomationRuleNotFound) {
+			return nil, connect.NewError(connect.CodeNotFound, err)
+		}
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	return connect.NewResponse(&apiv1.UpdateAutomationRuleResponse{Rule: automationRuleToProto(updated), AppliedAt: timestamppb.Now()}), nil
+}
+
 func (s *Server) SetAutomationRuleEnabled(ctx context.Context, req *connect.Request[apiv1.SetAutomationRuleEnabledRequest]) (*connect.Response[apiv1.SetAutomationRuleEnabledResponse], error) {
 	rule, err := s.cfg.Admin.SetAutomationRuleEnabled(ctx, req.Msg.GetRuleId(), req.Msg.GetEnabled())
 	if err != nil {

@@ -398,7 +398,10 @@ func runAdmin(args []string, stderr io.Writer) int {
 		return 1
 	}
 	discoveryInbox := devicev2.NewInbox(0)
-	deviceV2 := apigateway.DeviceV2API{Inbox: discoveryInbox, Registry: deviceRegistry}
+	deviceV2 := apigateway.DeviceV2API{
+		Inbox: discoveryInbox, Registry: deviceRegistry,
+		CommandPublisher: apigateway.InternalCommandPublisher{BaseURL: "http://" + cfg.API.InternalAddress},
+	}
 	if manager, ok := credentials.(*dynsec.Manager); ok && deviceMQTTHost != "" {
 		deviceV2.Registrar = admin.V2RegistrationCoordinator{
 			Registry: deviceRegistry, Credentials: manager, Provisioner: devicev2.SessionClient{},

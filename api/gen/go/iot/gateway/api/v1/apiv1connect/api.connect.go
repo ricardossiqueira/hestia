@@ -118,6 +118,9 @@ const (
 	// DeviceAdminServiceCreateAutomationRuleProcedure is the fully-qualified name of the
 	// DeviceAdminService's CreateAutomationRule RPC.
 	DeviceAdminServiceCreateAutomationRuleProcedure = "/iot.gateway.api.v1.DeviceAdminService/CreateAutomationRule"
+	// DeviceAdminServiceUpdateAutomationRuleProcedure is the fully-qualified name of the
+	// DeviceAdminService's UpdateAutomationRule RPC.
+	DeviceAdminServiceUpdateAutomationRuleProcedure = "/iot.gateway.api.v1.DeviceAdminService/UpdateAutomationRule"
 	// DeviceAdminServiceSetAutomationRuleEnabledProcedure is the fully-qualified name of the
 	// DeviceAdminService's SetAutomationRuleEnabled RPC.
 	DeviceAdminServiceSetAutomationRuleEnabledProcedure = "/iot.gateway.api.v1.DeviceAdminService/SetAutomationRuleEnabled"
@@ -517,10 +520,10 @@ type DeviceAdminServiceClient interface {
 	ResolveInconsistency(context.Context, *connect.Request[v1.ResolveInconsistencyRequest]) (*connect.Response[v1.ResolveInconsistencyResponse], error)
 	// Automation rules (Marco 5, docs/device-manifests.md): "when source
 	// device emits event_type, if condition passes, publish this command to
-	// action device". No Update/Get RPC yet - editing means remove and
-	// recreate, the same model routes already use.
+	// action device". Rules are edited in place; their ID is immutable.
 	ListAutomationRules(context.Context, *connect.Request[v1.ListAutomationRulesRequest]) (*connect.Response[v1.ListAutomationRulesResponse], error)
 	CreateAutomationRule(context.Context, *connect.Request[v1.CreateAutomationRuleRequest]) (*connect.Response[v1.CreateAutomationRuleResponse], error)
+	UpdateAutomationRule(context.Context, *connect.Request[v1.UpdateAutomationRuleRequest]) (*connect.Response[v1.UpdateAutomationRuleResponse], error)
 	SetAutomationRuleEnabled(context.Context, *connect.Request[v1.SetAutomationRuleEnabledRequest]) (*connect.Response[v1.SetAutomationRuleEnabledResponse], error)
 	RemoveAutomationRule(context.Context, *connect.Request[v1.RemoveAutomationRuleRequest]) (*connect.Response[v1.RemoveAutomationRuleResponse], error)
 }
@@ -644,6 +647,12 @@ func NewDeviceAdminServiceClient(httpClient connect.HTTPClient, baseURL string, 
 			connect.WithSchema(deviceAdminServiceMethods.ByName("CreateAutomationRule")),
 			connect.WithClientOptions(opts...),
 		),
+		updateAutomationRule: connect.NewClient[v1.UpdateAutomationRuleRequest, v1.UpdateAutomationRuleResponse](
+			httpClient,
+			baseURL+DeviceAdminServiceUpdateAutomationRuleProcedure,
+			connect.WithSchema(deviceAdminServiceMethods.ByName("UpdateAutomationRule")),
+			connect.WithClientOptions(opts...),
+		),
 		setAutomationRuleEnabled: connect.NewClient[v1.SetAutomationRuleEnabledRequest, v1.SetAutomationRuleEnabledResponse](
 			httpClient,
 			baseURL+DeviceAdminServiceSetAutomationRuleEnabledProcedure,
@@ -679,6 +688,7 @@ type deviceAdminServiceClient struct {
 	resolveInconsistency              *connect.Client[v1.ResolveInconsistencyRequest, v1.ResolveInconsistencyResponse]
 	listAutomationRules               *connect.Client[v1.ListAutomationRulesRequest, v1.ListAutomationRulesResponse]
 	createAutomationRule              *connect.Client[v1.CreateAutomationRuleRequest, v1.CreateAutomationRuleResponse]
+	updateAutomationRule              *connect.Client[v1.UpdateAutomationRuleRequest, v1.UpdateAutomationRuleResponse]
 	setAutomationRuleEnabled          *connect.Client[v1.SetAutomationRuleEnabledRequest, v1.SetAutomationRuleEnabledResponse]
 	removeAutomationRule              *connect.Client[v1.RemoveAutomationRuleRequest, v1.RemoveAutomationRuleResponse]
 }
@@ -775,6 +785,11 @@ func (c *deviceAdminServiceClient) CreateAutomationRule(ctx context.Context, req
 	return c.createAutomationRule.CallUnary(ctx, req)
 }
 
+// UpdateAutomationRule calls iot.gateway.api.v1.DeviceAdminService.UpdateAutomationRule.
+func (c *deviceAdminServiceClient) UpdateAutomationRule(ctx context.Context, req *connect.Request[v1.UpdateAutomationRuleRequest]) (*connect.Response[v1.UpdateAutomationRuleResponse], error) {
+	return c.updateAutomationRule.CallUnary(ctx, req)
+}
+
 // SetAutomationRuleEnabled calls iot.gateway.api.v1.DeviceAdminService.SetAutomationRuleEnabled.
 func (c *deviceAdminServiceClient) SetAutomationRuleEnabled(ctx context.Context, req *connect.Request[v1.SetAutomationRuleEnabledRequest]) (*connect.Response[v1.SetAutomationRuleEnabledResponse], error) {
 	return c.setAutomationRuleEnabled.CallUnary(ctx, req)
@@ -819,10 +834,10 @@ type DeviceAdminServiceHandler interface {
 	ResolveInconsistency(context.Context, *connect.Request[v1.ResolveInconsistencyRequest]) (*connect.Response[v1.ResolveInconsistencyResponse], error)
 	// Automation rules (Marco 5, docs/device-manifests.md): "when source
 	// device emits event_type, if condition passes, publish this command to
-	// action device". No Update/Get RPC yet - editing means remove and
-	// recreate, the same model routes already use.
+	// action device". Rules are edited in place; their ID is immutable.
 	ListAutomationRules(context.Context, *connect.Request[v1.ListAutomationRulesRequest]) (*connect.Response[v1.ListAutomationRulesResponse], error)
 	CreateAutomationRule(context.Context, *connect.Request[v1.CreateAutomationRuleRequest]) (*connect.Response[v1.CreateAutomationRuleResponse], error)
+	UpdateAutomationRule(context.Context, *connect.Request[v1.UpdateAutomationRuleRequest]) (*connect.Response[v1.UpdateAutomationRuleResponse], error)
 	SetAutomationRuleEnabled(context.Context, *connect.Request[v1.SetAutomationRuleEnabledRequest]) (*connect.Response[v1.SetAutomationRuleEnabledResponse], error)
 	RemoveAutomationRule(context.Context, *connect.Request[v1.RemoveAutomationRuleRequest]) (*connect.Response[v1.RemoveAutomationRuleResponse], error)
 }
@@ -942,6 +957,12 @@ func NewDeviceAdminServiceHandler(svc DeviceAdminServiceHandler, opts ...connect
 		connect.WithSchema(deviceAdminServiceMethods.ByName("CreateAutomationRule")),
 		connect.WithHandlerOptions(opts...),
 	)
+	deviceAdminServiceUpdateAutomationRuleHandler := connect.NewUnaryHandler(
+		DeviceAdminServiceUpdateAutomationRuleProcedure,
+		svc.UpdateAutomationRule,
+		connect.WithSchema(deviceAdminServiceMethods.ByName("UpdateAutomationRule")),
+		connect.WithHandlerOptions(opts...),
+	)
 	deviceAdminServiceSetAutomationRuleEnabledHandler := connect.NewUnaryHandler(
 		DeviceAdminServiceSetAutomationRuleEnabledProcedure,
 		svc.SetAutomationRuleEnabled,
@@ -992,6 +1013,8 @@ func NewDeviceAdminServiceHandler(svc DeviceAdminServiceHandler, opts ...connect
 			deviceAdminServiceListAutomationRulesHandler.ServeHTTP(w, r)
 		case DeviceAdminServiceCreateAutomationRuleProcedure:
 			deviceAdminServiceCreateAutomationRuleHandler.ServeHTTP(w, r)
+		case DeviceAdminServiceUpdateAutomationRuleProcedure:
+			deviceAdminServiceUpdateAutomationRuleHandler.ServeHTTP(w, r)
 		case DeviceAdminServiceSetAutomationRuleEnabledProcedure:
 			deviceAdminServiceSetAutomationRuleEnabledHandler.ServeHTTP(w, r)
 		case DeviceAdminServiceRemoveAutomationRuleProcedure:
@@ -1075,6 +1098,10 @@ func (UnimplementedDeviceAdminServiceHandler) ListAutomationRules(context.Contex
 
 func (UnimplementedDeviceAdminServiceHandler) CreateAutomationRule(context.Context, *connect.Request[v1.CreateAutomationRuleRequest]) (*connect.Response[v1.CreateAutomationRuleResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("iot.gateway.api.v1.DeviceAdminService.CreateAutomationRule is not implemented"))
+}
+
+func (UnimplementedDeviceAdminServiceHandler) UpdateAutomationRule(context.Context, *connect.Request[v1.UpdateAutomationRuleRequest]) (*connect.Response[v1.UpdateAutomationRuleResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("iot.gateway.api.v1.DeviceAdminService.UpdateAutomationRule is not implemented"))
 }
 
 func (UnimplementedDeviceAdminServiceHandler) SetAutomationRuleEnabled(context.Context, *connect.Request[v1.SetAutomationRuleEnabledRequest]) (*connect.Response[v1.SetAutomationRuleEnabledResponse], error) {

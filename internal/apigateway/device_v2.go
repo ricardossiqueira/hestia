@@ -6,9 +6,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/ricardossiqueira/iot-gateway/internal/devicev2"
 	"github.com/ricardossiqueira/iot-gateway/internal/registry"
@@ -18,9 +21,20 @@ import (
 // secret-bearing provision request or broker password. The root/admin process
 // supplies a discovery inbox populated by its mDNS adapter.
 type DeviceV2API struct {
-	Inbox     *devicev2.Inbox
-	Registry  *registry.Store
-	Registrar V2DeviceRegistrar
+	Inbox            *devicev2.Inbox
+	Registry         *registry.Store
+	Registrar        V2DeviceRegistrar
+	CommandPublisher V2CommandPublisher
+}
+
+// V2CommandPublisher sends an already-validated command envelope to a v2
+// device's MQTT command topic. This (root) process has no live MQTT
+// connection of its own (ADR-009) - the concrete implementation
+// (InternalCommandPublisher) reaches the sandboxed process's loopback-only
+// publish endpoint instead, the same way DeviceService is reverse-proxied
+// there for v1.
+type V2CommandPublisher interface {
+	Publish(ctx context.Context, topic string, payload []byte) error
 }
 
 // V2DeviceRegistrar is the privileged transaction behind the authenticated
@@ -48,6 +62,8 @@ func (a DeviceV2API) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		a.listAutomationRules(r.Context(), w)
 	case "/iot.gateway.api.v2.DevicePlatformService/CreateAutomationRule":
 		a.createAutomationRule(r.Context(), w, r)
+	case "/iot.gateway.api.v2.DevicePlatformService/PublishCommand":
+		a.publishCommand(r.Context(), w, r)
 	default:
 		v2Error(w, http.StatusNotFound, "unknown v2 method")
 	}
@@ -152,6 +168,71 @@ func (a DeviceV2API) getDevice(ctx context.Context, w http.ResponseWriter, r *ht
 	v2JSON(w, 200, v2Device(d, m))
 }
 
+// publishCommand validates {deviceId, type, parameters} against the
+// device's bound manifest (the same contract RegisterDiscoveredDevice
+// accepted) and publishes a fire-and-forget command - same validate-then-
+// publish shape as v1's DeviceService.PublishCommand, but resolving the
+// device via the v2 registry instead of config.Device, and reaching MQTT
+// through CommandPublisher instead of a direct connection this process
+// does not have.
+func (a DeviceV2API) publishCommand(ctx context.Context, w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		DeviceID   string          `json:"deviceId"`
+		Type       string          `json:"type"`
+		Parameters json.RawMessage `json:"parameters"`
+	}
+	if !v2Decode(r, &request) {
+		v2Error(w, http.StatusBadRequest, "invalid command request")
+		return
+	}
+	if a.Registry == nil || a.CommandPublisher == nil {
+		v2Error(w, http.StatusServiceUnavailable, "device platform is unavailable")
+		return
+	}
+	device, err := a.Registry.GetV2Device(ctx, request.DeviceID)
+	if errors.Is(err, registry.ErrV2DeviceNotFound) {
+		v2Error(w, http.StatusNotFound, "device not found")
+		return
+	} else if err != nil {
+		v2Error(w, 500, err.Error())
+		return
+	}
+	manifest, ok, err := a.Registry.ResolveV2Manifest(ctx, device.DeviceID)
+	if err != nil || !ok {
+		v2Error(w, 500, "bound manifest missing")
+		return
+	}
+	command, ok := manifest.Command(request.Type)
+	if !ok {
+		v2Error(w, http.StatusBadRequest, fmt.Sprintf("device does not accept command %q", request.Type))
+		return
+	}
+	parameters := request.Parameters
+	if len(parameters) == 0 {
+		parameters = json.RawMessage("{}")
+	}
+	validated, err := devicev2.ValidateFields(command.Parameters, parameters)
+	if err != nil {
+		v2Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	commandID := uuid.NewString()
+	payload, err := json.Marshal(struct {
+		CommandID  string          `json:"command_id"`
+		Type       string          `json:"type"`
+		Parameters json.RawMessage `json:"parameters"`
+	}{CommandID: commandID, Type: request.Type, Parameters: validated})
+	if err != nil {
+		v2Error(w, 500, err.Error())
+		return
+	}
+	topic := "devices/" + device.DeviceID + "/command"
+	if err := a.CommandPublisher.Publish(ctx, topic, payload); err != nil {
+		v2Error(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	v2JSON(w, http.StatusOK, map[string]any{"commandId": commandID, "publishedAt": time.Now().UTC().Format(time.RFC3339)})
+}
 func (a DeviceV2API) listAutomationRules(ctx context.Context, w http.ResponseWriter) {
 	if a.Registry == nil {
 		v2Error(w, http.StatusServiceUnavailable, "device platform is unavailable")

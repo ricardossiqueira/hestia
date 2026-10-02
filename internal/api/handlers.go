@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"strings"
 
 	"connectrpc.com/connect"
@@ -170,6 +172,35 @@ func (s *Server) PublishCommand(ctx context.Context, req *connect.Request[apiv1.
 		SchemaValidated: schemaValidated,
 		PublishedAt:     timestamppb.Now(),
 	}), nil
+}
+
+// handleV2PublishCommand is plain JSON over HTTP, not Connect-RPC, matching
+// internal/apigateway/device_v2.go's style - it is the only caller, reaching
+// this over the loopback internal_address (see this package's doc comment
+// and ADR-009). The caller has already resolved the v2 device, validated
+// the command against its manifest and built the final envelope; this only
+// publishes it, via CommandPublisher.PublishRaw.
+func (s *Server) handleV2PublishCommand(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	var request struct {
+		Topic   string          `json:"topic"`
+		Payload json.RawMessage `json:"payload"`
+	}
+	decoder := json.NewDecoder(io.LimitReader(r.Body, 16<<10))
+	if err := decoder.Decode(&request); err != nil || strings.TrimSpace(request.Topic) == "" || len(request.Payload) == 0 {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	if err := s.publisher.PublishRaw(r.Context(), request.Topic, request.Payload); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadGateway)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // GetDeviceTelemetry returns the most recently accepted Telemetry-kind

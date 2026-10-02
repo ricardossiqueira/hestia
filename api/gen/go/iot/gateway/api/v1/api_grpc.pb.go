@@ -549,6 +549,7 @@ const (
 	DeviceAdminService_ResolveInconsistency_FullMethodName              = "/iot.gateway.api.v1.DeviceAdminService/ResolveInconsistency"
 	DeviceAdminService_ListAutomationRules_FullMethodName               = "/iot.gateway.api.v1.DeviceAdminService/ListAutomationRules"
 	DeviceAdminService_CreateAutomationRule_FullMethodName              = "/iot.gateway.api.v1.DeviceAdminService/CreateAutomationRule"
+	DeviceAdminService_UpdateAutomationRule_FullMethodName              = "/iot.gateway.api.v1.DeviceAdminService/UpdateAutomationRule"
 	DeviceAdminService_SetAutomationRuleEnabled_FullMethodName          = "/iot.gateway.api.v1.DeviceAdminService/SetAutomationRuleEnabled"
 	DeviceAdminService_RemoveAutomationRule_FullMethodName              = "/iot.gateway.api.v1.DeviceAdminService/RemoveAutomationRule"
 )
@@ -595,10 +596,10 @@ type DeviceAdminServiceClient interface {
 	ResolveInconsistency(ctx context.Context, in *ResolveInconsistencyRequest, opts ...grpc.CallOption) (*ResolveInconsistencyResponse, error)
 	// Automation rules (Marco 5, docs/device-manifests.md): "when source
 	// device emits event_type, if condition passes, publish this command to
-	// action device". No Update/Get RPC yet - editing means remove and
-	// recreate, the same model routes already use.
+	// action device". Rules are edited in place; their ID is immutable.
 	ListAutomationRules(ctx context.Context, in *ListAutomationRulesRequest, opts ...grpc.CallOption) (*ListAutomationRulesResponse, error)
 	CreateAutomationRule(ctx context.Context, in *CreateAutomationRuleRequest, opts ...grpc.CallOption) (*CreateAutomationRuleResponse, error)
+	UpdateAutomationRule(ctx context.Context, in *UpdateAutomationRuleRequest, opts ...grpc.CallOption) (*UpdateAutomationRuleResponse, error)
 	SetAutomationRuleEnabled(ctx context.Context, in *SetAutomationRuleEnabledRequest, opts ...grpc.CallOption) (*SetAutomationRuleEnabledResponse, error)
 	RemoveAutomationRule(ctx context.Context, in *RemoveAutomationRuleRequest, opts ...grpc.CallOption) (*RemoveAutomationRuleResponse, error)
 }
@@ -791,6 +792,16 @@ func (c *deviceAdminServiceClient) CreateAutomationRule(ctx context.Context, in 
 	return out, nil
 }
 
+func (c *deviceAdminServiceClient) UpdateAutomationRule(ctx context.Context, in *UpdateAutomationRuleRequest, opts ...grpc.CallOption) (*UpdateAutomationRuleResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UpdateAutomationRuleResponse)
+	err := c.cc.Invoke(ctx, DeviceAdminService_UpdateAutomationRule_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *deviceAdminServiceClient) SetAutomationRuleEnabled(ctx context.Context, in *SetAutomationRuleEnabledRequest, opts ...grpc.CallOption) (*SetAutomationRuleEnabledResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(SetAutomationRuleEnabledResponse)
@@ -853,10 +864,10 @@ type DeviceAdminServiceServer interface {
 	ResolveInconsistency(context.Context, *ResolveInconsistencyRequest) (*ResolveInconsistencyResponse, error)
 	// Automation rules (Marco 5, docs/device-manifests.md): "when source
 	// device emits event_type, if condition passes, publish this command to
-	// action device". No Update/Get RPC yet - editing means remove and
-	// recreate, the same model routes already use.
+	// action device". Rules are edited in place; their ID is immutable.
 	ListAutomationRules(context.Context, *ListAutomationRulesRequest) (*ListAutomationRulesResponse, error)
 	CreateAutomationRule(context.Context, *CreateAutomationRuleRequest) (*CreateAutomationRuleResponse, error)
+	UpdateAutomationRule(context.Context, *UpdateAutomationRuleRequest) (*UpdateAutomationRuleResponse, error)
 	SetAutomationRuleEnabled(context.Context, *SetAutomationRuleEnabledRequest) (*SetAutomationRuleEnabledResponse, error)
 	RemoveAutomationRule(context.Context, *RemoveAutomationRuleRequest) (*RemoveAutomationRuleResponse, error)
 }
@@ -921,6 +932,9 @@ func (UnimplementedDeviceAdminServiceServer) ListAutomationRules(context.Context
 }
 func (UnimplementedDeviceAdminServiceServer) CreateAutomationRule(context.Context, *CreateAutomationRuleRequest) (*CreateAutomationRuleResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreateAutomationRule not implemented")
+}
+func (UnimplementedDeviceAdminServiceServer) UpdateAutomationRule(context.Context, *UpdateAutomationRuleRequest) (*UpdateAutomationRuleResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UpdateAutomationRule not implemented")
 }
 func (UnimplementedDeviceAdminServiceServer) SetAutomationRuleEnabled(context.Context, *SetAutomationRuleEnabledRequest) (*SetAutomationRuleEnabledResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetAutomationRuleEnabled not implemented")
@@ -1272,6 +1286,24 @@ func _DeviceAdminService_CreateAutomationRule_Handler(srv interface{}, ctx conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DeviceAdminService_UpdateAutomationRule_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateAutomationRuleRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DeviceAdminServiceServer).UpdateAutomationRule(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DeviceAdminService_UpdateAutomationRule_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DeviceAdminServiceServer).UpdateAutomationRule(ctx, req.(*UpdateAutomationRuleRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _DeviceAdminService_SetAutomationRuleEnabled_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(SetAutomationRuleEnabledRequest)
 	if err := dec(in); err != nil {
@@ -1386,6 +1418,10 @@ var DeviceAdminService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CreateAutomationRule",
 			Handler:    _DeviceAdminService_CreateAutomationRule_Handler,
+		},
+		{
+			MethodName: "UpdateAutomationRule",
+			Handler:    _DeviceAdminService_UpdateAutomationRule_Handler,
 		},
 		{
 			MethodName: "SetAutomationRuleEnabled",

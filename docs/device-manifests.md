@@ -216,8 +216,8 @@ nunca receberão credenciais ou endereços uns dos outros.
   firmware.
 - [x] Só então construir a UI dedicada de automações. `DeviceAdminService`
   ganhou `ListAutomationRules`/`CreateAutomationRule`/
-  `SetAutomationRuleEnabled`/`RemoveAutomationRule` (sem `Update`/`Get`
-  — mesma filosofia de `Route`, mudar é remover e recriar) e
+  `UpdateAutomationRule`, `SetAutomationRuleEnabled` e `RemoveAutomationRule`
+  (sem `Get`; a lista atende a frota de laboratório) e
   `DeviceService` ganhou `ListDeviceEvents`. `gateway-web`'s `/automations`
   tem formulário visual de condição (subconjunto de JSONLogic, com
   fallback pra JSON cru) e reaproveita o formulário de parâmetros já usado

@@ -54,11 +54,3 @@ func TestDeviceURLFormatsIPv6Authority(t *testing.T) {
 		t.Fatalf("deviceURL() = %q, want %q", got, want)
 	}
 }
-
-func TestDeviceURLUsesDNSServiceHostname(t *testing.T) {
-	got := deviceURL(Announcement{Host: "192.0.2.9", EndpointHost: "esp32c3-led.local", Port: 8080}, "/v1/pair")
-	const want = "http://esp32c3-led.local:8080/v1/pair"
-	if got != want {
-		t.Fatalf("deviceURL() = %q, want %q", got, want)
-	}
-}

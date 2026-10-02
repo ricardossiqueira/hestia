@@ -21,8 +21,7 @@ import (
 // is not identity proof: callers must inspect and pair before registration.
 type Announcement struct {
 	DeviceUID      string
-	Host           string // Address shown to an operator.
-	EndpointHost   string // DNS-SD hostname used for HTTP; may select IPv6.
+	Host           string
 	Port           uint16
 	Model          string
 	Protocol       string
@@ -203,12 +202,14 @@ func (h HTTPInspector) Inspect(ctx context.Context, a Announcement) (DeviceInfo,
 // essential for IPv6: an unbracketed address such as fe80::1:8080 is not a
 // valid HTTP authority and would make a perfectly inspected device impossible
 // to pair after mDNS discovery.
+//
+// This dials the IP mDNS already resolved, never the DNS-SD hostname: this
+// gateway's host also runs avahi-daemon, and resolving a .local name through
+// the system resolver (getaddrinfo/systemd-resolved) contends with it for
+// the mDNS socket and fails with "device or resource busy" - a real
+// regression hit in production, not a hypothetical.
 func deviceURL(a Announcement, path string) string {
-	host := a.EndpointHost
-	if host == "" {
-		host = a.Host
-	}
-	return "http://" + net.JoinHostPort(host, strconv.Itoa(int(a.Port))) + path
+	return "http://" + net.JoinHostPort(a.Host, strconv.Itoa(int(a.Port))) + path
 }
 
 // ManifestHash is exported for fixtures and adapter tests that need to form

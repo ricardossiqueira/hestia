@@ -86,19 +86,11 @@ func announcementFromMDNS(entry *zeroconf.ServiceEntry) (Announcement, error) {
 	if host == "" {
 		return Announcement{}, errors.New("mDNS device entry has no address")
 	}
-	// Keep the address for the operator-facing discovery record, but use the
-	// DNS-SD hostname for the subsequent HTTP calls. This lets the OS choose a
-	// viable address family. In particular, the Orange Pi's Wi-Fi driver loses
-	// direct IPv4 traffic to some ESP clients while its IPv6/mDNS path works.
-	endpointHost := strings.TrimSuffix(entry.HostName, ".")
-	if endpointHost == "" {
-		endpointHost = host
-	}
 	pairing, err := strconv.ParseBool(txt["pairing"])
 	if err != nil {
 		return Announcement{}, errors.New("invalid mDNS pairing flag")
 	}
-	return Announcement{DeviceUID: txt["uid"], Host: host, EndpointHost: endpointHost, Port: uint16(entry.Port), Model: txt["model"], Protocol: txt["protocol"], Firmware: txt["firmware"], ManifestSHA256: txt["manifest_sha256"], Pairing: pairing, Status: txt["status"], Path: txt["path"]}, nil
+	return Announcement{DeviceUID: txt["uid"], Host: host, Port: uint16(entry.Port), Model: txt["model"], Protocol: txt["protocol"], Firmware: txt["firmware"], ManifestSHA256: txt["manifest_sha256"], Pairing: pairing, Status: txt["status"], Path: txt["path"]}, nil
 }
 
 func firstAddress(v4, v6 []net.IP) string {

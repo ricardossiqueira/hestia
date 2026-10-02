@@ -640,6 +640,30 @@ func (g *Gateway) PublishCommand(ctx context.Context, deviceID string, payload [
 	return nil
 }
 
+// PublishRaw publishes an already-built, already-validated command envelope
+// to an arbitrary topic, skipping the config.Device lookup PublishCommand
+// requires. It exists for v2 devices, which this sandboxed process has no
+// knowledge of at all - their manifest lives in the root process's registry
+// (see internal/apigateway/device_v2.go, which resolves the device, finds
+// the declared command and validates its parameters before ever building
+// the envelope passed here). It is reached only via internal/api's
+// loopback-only endpoint (ADR-009), never from the public edge directly.
+func (g *Gateway) PublishRaw(ctx context.Context, topic string, payload []byte) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if strings.TrimSpace(topic) == "" {
+		return errors.New("topic is required")
+	}
+	if _, err := validateCommand(payload); err != nil {
+		return fmt.Errorf("invalid command payload: %w", err)
+	}
+	if err := g.client.Publish(ctx, topic, append([]byte(nil), payload...), qosAtLeastOnce, false); err != nil {
+		return fmt.Errorf("publish command to %q: %w", topic, err)
+	}
+	return nil
+}
+
 // recordAutomationCommand is best-effort: a persistence failure never
 // unwinds an already-published command, it only surfaces through the
 // optional AutomationLogger extension (same posture as outbox failures,
