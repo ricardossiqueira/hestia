@@ -21,7 +21,8 @@ import (
 // is not identity proof: callers must inspect and pair before registration.
 type Announcement struct {
 	DeviceUID      string
-	Host           string
+	Host           string // Address shown to an operator.
+	EndpointHost   string // DNS-SD hostname used for HTTP; may select IPv6.
 	Port           uint16
 	Model          string
 	Protocol       string
@@ -203,7 +204,11 @@ func (h HTTPInspector) Inspect(ctx context.Context, a Announcement) (DeviceInfo,
 // valid HTTP authority and would make a perfectly inspected device impossible
 // to pair after mDNS discovery.
 func deviceURL(a Announcement, path string) string {
-	return "http://" + net.JoinHostPort(a.Host, strconv.Itoa(int(a.Port))) + path
+	host := a.EndpointHost
+	if host == "" {
+		host = a.Host
+	}
+	return "http://" + net.JoinHostPort(host, strconv.Itoa(int(a.Port))) + path
 }
 
 // ManifestHash is exported for fixtures and adapter tests that need to form

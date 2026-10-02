@@ -153,3 +153,14 @@ Still pending for this front:
   The Orange Pi must pull and reinstall the admin binary before the live inbox
   gains periodic rebrowse; until then a healthy device will still expire after
   90 seconds.
+
+## 2026-10-02 — DNS-SD endpoint family selection
+
+- Field evidence showed the ESP answers `GET /v1/device-info` from another
+  LAN client, while the Orange Pi times out to the IPv4 address published in
+  the same DNS-SD record. The discovery view continues to display that address
+  for diagnosis, but HTTP inspection/pairing/provisioning now target the
+  DNS-SD hostname (`esp32c3-led.local`). This lets the Pi's resolver select
+  its working IPv6 path instead of forcing IPv4.
+- Added coverage for extracting the hostname and for endpoint URL selection.
+  Verified with `go test ./internal/devicev2 -count=1`.
