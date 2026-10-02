@@ -2,6 +2,16 @@
 
 ## Current milestone
 
+**Marco 3 - secure device session client (in progress).** Updated 2026-10-01.
+
+- Closed the deterministic HKDF salt/info contract with `iot-device-core`.
+- Added a device-facing X25519/HKDF/AES-GCM client that validates Ed25519
+  device identity signatures, encrypts provisioning settings with bound AAD,
+  verifies the signed confirmation and wipes the session key after use.
+- Added an in-process HTTP device test for the pair/provision protocol.
+- Next integration step is injecting this client into the privileged
+  registration coordinator, where DynSec credentials and activation live.
+
 **Marco 2 - v2 MQTT automation runtime (complete).** Updated 2026-10-01.
 
 Completed in this milestone:
