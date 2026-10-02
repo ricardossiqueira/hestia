@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -42,6 +43,36 @@ func (s *Server) handleV2PublishCommand(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleV2DeviceTelemetry is plain JSON over HTTP, same style and only-caller
+// reasoning as handleV2PublishCommand above - internal/apigateway's
+// InternalTelemetryReader reaches this over the loopback internal_address.
+// A 204 (no body) means the device has not published telemetry since this
+// process started - not an error, see mqtt.Gateway.LastTelemetry's doc
+// comment on why there is no history to fall back to.
+func (s *Server) handleV2DeviceTelemetry(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	deviceID := strings.TrimSpace(r.URL.Query().Get("device_id"))
+	if deviceID == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	message, ok := s.telemetry.LastTelemetry(deviceID)
+	if !ok {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"messageId": message.MessageID,
+		"timestamp": message.Timestamp.UTC().Format(time.RFC3339),
+		"payload":   json.RawMessage(message.Payload),
+	})
 }
 
 // GetQueueSummary mirrors outbox.Snapshot 1:1 - the outbox's current

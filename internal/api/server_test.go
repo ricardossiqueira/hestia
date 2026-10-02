@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http/httptest"
 	"strings"
@@ -81,6 +82,15 @@ func (f *fakeEvents) RecentEvents(filter mqtt.EventFilter) ([]mqtt.ActivityEvent
 	return f.events, f.hasMore
 }
 
+type fakeTelemetry struct {
+	messages map[string]mqtt.Message
+}
+
+func (f fakeTelemetry) LastTelemetry(deviceID string) (mqtt.Message, bool) {
+	message, ok := f.messages[deviceID]
+	return message, ok
+}
+
 // newTestServer starts an httptest server directly on the Server's
 // http.Handler (bypassing Start/net.Listen, which would bind a real port)
 // so tests stay fast and hermetic. This is safe because server_test.go
@@ -92,7 +102,7 @@ func (f *fakeEvents) RecentEvents(filter mqtt.EventFilter) ([]mqtt.ActivityEvent
 func newTestServer(t *testing.T, publisher *fakePublisher, status fakeStatus, queue fakeQueue, events ...mqtt.ActivityEvent) *httptest.Server {
 	t.Helper()
 	cfg := Config{Address: "127.0.0.1:0", RequestTimeout: time.Second}
-	srv, err := New(cfg, publisher, status, queue, &fakeEvents{events: events}, nil)
+	srv, err := New(cfg, publisher, status, queue, &fakeEvents{events: events}, fakeTelemetry{}, nil)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -143,6 +153,56 @@ func TestHandleV2PublishCommand_PublisherErrorIsBadGateway(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != 502 {
 		t.Fatalf("status = %d, want 502", resp.StatusCode)
+	}
+}
+
+func TestHandleV2DeviceTelemetry_ReturnsCachedMessage(t *testing.T) {
+	timestamp := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
+	ts := newTestServerWithTelemetry(t, fakeTelemetry{messages: map[string]mqtt.Message{
+		"theia": {DeviceID: "theia", Kind: "telemetry", MessageID: "b4a5bb31-1710-4f7b-a043-1b6a292d04ad", Timestamp: timestamp, Payload: []byte(`{"message_id":"b4a5bb31-1710-4f7b-a043-1b6a292d04ad","timestamp":"2026-10-02T12:00:00Z","cpu_pct":12.5}`)},
+	}})
+	resp, err := ts.Client().Get(ts.URL + "/internal/v2/device-telemetry?device_id=theia")
+	if err != nil {
+		t.Fatalf("GET error = %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	var body struct {
+		MessageID string          `json:"messageId"`
+		Timestamp string          `json:"timestamp"`
+		Payload   json.RawMessage `json:"payload"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.MessageID != "b4a5bb31-1710-4f7b-a043-1b6a292d04ad" || body.Timestamp != "2026-10-02T12:00:00Z" || !strings.Contains(string(body.Payload), `"cpu_pct":12.5`) {
+		t.Fatalf("body = %+v", body)
+	}
+}
+
+func TestHandleV2DeviceTelemetry_UnknownDeviceIsNoContent(t *testing.T) {
+	ts := newTestServerWithTelemetry(t, fakeTelemetry{})
+	resp, err := ts.Client().Get(ts.URL + "/internal/v2/device-telemetry?device_id=theia")
+	if err != nil {
+		t.Fatalf("GET error = %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 204 {
+		t.Fatalf("status = %d, want 204", resp.StatusCode)
+	}
+}
+
+func TestHandleV2DeviceTelemetry_MissingDeviceIDIsBadRequest(t *testing.T) {
+	ts := newTestServerWithTelemetry(t, fakeTelemetry{})
+	resp, err := ts.Client().Get(ts.URL + "/internal/v2/device-telemetry")
+	if err != nil {
+		t.Fatalf("GET error = %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 400 {
+		t.Fatalf("status = %d, want 400", resp.StatusCode)
 	}
 }
 
@@ -306,6 +366,21 @@ func TestGetRecentEventsSurfacesHasMore(t *testing.T) {
 	}
 }
 
+// newTestServerWithTelemetry mirrors newTestServer but takes a pre-built
+// fakeTelemetry directly, so a test can control exactly which devices have a
+// cached message.
+func newTestServerWithTelemetry(t *testing.T, telemetry fakeTelemetry) *httptest.Server {
+	t.Helper()
+	cfg := Config{Address: "127.0.0.1:0", RequestTimeout: time.Second}
+	srv, err := New(cfg, &fakePublisher{}, fakeStatus{}, fakeQueue{}, &fakeEvents{}, telemetry, nil)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	ts := httptest.NewServer(srv.http.Handler)
+	t.Cleanup(ts.Close)
+	return ts
+}
+
 // newTestServerWithEvents mirrors newTestServer but takes a pre-built
 // *fakeEvents directly, so a test can inspect it (lastFilter, hasMore)
 // after the call - the variadic form on newTestServer can't do that since
@@ -313,7 +388,7 @@ func TestGetRecentEventsSurfacesHasMore(t *testing.T) {
 func newTestServerWithEvents(t *testing.T, events *fakeEvents) *httptest.Server {
 	t.Helper()
 	cfg := Config{Address: "127.0.0.1:0", RequestTimeout: time.Second}
-	srv, err := New(cfg, &fakePublisher{}, fakeStatus{}, fakeQueue{}, events, nil)
+	srv, err := New(cfg, &fakePublisher{}, fakeStatus{}, fakeQueue{}, events, fakeTelemetry{}, nil)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}

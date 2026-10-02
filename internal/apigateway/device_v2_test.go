@@ -3,6 +3,7 @@ package apigateway
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -176,6 +177,73 @@ func TestDeviceV2APIPublishCommandUnknownDevice(t *testing.T) {
 	response := httptest.NewRecorder()
 	api.ServeHTTP(response, request)
 	if response.Code != http.StatusNotFound {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+type v2TelemetryReaderFake struct {
+	payload   json.RawMessage
+	timestamp string
+	messageID string
+	ok        bool
+	err       error
+}
+
+func (f v2TelemetryReaderFake) LastTelemetry(context.Context, string) (json.RawMessage, string, string, bool, error) {
+	return f.payload, f.timestamp, f.messageID, f.ok, f.err
+}
+
+func TestDeviceV2APIGetDeviceTelemetryStripsEnvelopeFields(t *testing.T) {
+	reader := v2TelemetryReaderFake{ok: true, timestamp: "2026-10-02T12:00:00Z", messageID: "b4a5bb31-1710-4f7b-a043-1b6a292d04ad", payload: json.RawMessage(`{"message_id":"b4a5bb31-1710-4f7b-a043-1b6a292d04ad","timestamp":"2026-10-02T12:00:00Z","cpu_pct":12.5}`)}
+	api := DeviceV2API{Telemetry: reader}
+	request := httptest.NewRequest(http.MethodPost, "/iot.gateway.api.v2.DevicePlatformService/GetDeviceTelemetry", strings.NewReader(`{"deviceId":"theia"}`))
+	response := httptest.NewRecorder()
+	api.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	var body struct {
+		Available bool                       `json:"available"`
+		Fields    map[string]json.RawMessage `json:"fields"`
+		Timestamp string                     `json:"timestamp"`
+		MessageID string                     `json:"messageId"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if !body.Available || body.Timestamp != "2026-10-02T12:00:00Z" || body.MessageID != "b4a5bb31-1710-4f7b-a043-1b6a292d04ad" {
+		t.Fatalf("body=%+v", body)
+	}
+	if _, has := body.Fields["message_id"]; has {
+		t.Fatal("fields must not include message_id")
+	}
+	if _, has := body.Fields["timestamp"]; has {
+		t.Fatal("fields must not include timestamp")
+	}
+	if string(body.Fields["cpu_pct"]) != "12.5" {
+		t.Fatalf("fields.cpu_pct = %s", body.Fields["cpu_pct"])
+	}
+}
+
+func TestDeviceV2APIGetDeviceTelemetryNotAvailable(t *testing.T) {
+	api := DeviceV2API{Telemetry: v2TelemetryReaderFake{ok: false}}
+	request := httptest.NewRequest(http.MethodPost, "/iot.gateway.api.v2.DevicePlatformService/GetDeviceTelemetry", strings.NewReader(`{"deviceId":"theia"}`))
+	response := httptest.NewRecorder()
+	api.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), `"available":false`) {
+		t.Fatalf("body=%s", response.Body.String())
+	}
+}
+
+func TestDeviceV2APIGetDeviceTelemetryReaderErrorIsBadGateway(t *testing.T) {
+	api := DeviceV2API{Telemetry: v2TelemetryReaderFake{err: errors.New("internal API unreachable")}}
+	request := httptest.NewRequest(http.MethodPost, "/iot.gateway.api.v2.DevicePlatformService/GetDeviceTelemetry", strings.NewReader(`{"deviceId":"theia"}`))
+	response := httptest.NewRecorder()
+	api.ServeHTTP(response, request)
+	if response.Code != http.StatusBadGateway {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
 }

@@ -237,7 +237,7 @@ func runGateway(args []string, stderr io.Writer) int {
 		apiServer, err = api.New(api.Config{
 			Address:        cfg.API.InternalAddress,
 			RequestTimeout: apiRequestTimeout,
-		}, gateway, gateway, store, gateway, logger)
+		}, gateway, gateway, store, gateway, gateway, logger)
 		if err != nil {
 			fmt.Fprintf(stderr, "api setup failed: %v\n", err)
 			gateway.Close()
@@ -332,6 +332,7 @@ func runAdmin(args []string, stderr io.Writer) int {
 	deviceV2 := apigateway.DeviceV2API{
 		Inbox: discoveryInbox, Registry: deviceRegistry,
 		CommandPublisher: apigateway.InternalCommandPublisher{BaseURL: "http://" + cfg.API.InternalAddress},
+		Telemetry:        apigateway.InternalTelemetryReader{BaseURL: "http://" + cfg.API.InternalAddress},
 	}
 	if credentials != nil && deviceMQTTHost != "" {
 		deviceV2.Registrar = admin.V2RegistrationCoordinator{

@@ -117,6 +117,9 @@ func (g *Gateway) handleV2Message(ctx context.Context, topic string, payload []b
 	g.acceptedMessages.Add(1)
 	g.logger.Accepted(ctx, message)
 	g.recordEvent(ActivityEvent{Timestamp: message.Timestamp, DeviceID: message.DeviceID, Kind: message.Kind, Topic: topic, Outcome: "accepted"})
+	if route.channel == "telemetry" {
+		g.recordTelemetry(message)
+	}
 	g.fireV2AutomationRules(ctx, store, route, message)
 }
 

@@ -145,6 +145,10 @@ type Gateway struct {
 	recentEvents []ActivityEvent
 	nextEventSeq uint64
 
+	// telemetryMu guards lastTelemetry - see v2_telemetry.go.
+	telemetryMu   sync.RWMutex
+	lastTelemetry map[string]Message
+
 	acceptedMessages     atomic.Uint64
 	rejectedMessages     atomic.Uint64
 	localRoutesPublished atomic.Uint64

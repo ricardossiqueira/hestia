@@ -25,6 +25,7 @@ type DeviceV2API struct {
 	Registry         *registry.Store
 	Registrar        V2DeviceRegistrar
 	CommandPublisher V2CommandPublisher
+	Telemetry        V2TelemetryReader
 }
 
 // V2CommandPublisher sends an already-validated command envelope to a v2
@@ -42,6 +43,13 @@ type V2CommandPublisher interface {
 // admin.V2RegistrationCoordinator satisfies this capability in runAdmin.
 type V2DeviceRegistrar interface {
 	Register(context.Context, devicev2.DiscoveryEntry, string) (registry.V2Device, error)
+}
+
+// V2TelemetryReader reads the last cached "telemetry" message for a device
+// from the sandboxed process holding the live MQTT connection.
+// InternalTelemetryReader satisfies this capability in runAdmin.
+type V2TelemetryReader interface {
+	LastTelemetry(ctx context.Context, deviceID string) (payload json.RawMessage, timestamp, messageID string, ok bool, err error)
 }
 
 func (a DeviceV2API) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -64,6 +72,8 @@ func (a DeviceV2API) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		a.createAutomationRule(r.Context(), w, r)
 	case "/iot.gateway.api.v2.DevicePlatformService/PublishCommand":
 		a.publishCommand(r.Context(), w, r)
+	case "/iot.gateway.api.v2.DevicePlatformService/GetDeviceTelemetry":
+		a.getDeviceTelemetry(r.Context(), w, r)
 	default:
 		v2Error(w, http.StatusNotFound, "unknown v2 method")
 	}
@@ -166,6 +176,52 @@ func (a DeviceV2API) getDevice(ctx context.Context, w http.ResponseWriter, r *ht
 		return
 	}
 	v2JSON(w, 200, v2Device(d, m))
+}
+
+// getDeviceTelemetry always answers 200: "available: false" is the normal,
+// expected state before a device's first publish or after a gateway
+// restart (the cache is in-memory only, see mqtt.Gateway.LastTelemetry) -
+// not an error condition the caller needs to branch on via status code.
+func (a DeviceV2API) getDeviceTelemetry(ctx context.Context, w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		DeviceID string `json:"deviceId"`
+	}
+	if !v2Decode(r, &request) {
+		v2Error(w, http.StatusBadRequest, "invalid device telemetry request")
+		return
+	}
+	if a.Telemetry == nil {
+		v2Error(w, http.StatusServiceUnavailable, "device telemetry is unavailable")
+		return
+	}
+	payload, timestamp, messageID, ok, err := a.Telemetry.LastTelemetry(ctx, request.DeviceID)
+	if err != nil {
+		v2Error(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	if !ok {
+		v2JSON(w, http.StatusOK, map[string]any{"available": false})
+		return
+	}
+	fields, err := telemetryFields(payload)
+	if err != nil {
+		v2Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	v2JSON(w, http.StatusOK, map[string]any{"available": true, "fields": fields, "timestamp": timestamp, "messageId": messageID})
+}
+
+// telemetryFields strips the envelope fields (message_id, timestamp) that
+// internal/mqtt's validation already consumed, leaving only the domain
+// fields the manifest's telemetry schema declares.
+func telemetryFields(payload json.RawMessage) (map[string]json.RawMessage, error) {
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(payload, &object); err != nil {
+		return nil, fmt.Errorf("decode telemetry payload: %w", err)
+	}
+	delete(object, "message_id")
+	delete(object, "timestamp")
+	return object, nil
 }
 
 // publishCommand validates {deviceId, type, parameters} against the

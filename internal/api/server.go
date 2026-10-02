@@ -66,6 +66,13 @@ type EventProvider interface {
 	RecentEvents(filter mqtt.EventFilter) (events []mqtt.ActivityEvent, hasMore bool)
 }
 
+// TelemetryProvider is the one capability this package needs to serve
+// /internal/v2/device-telemetry - satisfied structurally by *mqtt.Gateway
+// already, same pattern as EventProvider/StatusProvider.
+type TelemetryProvider interface {
+	LastTelemetry(deviceID string) (mqtt.Message, bool)
+}
+
 // Config is everything the API server needs to run.
 type Config struct {
 	// Address is api.internal_address - a loopback address only
@@ -82,11 +89,12 @@ type Server struct {
 	status    StatusProvider
 	queue     QueueProvider
 	events    EventProvider
+	telemetry TelemetryProvider
 	logger    *slog.Logger
 	http      *http.Server
 }
 
-func New(cfg Config, publisher CommandPublisher, status StatusProvider, queue QueueProvider, events EventProvider, logger *slog.Logger) (*Server, error) {
+func New(cfg Config, publisher CommandPublisher, status StatusProvider, queue QueueProvider, events EventProvider, telemetry TelemetryProvider, logger *slog.Logger) (*Server, error) {
 	if strings.TrimSpace(cfg.Address) == "" {
 		return nil, errors.New("api address is required")
 	}
@@ -102,6 +110,9 @@ func New(cfg Config, publisher CommandPublisher, status StatusProvider, queue Qu
 	if events == nil {
 		return nil, errors.New("api event provider is required")
 	}
+	if telemetry == nil {
+		return nil, errors.New("api telemetry provider is required")
+	}
 	if cfg.RequestTimeout <= 0 {
 		cfg.RequestTimeout = 10 * time.Second
 	}
@@ -115,6 +126,7 @@ func New(cfg Config, publisher CommandPublisher, status StatusProvider, queue Qu
 		status:    status,
 		queue:     queue,
 		events:    events,
+		telemetry: telemetry,
 		logger:    logger,
 	}
 
@@ -122,6 +134,7 @@ func New(cfg Config, publisher CommandPublisher, status StatusProvider, queue Qu
 	gatewayPath, gatewayHandler := apiv1connect.NewGatewayServiceHandler(s)
 	mux.Handle(gatewayPath, gatewayHandler)
 	mux.HandleFunc("/internal/v2/publish-command", s.handleV2PublishCommand)
+	mux.HandleFunc("/internal/v2/device-telemetry", s.handleV2DeviceTelemetry)
 
 	s.http = &http.Server{
 		Addr:              cfg.Address,
