@@ -46,3 +46,11 @@ func TestHTTPInspectorAndInbox(t *testing.T) {
 		t.Fatalf("state=%s", got)
 	}
 }
+
+func TestDeviceURLFormatsIPv6Authority(t *testing.T) {
+	got := deviceURL(Announcement{Host: "fe80::1234", Port: 8080}, "/v1/device-info")
+	const want = "http://[fe80::1234]:8080/v1/device-info"
+	if got != want {
+		t.Fatalf("deviceURL() = %q, want %q", got, want)
+	}
+}

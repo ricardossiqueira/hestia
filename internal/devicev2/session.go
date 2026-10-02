@@ -272,7 +272,7 @@ func (c SessionClient) postJSON(ctx context.Context, a Announcement, path string
 	if err != nil {
 		return err
 	}
-	url := "http://" + a.Host + fmt.Sprintf(":%d", a.Port) + path
+	url := deviceURL(a, path)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(string(body)))
 	if err != nil {
 		return err

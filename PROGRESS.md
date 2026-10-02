@@ -139,3 +139,13 @@ Still pending for this front:
 - `go test ./...` passed on 2026-10-01 (including devicev2, registry and
   DynSec tests), with the Windows Go build cache accessed through the approved
   test runner.
+
+## 2026-10-02 — IPv6 transport for secure registration
+
+- Real DNS-SD discovery on the Orange Pi reaches the ESP32-C3 through IPv6.
+  `HTTPInspector` and `SessionClient` now build device URLs with
+  `net.JoinHostPort`, so an IPv6 announcement uses a valid authority such as
+  `http://[fe80::1]:8080/v1/pair`.
+- Added a focused regression test for that authority formatting. This applies
+  to device-info inspection, pairing and encrypted provisioning alike.
+- Verified with `go test ./internal/devicev2 -count=1`.

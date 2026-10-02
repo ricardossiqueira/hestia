@@ -8,8 +8,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -163,7 +165,7 @@ func (h HTTPInspector) Inspect(ctx context.Context, a Announcement) (DeviceInfo,
 	if path == "" {
 		path = "/v1/device-info"
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+a.Host+fmt.Sprintf(":%d", a.Port)+path, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, deviceURL(a, path), nil)
 	if err != nil {
 		return DeviceInfo{}, Manifest{}, "", err
 	}
@@ -194,6 +196,14 @@ func (h HTTPInspector) Inspect(ctx context.Context, a Announcement) (DeviceInfo,
 		return DeviceInfo{}, Manifest{}, "", fmt.Errorf("device-info manifest hash does not match: computed=%s info=%s announcement=%s", hash, info.ManifestSHA256, a.ManifestSHA256)
 	}
 	return info, manifest, canonical, nil
+}
+
+// deviceURL formats both IPv4 and IPv6 announcements. net.JoinHostPort is
+// essential for IPv6: an unbracketed address such as fe80::1:8080 is not a
+// valid HTTP authority and would make a perfectly inspected device impossible
+// to pair after mDNS discovery.
+func deviceURL(a Announcement, path string) string {
+	return "http://" + net.JoinHostPort(a.Host, strconv.Itoa(int(a.Port))) + path
 }
 
 // ManifestHash is exported for fixtures and adapter tests that need to form
