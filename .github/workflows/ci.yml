@@ -10,31 +10,81 @@ permissions:
   contents: read
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
+  verify:
+    runs-on: ubuntu-24.04
+
     steps:
       - uses: actions/checkout@v6
+
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+
       - uses: bufbuild/buf-action@v1
         with:
-          version: "1.73.0"
+          version: 1.73.0
           setup_only: true
-      - name: Protobuf contract
+
+      - name: Check generated Protobuf API
         run: |
           buf lint
           buf generate
           git diff --exit-code -- api/gen/go
-      - name: Format check
+
+      - name: Check formatting
         run: test -z "$(gofmt -l .)"
+
       - name: Test
         run: go test ./...
+
       - name: Vet
         run: go vet ./...
-      - name: Build for Orange Pi
+
+      - name: Build Linux ARM64 release artifact
+        run: |
+          mkdir -p release
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -o release/iot-gateway ./cmd/gateway
+          tar -C release -czf release/iot-gateway-linux-arm64.tar.gz iot-gateway
+          sha256="$(sha256sum release/iot-gateway-linux-arm64.tar.gz | awk '{print $1}')"
+          printf '{\n  "schema_version": 1,\n  "revision": "%s",\n  "artifacts": [\n    {\n      "name": "iot-gateway",\n      "architecture": "linux-arm64",\n      "file": "iot-gateway-linux-arm64.tar.gz",\n      "sha256": "%s"\n    }\n  ]\n}\n' "$GITHUB_SHA" "$sha256" > release/release-manifest.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: iot-gateway-linux-arm64
+          path: release/
+          if-no-files-found: error
+
+  publish:
+    needs: verify
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: iot-gateway-linux-arm64
+          path: release
+
+      - name: Publish immutable release
         env:
-          CGO_ENABLED: "0"
-          GOOS: linux
-          GOARCH: arm64
-        run: go build ./...
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="deploy-${GITHUB_SHA}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            mkdir existing-release
+            gh release download "$tag" --pattern release-manifest.json --dir existing-release
+            diff --unified existing-release/release-manifest.json release/release-manifest.json
+            gh release view "$tag" --json assets --jq '.assets[].name' | grep --fixed-strings --line-regexp iot-gateway-linux-arm64.tar.gz
+            exit 0
+          fi
+
+          gh release create "deploy-${GITHUB_SHA}" \
+            --target "$GITHUB_SHA" \
+            --title "Deploy ${GITHUB_SHA}" \
+            --notes "Linux ARM64 artifact built by CI for ${GITHUB_SHA}." \
+            release/iot-gateway-linux-arm64.tar.gz \
+            release/release-manifest.json

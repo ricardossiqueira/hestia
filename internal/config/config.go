@@ -371,4 +371,3 @@ func validateMQTT(mqtt MQTT) error {
 	}
 	return nil
 }
-
