@@ -2,6 +2,21 @@
 
 ## Current milestone
 
+**Marco 2 - v2 MQTT automation runtime (complete).** Updated 2026-10-01.
+
+Completed in this milestone:
+
+- Added a v2-only MQTT runtime that derives subscriptions from active device
+  bindings and validates every MQTT output against its bound manifest before
+  a rule can observe it.
+- Added event-type matching and `state` retained-replay suppression, plus
+  JSONLogic conditions, five-per-ten-second rate limiting, and output/command
+  revalidation immediately before publish.
+- Added durable `(rule_id, message_id)` execution reservations/audit, so a
+  duplicate MQTT delivery cannot issue a second command across reconnects.
+- Wired active v2 bindings into normal gateway startup. `EnableV2Runtime` is
+  also safe to refresh after a later provisioning activation.
+
 **Marco 1 — manifest and registry vertical slice (in progress).** Updated
 2026-10-01.
 

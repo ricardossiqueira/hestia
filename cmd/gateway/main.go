@@ -211,6 +211,13 @@ func runGateway(args []string, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "MQTT gateway setup failed: %v\n", err)
 		return 1
 	}
+	// V2 has an isolated manifest-derived runtime. It is loaded before Start
+	// so every already-active binding gets its declared output subscriptions;
+	// the provisioning coordinator refreshes it after later activation.
+	if err := gateway.EnableV2Runtime(context.Background(), deviceRegistry); err != nil {
+		fmt.Fprintf(stderr, "v2 MQTT runtime setup failed: %v\n", err)
+		return 1
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if err := gateway.Start(ctx); err != nil {

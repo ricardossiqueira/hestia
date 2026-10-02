@@ -17,6 +17,7 @@ import (
 
 	"github.com/ricardossiqueira/iot-gateway/internal/automationrule"
 	"github.com/ricardossiqueira/iot-gateway/internal/config"
+	"github.com/ricardossiqueira/iot-gateway/internal/devicev2"
 	"github.com/ricardossiqueira/iot-gateway/internal/outbox"
 	"github.com/ricardossiqueira/iot-gateway/internal/registry"
 )
@@ -44,6 +45,9 @@ type Message struct {
 	MessageID string
 	Timestamp time.Time
 	Payload   []byte
+	// Retained is true when the broker delivered a retained replay. It is
+	// meaningful to v2 state triggers, which must explicitly opt out of it.
+	Retained bool
 }
 
 // RejectedMessage describes a message that was not accepted. It deliberately
@@ -156,6 +160,14 @@ type Gateway struct {
 	topics             []string
 	devices            map[string]config.Device
 	automationRecorder AutomationRecorder
+
+	// v2Routes is a separately-derived policy: it never reads config.Device
+	// nor the legacy automation tables. EnableV2Runtime refreshes this snapshot
+	// from active v2 manifest bindings.
+	v2Store   V2AutomationStore
+	v2Routes  map[string]v2Route
+	v2Topics  []string
+	v2Devices map[string]devicev2.Manifest
 
 	mu        sync.Mutex
 	configMu  sync.RWMutex
@@ -302,6 +314,8 @@ func newGateway(cfg config.Config, client Client, logger Logger, queue Outbox, r
 		outbox:             queue,
 		automationRecorder: recorder,
 		lastTelemetry:      make(map[string]telemetryEntry),
+		v2Routes:           make(map[string]v2Route),
+		v2Devices:          make(map[string]devicev2.Manifest),
 	}
 	routes, forwards, toOutbox, topics, devices, err := buildRouting(cfg, queue, requireOutbox)
 	if err != nil {
@@ -494,6 +508,15 @@ func (g *Gateway) Start(ctx context.Context) error {
 		if err := g.client.Subscribe(ctx, topic, g.handleMessage); err != nil {
 			g.client.Close()
 			return fmt.Errorf("subscribe to %q: %w", topic, err)
+		}
+	}
+	g.configMu.RLock()
+	v2Topics := append([]string(nil), g.v2Topics...)
+	g.configMu.RUnlock()
+	for _, topic := range v2Topics {
+		if err := g.client.Subscribe(ctx, topic, g.handleV2Message); err != nil {
+			g.client.Close()
+			return fmt.Errorf("subscribe to v2 %q: %w", topic, err)
 		}
 	}
 	startedAt := time.Now().UTC()
@@ -1006,6 +1029,7 @@ func validateInbound(route route, topic string, payload []byte, retained bool) (
 		MessageID: envelope.MessageID,
 		Timestamp: timestamp,
 		Payload:   append([]byte(nil), payload...),
+		Retained:  retained,
 	}, nil
 }
 
