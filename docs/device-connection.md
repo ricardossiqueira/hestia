@@ -61,13 +61,22 @@ hardcodar esse IP em todo firmware.
   com um intervalo fixo (não há backoff exponencial nesta etapa, mesma
   decisão da Etapa 1).
 
-**Risco conhecido e sem correção prevista:** como não há acesso à
-configuração do roteador, não é possível garantir que multicast (base do
-mDNS) não seja bloqueado por AP isolation ou outra política do roteador. Não
-há um plano B automático no firmware. Se o mDNS não resolver em campo, a
-alternativa manual é hardcodar o IP atual do Orange Pi em `secrets.h` como
-contorno pontual — documentado aqui como o procedimento de emergência, não
-como caminho suportado.
+**Risco identificado e corrigido (2026-10-02):** o rádio Wi-Fi onboard do
+Orange Pi Zero 2W (chip Unisoc SC2355, driver `unisoc_wifi`/`sprdwl_ng`) não
+recebe multicast IPv4 de forma confiável — confirmado via `tcpdump` em
+`wlan0` (zero pacotes do ESP em `224.0.0.251:5353`, mesmo com Avahi e IGMP
+configurados corretamente), enquanto multicast IPv6 funciona normalmente no
+mesmo rádio (outros dispositivos como AirPlay/Chromecast eram descobertos
+sem problema). Não é isolamento de AP nem política do roteador — ESP, Orange
+Pi e um Windows que resolve o ESP normalmente estão todos na mesma rede
+Wi-Fi/banda. Correção: o ESP32 habilita IPv6 (`WiFi.enableIpV6()`, chamado
+depois de `WL_CONNECTED`) e o `ESPmDNS`/componente `mdns` do ESP-IDF passa a
+anunciar também por IPv6, que o Orange Pi recebe sem problema — ver
+`esp32c3-led/PROGRESS.md` (entrada "causa raiz e correção"). Cada firmware
+que integrar discovery v2 deve habilitar IPv6 na interface Wi-Fi da mesma
+forma. O hardcode de IP em `secrets.h` continua documentado como contorno de
+emergência caso IPv6 também falhe em algum cenário futuro, mas deixou de ser
+a única alternativa conhecida.
 
 ## Etapa 3 — Conexão MQTT e troca de mensagens
 

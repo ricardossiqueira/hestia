@@ -2,6 +2,37 @@
 
 ## Current milestone
 
+**Real-device discovery debugging — mDNS rebrowse fix (complete).** Updated 2026-10-02.
+
+Investigated why the Orange Pi gateway could not discover `esp32c3-led`
+through `ListDiscovery`, running against real hardware end-to-end (not just
+fixtures). Four independent, compounding bugs were found and fixed across
+three repos before discovery worked:
+
+- Orange Pi Zero 2W's onboard Wi-Fi chip (Unisoc SC2355) doesn't receive
+  IPv4 multicast reliably - fixed on the device side
+  (`esp32c3-led`/`iot-device-core`), not in this repo; see
+  `docs/device-connection.md` and `esp32c3-led/PROGRESS.md` for the full
+  diagnostic trail (service-type mismatch, Avahi config, IGMP, AP/band all
+  ruled out before landing on the chip/driver).
+- Two real bugs in `iot-device-core`'s manifest canonicalization and
+  hand-rolled SHA-256 (a transposed hex digit in a round constant) made
+  `HTTPInspector.Inspect` reject every device with a hash mismatch - fixed
+  in that repo, not this one.
+- **This repo's bug**: `internal/devicev2/mdns.go`'s `MDNSBrowser.Run` called
+  `zeroconf.Browse` exactly once for the process's lifetime. `grandcat/
+  zeroconf` only ever delivers an entry the first time it sees a given
+  service instance - it never re-emits one after that instance's TXT/address
+  record changes (e.g. the device reboots with new firmware). A long-lived
+  gateway process would freeze every device's Inbox state at its first
+  sighting forever, with `Inbox.List()`'s TTL demotion eventually marking a
+  genuinely-online device `offline`. Fixed by restarting the whole
+  resolve/browse cycle every `rebrowseInterval` (60s, under the Inbox's 90s
+  default TTL) instead of browsing once indefinitely.
+- Verified against the real device: `ListDiscovery` now reports
+  `ready_to_register` once all four fixes were deployed and the device
+  reflashed.
+
 **Deployment repair — DeviceAdmin automation update (complete).** Updated 2026-10-01.
 
 - Restored the `admin.Server.UpdateAutomationRule` implementation required by
