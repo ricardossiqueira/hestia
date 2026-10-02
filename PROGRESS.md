@@ -18,8 +18,11 @@
 - The authenticated v2 registration endpoint now accepts only a
   `pairing_required` discovery entry and delegates the whole operation to the
   privileged coordinator; it cannot create a pending binding on its own.
-- Next integration step is composing the inbox, mDNS browser and coordinator
-  in `runAdmin`, so the authenticated endpoint receives live LAN discoveries.
+- Added the DNS-SD/mDNS adapter for `_iot-device._tcp.local`; it parses the
+  contracted TXT fields into untrusted sightings and inspects each device
+  before the inbox exposes it as eligible for pairing.
+- Next integration step is composing the inbox, browser and coordinator in
+  `runAdmin`, so the authenticated endpoint receives live LAN discoveries.
 
 **Marco 2 - v2 MQTT automation runtime (complete).** Updated 2026-10-01.
 
