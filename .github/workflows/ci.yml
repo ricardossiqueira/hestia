@@ -94,15 +94,32 @@ jobs:
             release/release-manifest.json
 
   deploy:
-    needs: publish
+    needs: verify
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: [self-hosted, linux, arm64, orangepi-gateway-deploy]
 
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v5
         with:
-          name: iot-gateway-linux-arm64
-          path: release
+          go-version-file: go.mod
+
+      # buf lint/generate already ran on hosted CI (verify, above) for this
+      # exact commit - api/gen/go is already committed and reproducible, so
+      # building it here needs no buf on the device at all.
+      - name: Test
+        run: go test ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build native ARM64 binary
+        run: |
+          mkdir -p stage
+          CGO_ENABLED=0 go build -trimpath -o stage/iot-gateway ./cmd/gateway
+          cp deploy/iot-gateway.service stage/iot-gateway.service
+          cp deploy/iot-gateway-admin.service stage/iot-gateway-admin.service
 
       - name: Apply release to the Orange Pi
-        run: sudo /usr/local/sbin/orangepi-apply gateway release
+        run: sudo /usr/local/sbin/orangepi-apply gateway "$GITHUB_WORKSPACE/stage" "$GITHUB_SHA"
