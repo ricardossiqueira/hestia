@@ -105,15 +105,11 @@ jobs:
         with:
           go-version-file: go.mod
 
-      # buf lint/generate already ran on hosted CI (verify, above) for this
-      # exact commit - api/gen/go is already committed and reproducible, so
-      # building it here needs no buf on the device at all.
-      - name: Test
-        run: go test ./...
-
-      - name: Vet
-        run: go vet ./...
-
+      # No test/vet/buf lint here on purpose: this device has neither the
+      # RAM nor the CPU headroom to run the full suite natively alongside
+      # whatever else is running on it, and verify (needs:, above) already
+      # ran all of that - including buf lint/generate - on hosted CI for
+      # this exact commit. main is trusted to already pass what's required.
       - name: Build native ARM64 binary
         run: |
           mkdir -p stage
