@@ -99,6 +99,15 @@ jobs:
     runs-on: [self-hosted, linux, arm64, orangepi-gateway-deploy]
 
     steps:
+      # gateway and monitor build natively on this same 1GB device via two
+      # independent workflows that know nothing about each other. This
+      # holds a cross-repo lock for the whole job (released below, always)
+      # so their go build steps never run concurrently and starve each
+      # other out of memory - the much shorter flock inside orangepi-apply
+      # itself only covers the final install step, not this.
+      - name: Acquire Pi build lock
+        run: sudo /usr/local/sbin/orangepi-apply lock-acquire gateway
+
       - uses: actions/checkout@v6
 
       - uses: actions/setup-go@v5
@@ -119,3 +128,7 @@ jobs:
 
       - name: Apply release to the Orange Pi
         run: sudo /usr/local/sbin/orangepi-apply gateway "$GITHUB_WORKSPACE/stage" "$GITHUB_SHA"
+
+      - name: Release Pi build lock
+        if: always()
+        run: sudo /usr/local/sbin/orangepi-apply lock-release gateway
