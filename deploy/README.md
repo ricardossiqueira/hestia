@@ -171,6 +171,28 @@ Treat write access to this repository, its deploy key, and direct pushes to
 `main` as control of the Orange Pi. Keep `orangepi` limited to trusted users
 and protect `main` with the CI workflow in GitHub before enabling this agent.
 
+## CI push deploy (GitHub Actions)
+
+`DEPLOY_AUTOMATION_SPEC.md` (in the `Dev` root) replaces the pull-based
+agent above with a push model: `.github/workflows/ci.yml`'s `verify` job
+now also bundles `deploy/iot-gateway.service` and
+`deploy/iot-gateway-admin.service` into the published release artifact and
+records their checksums in `release-manifest.json` (`schema_version: 2`). A
+new `deploy` job, gated on `needs: publish` and a self-hosted runner label
+(`orangepi-gateway-deploy`) that only this Orange Pi holds, downloads that
+artifact and runs `sudo /usr/local/sbin/orangepi-apply gateway release`.
+The Pi never checks out source, builds Go, or runs tests for this path -
+all of that already happened on GitHub-hosted CI before the artifact was
+published.
+
+The installer (`orangepi-apply`), its sudoers rule, and the self-hosted
+runner setup live in the separate `orangepi-deploy` repository (sibling to
+this one), not here - see its README for the bootstrap and cutover
+checklist. **Both update paths coexist today.** The timer above keeps
+running until `orangepi-deploy/README.md`'s test matrix has been validated
+on this device and the timer is explicitly disabled; this section does not
+by itself change how the Pi is updated.
+
 ## Device administration
 
 Registering, enabling/disabling and removing a device (without SSH-ing in)

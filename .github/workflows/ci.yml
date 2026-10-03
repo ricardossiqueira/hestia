@@ -44,9 +44,13 @@ jobs:
         run: |
           mkdir -p release
           CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -o release/iot-gateway ./cmd/gateway
-          tar -C release -czf release/iot-gateway-linux-arm64.tar.gz iot-gateway
+          cp deploy/iot-gateway.service release/iot-gateway.service
+          cp deploy/iot-gateway-admin.service release/iot-gateway-admin.service
+          tar -C release -czf release/iot-gateway-linux-arm64.tar.gz iot-gateway iot-gateway.service iot-gateway-admin.service
           sha256="$(sha256sum release/iot-gateway-linux-arm64.tar.gz | awk '{print $1}')"
-          printf '{\n  "schema_version": 1,\n  "revision": "%s",\n  "artifacts": [\n    {\n      "name": "iot-gateway",\n      "architecture": "linux-arm64",\n      "file": "iot-gateway-linux-arm64.tar.gz",\n      "sha256": "%s"\n    }\n  ]\n}\n' "$GITHUB_SHA" "$sha256" > release/release-manifest.json
+          unit_sha256="$(sha256sum release/iot-gateway.service | awk '{print $1}')"
+          admin_unit_sha256="$(sha256sum release/iot-gateway-admin.service | awk '{print $1}')"
+          printf '{\n  "schema_version": 2,\n  "revision": "%s",\n  "component": "gateway",\n  "artifacts": [\n    {\n      "name": "iot-gateway",\n      "architecture": "linux-arm64",\n      "file": "iot-gateway-linux-arm64.tar.gz",\n      "sha256": "%s"\n    }\n  ],\n  "units": [\n    {\n      "name": "iot-gateway.service",\n      "file": "iot-gateway.service",\n      "sha256": "%s"\n    },\n    {\n      "name": "iot-gateway-admin.service",\n      "file": "iot-gateway-admin.service",\n      "sha256": "%s"\n    }\n  ]\n}\n' "$GITHUB_SHA" "$sha256" "$unit_sha256" "$admin_unit_sha256" > release/release-manifest.json
 
       - uses: actions/upload-artifact@v4
         with:
@@ -88,3 +92,17 @@ jobs:
             --notes "Linux ARM64 artifact built by CI for ${GITHUB_SHA}." \
             release/iot-gateway-linux-arm64.tar.gz \
             release/release-manifest.json
+
+  deploy:
+    needs: publish
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, linux, arm64, orangepi-gateway-deploy]
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: iot-gateway-linux-arm64
+          path: release
+
+      - name: Apply release to the Orange Pi
+        run: sudo /usr/local/sbin/orangepi-apply gateway release
