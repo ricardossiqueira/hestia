@@ -1,0 +1,29 @@
+# Podman Quadlet unit - installed as /etc/containers/systemd/mosquitto-dynsec.container.
+# Replaces the old bare-metal mosquitto-dynsec.service. Uses the official
+# eclipse-mosquitto image unmodified - no Containerfile needed, this is
+# configuration only. See orangepi-deploy/README.md for the migration
+# sequence (back up /var/lib/mosquitto-dynsec/dynamic-security.json
+# before switching over - this is the one piece that, done carelessly,
+# could lock out every already-provisioned device).
+
+[Unit]
+Description=Mosquitto Dynamic Security broker (container)
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+Image=docker.io/library/eclipse-mosquitto:2
+# Not AutoUpdate=registry on purpose: Mosquitto's version here is a
+# deliberate, manually-reviewed upgrade, not something that should roll
+# forward silently on whatever upstream publishes as :2 next.
+Network=host
+Exec=mosquitto -c /etc/mosquitto-dynsec/mosquitto.conf
+Volume=/etc/mosquitto-dynsec:/etc/mosquitto-dynsec:ro
+Volume=/var/lib/mosquitto-dynsec:/var/lib/mosquitto-dynsec:rw
+
+[Service]
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

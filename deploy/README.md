@@ -1,197 +1,24 @@
-# Implantacao com systemd
+# Implantação: container (Podman)
 
-`iot-gateway.service` executa o gateway como o usuario de sistema sem login
-`iot-gateway`. A configuracao YAML fica em `/etc/iot-gateway/gateway.yaml` e
-as credenciais MQTT ficam em `/etc/iot-gateway/environment`, separadas do
-repositorio.
+`iot-gateway` e `iot-gateway-admin` rodam como containers Podman
+(Quadlet - `iot-gateway.container`/`iot-gateway-admin.container` neste
+diretório), não mais como processos soltos no host. A imagem é construída
+na CI hospedada (`.github/workflows/ci.yml`'s `publish-image` job, a
+partir do `Containerfile` na raiz do repositório) e publicada em
+`ghcr.io/ricardossiqueira/iot-gateway` - nada é compilado no Orange Pi.
 
-No Orange Pi, depois de atualizar o projeto, instale o binario e a unidade:
-
-```bash
-cd ~/iot-gateway
-go build -o bin/iot-gateway ./cmd/gateway
-
-id iot-gateway >/dev/null 2>&1 || \
-  sudo useradd --system --user-group --no-create-home \
-  --shell /usr/sbin/nologin iot-gateway
-
-sudo install -d -m 0750 -o root -g iot-gateway /etc/iot-gateway
-sudo install -d -m 0750 -o iot-gateway -g iot-gateway /var/lib/iot-gateway
-sudo install -m 0755 bin/iot-gateway /usr/local/bin/iot-gateway
-sudo install -m 0640 -o root -g iot-gateway \
-  config/gateway.yaml /etc/iot-gateway/gateway.yaml
-sudo install -m 0644 deploy/iot-gateway.service \
-  /etc/systemd/system/iot-gateway.service
-```
-
-Create `/etc/iot-gateway/environment` with the names configured in `mqtt`.
-For the current sample configuration:
-
-```ini
-MQTT_GATEWAY_USERNAME=gateway
-MQTT_GATEWAY_PASSWORD=the-gateway-mqtt-password
-```
-
-Protect the environment file and enable the service at boot:
+O bootstrap completo (instalar Podman, autenticar no GHCR, criar os
+diretórios/ownership, segredos via `podman secret`, instalar as units,
+habilitar o timer de auto-update) está em `orangepi-deploy/README.md`
+(repositório irmão) - comece por lá. `/etc/iot-gateway/gateway.yaml` e
+`/etc/iot-gateway/environment` continuam nos mesmos caminhos de sempre,
+só precisam de `chown 65532:65532` (a imagem roda como `:nonroot`).
 
 ```bash
-sudo chown root:iot-gateway /etc/iot-gateway/environment
-sudo chmod 640 /etc/iot-gateway/environment
-sudo systemctl daemon-reload
 sudo systemctl enable --now iot-gateway.service
 systemctl status iot-gateway.service
-```
-
-Follow operational logs with:
-
-```bash
 journalctl -u iot-gateway.service -f
 ```
-
-## Atualizacao para a outbox SQLite
-
-Before installing a version with the durable outbox, add this required field
-to `/etc/iot-gateway/gateway.yaml` under `storage`:
-
-```yaml
-max_outbox_bytes: 33554432
-```
-
-`33554432` is 32 MiB of MQTT payloads. It is a logical payload limit, not the
-SQLite file size. The gateway refuses to start without an explicit positive
-limit, preventing one large message or a long VPS outage from exhausting the
-microSD card. Validate, install the updated binary, and restart the service:
-
-```bash
-sudo -u iot-gateway /usr/local/bin/iot-gateway validate --config /etc/iot-gateway/gateway.yaml
-just install-binary
-sudo systemctl restart iot-gateway.service
-```
-
-## CI and automatic updates
-
-`.github/workflows/ci.yml` runs formatting, tests, vet, and a Linux ARM64
-build for every push or pull request targeting `main`. The Orange Pi does not
-accept inbound connections from GitHub. Instead, `iot-gateway-update.timer`
-checks `main` every five minutes, runs tests, vet, build, and configuration
-validation locally, then restarts the gateway only after those checks pass.
-
-The updater never copies a configuration file from Git and never reads or
-writes `/etc/iot-gateway/environment`. It uses only a fast-forward Git update.
-If the new service fails to start or exits immediately, it restores the
-previous binary and unit. After a successful restart it also executes
-`iot-gateway healthcheck --config /etc/iot-gateway/gateway.yaml` as the
-restricted `iot-gateway` user exactly ten times, one second apart. The update
-is committed only when one attempt receives HTTP 200 with `{"status":"ok"}`
-from the configured loopback `/healthz` endpoint. A failed healthcheck rolls
-back the previous binary and unit. On the first installation there is no prior
-binary or unit to restore; in that case the updater leaves the failed service
-stopped and logs this explicitly.
-
-If `iot-gateway-admin.service` is installed (see "Admin UI" below), the
-updater also restarts it once `iot-gateway.service` passes its healthcheck -
-both services `ExecStart` the same `/usr/local/bin/iot-gateway` binary, and
-since `docs/decisions.md` ADR-013, admin is the only public listener for the
-local API (`internal/apigateway`). It has no reason to restart on its own,
-so leaving this step out would silently strand it on the old binary on every
-future update that touches the API - which is exactly what happened once in
-production before this was added. If admin fails to come back up, the
-updater rolls back **both** services to the previous binary together, never
-just the core gateway - an installation with no admin service configured
-skips this step entirely.
-
-You can query the same payload-free endpoint manually, without MQTT
-credentials or SQLite access:
-
-```bash
-sudo -u iot-gateway /usr/local/bin/iot-gateway healthcheck \
-  --config /etc/iot-gateway/gateway.yaml
-```
-
-### One-time Git read access
-
-The updater runs Git as `orangepi`, so configure a read-only deploy key for
-this repository while logged in as that user:
-
-```bash
-mkdir -p ~/.ssh
-chmod 700 ~/.ssh
-ssh-keygen -t ed25519 -f ~/.ssh/iot-gateway-deploy -C orangepi-iot-gateway-deploy
-cat ~/.ssh/iot-gateway-deploy.pub
-```
-
-Add the public key in GitHub under the `iot-gateway` repository's **Settings**
-then **Deploy keys**. Leave write access disabled. Configure the repository to
-use that key:
-
-```bash
-nano ~/.ssh/config
-```
-
-Add this entry:
-
-```text
-Host github.com-iot-gateway
-    HostName github.com
-    User git
-    IdentityFile ~/.ssh/iot-gateway-deploy
-    IdentitiesOnly yes
-```
-
-Then secure it and change the existing clone remote:
-
-```bash
-chmod 600 ~/.ssh/config ~/.ssh/iot-gateway-deploy
-ssh -T git@github.com-iot-gateway
-cd ~/iot-gateway
-git remote set-url origin git@github.com-iot-gateway:ricardossiqueira/iot-gateway.git
-git fetch origin main
-```
-
-### Enable the update agent
-
-After updating the repository to a version containing these files, run:
-
-```bash
-cd ~/iot-gateway
-just install-update-agent
-just enable-update-agent
-sudo systemctl start iot-gateway-update.service
-just update-agent-status
-```
-
-The first start records the deployed revision. Later executions deploy only a
-new `main` revision, including future changes to the updater itself. Use `just
-update-agent-logs` to inspect an update; a failed build, invalid YAML, dirty
-worktree, or failed restart leaves the currently installed gateway running.
-
-The repository is intentionally user-writable because Git and compilation run
-as `orangepi`, but the resulting approved `main` revision is installed by root.
-Treat write access to this repository, its deploy key, and direct pushes to
-`main` as control of the Orange Pi. Keep `orangepi` limited to trusted users
-and protect `main` with the CI workflow in GitHub before enabling this agent.
-
-## CI push deploy (GitHub Actions)
-
-`DEPLOY_AUTOMATION_SPEC.md` (in the `Dev` root) replaces the pull-based
-agent above with a push model: `.github/workflows/ci.yml`'s `verify` job
-now also bundles `deploy/iot-gateway.service` and
-`deploy/iot-gateway-admin.service` into the published release artifact and
-records their checksums in `release-manifest.json` (`schema_version: 2`). A
-new `deploy` job, gated on `needs: publish` and a self-hosted runner label
-(`orangepi-gateway-deploy`) that only this Orange Pi holds, downloads that
-artifact and runs `sudo /usr/local/sbin/orangepi-apply gateway release`.
-The Pi never checks out source, builds Go, or runs tests for this path -
-all of that already happened on GitHub-hosted CI before the artifact was
-published.
-
-The installer (`orangepi-apply`), its sudoers rule, and the self-hosted
-runner setup live in the separate `orangepi-deploy` repository (sibling to
-this one), not here - see its README for the bootstrap and cutover
-checklist. **Both update paths coexist today.** The timer above keeps
-running until `orangepi-deploy/README.md`'s test matrix has been validated
-on this device and the timer is explicitly disabled; this section does not
-by itself change how the Pi is updated.
 
 ## Device administration
 
@@ -201,9 +28,11 @@ the day-to-day client. With the Dynamic Security deployment, it creates or
 revokes the MQTT client and its narrow role/ACL through Mosquitto's runtime
 control API, then writes only the device policy to the SQLite registry. It
 does not edit `gateway.yaml`, `passwd`, or `acl`, and it does not restart
-either service. `iot-gateway-admin.service` runs as `iot-gateway`, not root;
-the sole DynSec administrator password is provided by systemd as a credential
-file. The complete staged migration is in `docs/dynsec-migration.md`.
+either service. `iot-gateway-admin.service` runs as `:nonroot` inside its
+container, not root; the sole DynSec administrator password is provided
+as a Podman secret (`orangepi-deploy/README.md`), not baked into the
+image or the unit. The complete staged migration is in
+`docs/dynsec-migration.md`.
 
 `deploy/mosquitto-provision-device.sh` remains only for installations still
 on the legacy `password_file`/`acl_file` broker. Do not use it after the
@@ -253,16 +82,17 @@ IOT_GATEWAY_DEVICE_MQTT_HOST=192.168.15.195
 ```
 
 ```bash
-sudo chown root:iot-gateway /etc/iot-gateway/admin-environment
+sudo chown root:65532 /etc/iot-gateway/admin-environment
 sudo chmod 640 /etc/iot-gateway/admin-environment
 ```
 
-Install and enable:
+Enable the container (see `orangepi-deploy/README.md` for the full
+bootstrap - Podman, the `dynsec-admin-password` secret, the Quadlet unit
+itself):
 
 ```bash
-just install-admin-service
-just enable-admin-service
-just admin-status
+sudo systemctl enable --now iot-gateway-admin.service
+systemctl status iot-gateway-admin.service
 ```
 
 If this file still has `IOT_GATEWAY_ADMIN_USERNAME`/`PASSWORD` from before
@@ -315,8 +145,8 @@ does not need to change: it is just read by a different process now.
 2. Update and restart **both** services (same binary for both):
 
 ```bash
-sudo -u iot-gateway /usr/local/bin/iot-gateway validate --config /etc/iot-gateway/gateway.yaml
-just install-binary
+podman run --rm -v /etc/iot-gateway:/etc/iot-gateway:ro --user 65532:65532 \
+  ghcr.io/ricardossiqueira/iot-gateway:latest validate --config /etc/iot-gateway/gateway.yaml
 sudo systemctl restart iot-gateway.service iot-gateway-admin.service
 ```
 

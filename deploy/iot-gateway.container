@@ -1,0 +1,35 @@
+# Podman Quadlet unit - installed as /etc/containers/systemd/iot-gateway.container
+# (not /etc/systemd/system/ - that's how Quadlet finds it). Generates and
+# manages the actual systemd service itself; see orangepi-deploy/README.md
+# for bootstrap (Podman install, host directory ownership, secrets).
+#
+# The image is built on GitHub-hosted CI (see .github/workflows/ci.yml's
+# publish-image job) and pushed to ghcr.io - nothing builds on the Orange
+# Pi itself. AutoUpdate=registry + the podman-auto-update.timer installed
+# by orangepi-deploy is what pulls and restarts this on a new push to
+# main, replacing the old iot-gateway-update.timer entirely.
+
+[Unit]
+Description=IoT Gateway MQTT router (container)
+After=network-online.target mosquitto-dynsec.service
+Wants=network-online.target
+
+[Container]
+Image=ghcr.io/ricardossiqueira/iot-gateway:latest
+AutoUpdate=registry
+# Host networking, not bridged/NAT: iot-gateway-admin.container's mDNS
+# browsing of _iot-device._tcp needs real LAN multicast reachability,
+# which a bridge network would break. Keeping this unit on the same mode
+# is simpler to reason about than mixing modes between the two.
+Network=host
+Exec=run --config /etc/iot-gateway/gateway.yaml
+EnvironmentFile=/etc/iot-gateway/environment
+Volume=/etc/iot-gateway:/etc/iot-gateway:ro
+Volume=/var/lib/iot-gateway:/var/lib/iot-gateway:rw
+
+[Service]
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

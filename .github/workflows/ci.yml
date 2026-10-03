@@ -40,95 +40,38 @@ jobs:
       - name: Vet
         run: go vet ./...
 
-      - name: Build Linux ARM64 release artifact
-        run: |
-          mkdir -p release
-          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -o release/iot-gateway ./cmd/gateway
-          cp deploy/iot-gateway.service release/iot-gateway.service
-          cp deploy/iot-gateway-admin.service release/iot-gateway-admin.service
-          tar -C release -czf release/iot-gateway-linux-arm64.tar.gz iot-gateway iot-gateway.service iot-gateway-admin.service
-          sha256="$(sha256sum release/iot-gateway-linux-arm64.tar.gz | awk '{print $1}')"
-          unit_sha256="$(sha256sum release/iot-gateway.service | awk '{print $1}')"
-          admin_unit_sha256="$(sha256sum release/iot-gateway-admin.service | awk '{print $1}')"
-          printf '{\n  "schema_version": 2,\n  "revision": "%s",\n  "component": "gateway",\n  "artifacts": [\n    {\n      "name": "iot-gateway",\n      "architecture": "linux-arm64",\n      "file": "iot-gateway-linux-arm64.tar.gz",\n      "sha256": "%s"\n    }\n  ],\n  "units": [\n    {\n      "name": "iot-gateway.service",\n      "file": "iot-gateway.service",\n      "sha256": "%s"\n    },\n    {\n      "name": "iot-gateway-admin.service",\n      "file": "iot-gateway-admin.service",\n      "sha256": "%s"\n    }\n  ]\n}\n' "$GITHUB_SHA" "$sha256" "$unit_sha256" "$admin_unit_sha256" > release/release-manifest.json
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: iot-gateway-linux-arm64
-          path: release/
-          if-no-files-found: error
-
-  publish:
+  publish-image:
     needs: verify
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     permissions:
-      contents: write
+      contents: read
+      packages: write
 
     steps:
       - uses: actions/checkout@v6
 
-      - uses: actions/download-artifact@v4
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
         with:
-          name: iot-gateway-linux-arm64
-          path: release
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Publish immutable release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          tag="deploy-${GITHUB_SHA}"
-          if gh release view "$tag" >/dev/null 2>&1; then
-            mkdir existing-release
-            gh release download "$tag" --pattern release-manifest.json --dir existing-release
-            diff --unified existing-release/release-manifest.json release/release-manifest.json
-            gh release view "$tag" --json assets --jq '.assets[].name' | grep --fixed-strings --line-regexp iot-gateway-linux-arm64.tar.gz
-            exit 0
-          fi
-
-          gh release create "deploy-${GITHUB_SHA}" \
-            --target "$GITHUB_SHA" \
-            --title "Deploy ${GITHUB_SHA}" \
-            --notes "Linux ARM64 artifact built by CI for ${GITHUB_SHA}." \
-            release/iot-gateway-linux-arm64.tar.gz \
-            release/release-manifest.json
-
-  deploy:
-    needs: verify
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: [self-hosted, linux, arm64, orangepi-gateway-deploy]
-
-    steps:
-      # gateway and monitor build natively on this same 1GB device via two
-      # independent workflows that know nothing about each other. This
-      # holds a cross-repo lock for the whole job (released below, always)
-      # so their go build steps never run concurrently and starve each
-      # other out of memory - the much shorter flock inside orangepi-apply
-      # itself only covers the final install step, not this.
-      - name: Acquire Pi build lock
-        run: sudo /usr/local/sbin/orangepi-apply lock-acquire gateway
-
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-go@v5
+      # linux/arm64 via QEMU emulation - slower than native, but this runs
+      # on GitHub-hosted infrastructure with no memory pressure, unlike the
+      # Orange Pi this image is actually for. The Pi only ever pulls the
+      # finished image (see orangepi-deploy's Quadlet units); nothing
+      # builds on it anymore.
+      - uses: docker/build-push-action@v6
         with:
-          go-version-file: go.mod
-
-      # No test/vet/buf lint here on purpose: this device has neither the
-      # RAM nor the CPU headroom to run the full suite natively alongside
-      # whatever else is running on it, and verify (needs:, above) already
-      # ran all of that - including buf lint/generate - on hosted CI for
-      # this exact commit. main is trusted to already pass what's required.
-      - name: Build native ARM64 binary
-        run: |
-          mkdir -p stage
-          CGO_ENABLED=0 go build -trimpath -o stage/iot-gateway ./cmd/gateway
-          cp deploy/iot-gateway.service stage/iot-gateway.service
-          cp deploy/iot-gateway-admin.service stage/iot-gateway-admin.service
-
-      - name: Apply release to the Orange Pi
-        run: sudo /usr/local/sbin/orangepi-apply gateway "$GITHUB_WORKSPACE/stage" "$GITHUB_SHA"
-
-      - name: Release Pi build lock
-        if: always()
-        run: sudo /usr/local/sbin/orangepi-apply lock-release gateway
+          context: .
+          file: Containerfile
+          platforms: linux/arm64
+          push: true
+          tags: |
+            ghcr.io/ricardossiqueira/iot-gateway:${{ github.sha }}
+            ghcr.io/ricardossiqueira/iot-gateway:latest

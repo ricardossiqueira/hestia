@@ -1,0 +1,36 @@
+# Podman Quadlet unit - installed as /etc/containers/systemd/iot-gateway-admin.container.
+# See iot-gateway.container for the general notes (image source,
+# AutoUpdate, networking) - this one additionally needs the DynSec admin
+# password, delivered as a Podman secret instead of systemd's
+# LoadCredential= (which has no container equivalent):
+#
+#   podman secret create dynsec-admin-password /path/to/the/password/file
+#
+# (see orangepi-deploy/README.md for the full one-time bootstrap).
+
+[Unit]
+Description=IoT Gateway admin process (device administration API)
+After=network-online.target mosquitto-dynsec.service iot-gateway.service
+Wants=network-online.target
+
+[Container]
+Image=ghcr.io/ricardossiqueira/iot-gateway:latest
+AutoUpdate=registry
+# Host networking: this process does mDNS browsing of _iot-device._tcp
+# during device provisioning, and reaches Mosquitto's DynSec control port
+# at 127.0.0.1:1884 - both need the real host network, not a bridge.
+Network=host
+Exec=admin --config /etc/iot-gateway/gateway.yaml
+EnvironmentFile=/etc/iot-gateway/admin-environment
+Environment=IOT_GATEWAY_DYNSEC_URL=tcp://127.0.0.1:1884
+Environment=IOT_GATEWAY_DYNSEC_ADMIN_USERNAME=iot-gateway-dynsec-admin
+Environment=IOT_GATEWAY_DYNSEC_ADMIN_PASSWORD_FILE=/run/secrets/dynsec-admin-password
+Secret=dynsec-admin-password,target=dynsec-admin-password
+Volume=/etc/iot-gateway:/etc/iot-gateway:ro
+
+[Service]
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
