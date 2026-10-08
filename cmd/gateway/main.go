@@ -347,7 +347,7 @@ func runAdmin(args []string, stderr io.Writer) int {
 		InternalAPIURL: "http://" + cfg.API.InternalAddress,
 		Credentials:    apigateway.Credentials{Username: apiUsername, Password: apiPassword},
 		AllowedOrigins: cfg.API.AllowedOrigins,
-		DeviceV2:       deviceV2,
+		DeviceV2:       &deviceV2,
 	}, logger)
 	if err != nil {
 		fmt.Fprintf(stderr, "api gateway setup failed: %v\n", err)

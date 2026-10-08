@@ -4,8 +4,9 @@
 //
 // It is the ONLY process that binds api.address, the LAN-reachable port
 // gateway-web and any other client talk to. It authenticates (HTTP Basic)
-// and applies CORS once, at this edge, then reverse-proxies GatewayService
-// to internal/api, which runs inside the sandboxed `iot-gateway run`
+// and applies CORS once, at this edge. GetStatus aggregates registry and
+// discovery here with runtime counters from internal/api; other GatewayService
+// methods are reverse-proxied to the sandboxed `iot-gateway run`
 // process and binds only api.internal_address, a loopback address
 // unreachable from the LAN. V2's device platform (DeviceV2) is served
 // directly at this edge too - see device_v2.go.
@@ -38,6 +39,9 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"connectrpc.com/connect"
+	"github.com/ricardossiqueira/iot-gateway/api/gen/go/iot/gateway/api/v1/apiv1connect"
 )
 
 // Credentials gate every request behind HTTP Basic Auth, read from
@@ -55,8 +59,8 @@ type Config struct {
 	Address string
 	// InternalAPIURL is where internal/api is listening, e.g.
 	// "http://127.0.0.1:8083" (built from api.internal_address by the
-	// caller). Every GatewayService request is reverse-proxied here
-	// unchanged, Authorization header included (internal/api ignores it -
+	// caller). GatewayService requests other than the aggregated GetStatus
+	// are reverse-proxied unchanged, Authorization included (internal/api ignores it -
 	// loopback is its trust boundary, see its package doc - but there is no
 	// reason to strip it either).
 	InternalAPIURL string
@@ -66,16 +70,16 @@ type Config struct {
 	AllowedOrigins []string
 	// DeviceV2 is the authenticated JSON RPC adapter for the device platform
 	// v2.
-	DeviceV2 http.Handler
+	DeviceV2 *DeviceV2API
 }
 
-// Server is the public-facing Connect-RPC edge: auth + CORS + a reverse
-// proxy to the sandboxed process's internal/api, plus DeviceAdminService
-// answered directly via cfg.Admin.
+// Server is the public-facing Connect-RPC edge: auth, CORS, aggregated status,
+// a runtime proxy and the V2 device platform.
 type Server struct {
-	cfg    Config
-	logger *slog.Logger
-	http   *http.Server
+	cfg     Config
+	logger  *slog.Logger
+	http    *http.Server
+	runtime apiv1connect.GatewayServiceClient
 }
 
 func New(cfg Config, logger *slog.Logger) (*Server, error) {
@@ -107,6 +111,8 @@ func New(cfg Config, logger *slog.Logger) (*Server, error) {
 	mux := http.NewServeMux()
 	mux.Handle("/iot.gateway.api.v1.GatewayService/", proxy)
 	if cfg.DeviceV2 != nil {
+		s.runtime = apiv1connect.NewGatewayServiceClient(&http.Client{Timeout: 10 * time.Second}, cfg.InternalAPIURL)
+		mux.Handle(apiv1connect.GatewayServiceGetStatusProcedure, connect.NewUnaryHandler(apiv1connect.GatewayServiceGetStatusProcedure, s.getStatus))
 		mux.Handle("/iot.gateway.api.v2.DevicePlatformService/", cfg.DeviceV2)
 	}
 

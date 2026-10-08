@@ -131,6 +131,50 @@ Regras:
   (o preflight nunca carrega o cabeçalho `Authorization` sendo negociado) —
   só a requisição de verdade que segue o preflight precisa de credencial.
 
+## Breakdown de dispositivos em GetStatus
+
+O `GatewayService/GetStatus` público agrega os contadores do runtime com o
+registry e o inbox de Discovery do processo administrativo. O endpoint interno
+de loopback continua fornecendo somente o runtime. Os campos novos são aditivos:
+
+- `devices.total`: total de registros, como em `ListDevices` V2.
+- `devices.byActiveState`: contagens por `active`, `offline`, `pending` e `failed`,
+  usando a mesma normalização de `activeState` da lista V2.
+- `discovery.total`: total de entradas de `ListDiscovery`.
+- `discovery.byStatus`: contagens dos estados do inbox, após aplicar seu TTL.
+- `discovery.offline`: entradas com estado `offline`.
+- `discovery.online`: demais entradas. Inclui dispositivos não registrados e
+  representa o estado do Discovery, não uma confirmação da sessão MQTT.
+
+Por exemplo, com três registros ativos e os anúncios de dois dispositivos
+`ready_to_register` e um `offline`, o trecho novo da resposta é:
+
+```json
+{
+  "devices": {
+    "total": 3,
+    "byActiveState": { "active": 3, "offline": 0, "pending": 0, "failed": 0 }
+  },
+  "discovery": {
+    "total": 3,
+    "online": 2,
+    "offline": 1,
+    "byStatus": {
+      "seen": 0, "inspected": 0, "pairing_required": 0,
+      "ready_to_register": 2, "registered": 0, "rejected": 0, "offline": 1
+    }
+  }
+}
+```
+
+Não se somam os dois totais: um dispositivo pode aparecer no registry e no
+Discovery. Contadores escalares iguais a zero podem ser omitidos pelo JSON
+Protobuf; com a mensagem presente, ausência do escalar significa zero. Mensagem
+ausente significa que o endpoint antigo/interno não fornece o breakdown.
+Fontes indisponíveis ou falhas de leitura produzem erro RPC, nunca um resumo
+zerado que pareça válido. JSON, Connect, gRPC e gRPC-Web usam o mesmo contrato
+e continuam protegidos pela autenticação e pelo CORS da borda pública.
+
 ## Serviços e RPCs
 
 | RPC | Serviço | Uso |
@@ -141,7 +185,7 @@ Regras:
 | `PublishCommand` | `DeviceService` | Publica um comando, validado por schema quando o dispositivo tem manifest vinculado. |
 | `GetDeviceTelemetry` | `DeviceService` | Devolve a última mensagem `telemetry` aceita de um device, em cache (sem histórico). |
 | `TestAutomationRule` | `DeviceService` | Roda uma regra de automação já salva pelo pipeline de verdade com um payload informado pelo operador — ver seção própria abaixo. |
-| `GetStatus` | `GatewayService` | Espelha `internal/mqtt.Snapshot`: sessão MQTT, contadores, sem payloads. |
+| `GetStatus` | `GatewayService` | Snapshot MQTT mais breakdown de dispositivos registrados e Discovery, sem payloads. |
 | `GetQueueSummary` | `GatewayService` | Espelha `internal/outbox.Snapshot`: pendentes agora, bytes, idade do item mais antigo. |
 | `GetRecentEvents` | `GatewayService` | Log de atividade em memória: mensagens aceitas/rejeitadas e rotas locais, sem payload. |
 | `RegisterExistingDevice` | `DeviceAdminService` | Adota um serviço local com identidade MQTT já existente, sem alterar senha. |

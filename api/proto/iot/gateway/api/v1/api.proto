@@ -27,7 +27,8 @@ service GatewayService {
 
 message GetStatusRequest {}
 
-// GetStatusResponse mirrors internal/mqtt.Snapshot field for field.
+// Runtime counters come from internal/mqtt.Snapshot. The public API adds
+// registry and discovery breakdowns from the same sources as the V2 lists.
 message GetStatusResponse {
   google.protobuf.Timestamp started_at = 1;
   bool started = 2;
@@ -40,6 +41,24 @@ message GetStatusResponse {
   uint64 outbox_stored = 9;
   uint64 outbox_discarded = 10;
   uint64 outbox_failed = 11;
+  // Present on the public API; absent on the loopback runtime endpoint.
+  DeviceBreakdown devices = 12;
+  DiscoveryBreakdown discovery = 13;
+}
+
+message DeviceBreakdown {
+  uint32 total = 1;
+  // Uses the same normalized activeState values as ListDevices.
+  map<string, uint32> by_active_state = 2;
+}
+
+message DiscoveryBreakdown {
+  uint32 total = 1;
+  // Discovery presence, including unregistered devices; not MQTT connectivity.
+  uint32 online = 2;
+  uint32 offline = 3;
+  // Uses ListDiscovery status values, after the inbox applies its TTL.
+  map<string, uint32> by_status = 4;
 }
 
 message GetQueueSummaryRequest {}

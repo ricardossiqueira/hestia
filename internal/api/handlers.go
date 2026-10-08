@@ -121,8 +121,8 @@ func (s *Server) GetRecentEvents(ctx context.Context, req *connect.Request[apiv1
 	return connect.NewResponse(&apiv1.GetRecentEventsResponse{Events: events, HasMore: hasMore}), nil
 }
 
-// GetStatus mirrors mqtt.Snapshot 1:1 - see api.proto's GetStatusResponse
-// doc comment.
+// GetStatus supplies runtime counters. The public apigateway adds device and
+// discovery breakdowns from the administrative process's registry and inbox.
 func (s *Server) GetStatus(ctx context.Context, req *connect.Request[apiv1.GetStatusRequest]) (*connect.Response[apiv1.GetStatusResponse], error) {
 	snap := s.status.Snapshot()
 	var startedAt *timestamppb.Timestamp

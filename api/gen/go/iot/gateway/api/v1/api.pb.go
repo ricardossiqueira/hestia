@@ -58,7 +58,8 @@ func (*GetStatusRequest) Descriptor() ([]byte, []int) {
 	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{0}
 }
 
-// GetStatusResponse mirrors internal/mqtt.Snapshot field for field.
+// Runtime counters come from internal/mqtt.Snapshot. The public API adds
+// registry and discovery breakdowns from the same sources as the V2 lists.
 type GetStatusResponse struct {
 	state                protoimpl.MessageState `protogen:"open.v1"`
 	StartedAt            *timestamppb.Timestamp `protobuf:"bytes,1,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
@@ -72,8 +73,11 @@ type GetStatusResponse struct {
 	OutboxStored         uint64                 `protobuf:"varint,9,opt,name=outbox_stored,json=outboxStored,proto3" json:"outbox_stored,omitempty"`
 	OutboxDiscarded      uint64                 `protobuf:"varint,10,opt,name=outbox_discarded,json=outboxDiscarded,proto3" json:"outbox_discarded,omitempty"`
 	OutboxFailed         uint64                 `protobuf:"varint,11,opt,name=outbox_failed,json=outboxFailed,proto3" json:"outbox_failed,omitempty"`
-	unknownFields        protoimpl.UnknownFields
-	sizeCache            protoimpl.SizeCache
+	// Present on the public API; absent on the loopback runtime endpoint.
+	Devices       *DeviceBreakdown    `protobuf:"bytes,12,opt,name=devices,proto3" json:"devices,omitempty"`
+	Discovery     *DiscoveryBreakdown `protobuf:"bytes,13,opt,name=discovery,proto3" json:"discovery,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GetStatusResponse) Reset() {
@@ -183,6 +187,143 @@ func (x *GetStatusResponse) GetOutboxFailed() uint64 {
 	return 0
 }
 
+func (x *GetStatusResponse) GetDevices() *DeviceBreakdown {
+	if x != nil {
+		return x.Devices
+	}
+	return nil
+}
+
+func (x *GetStatusResponse) GetDiscovery() *DiscoveryBreakdown {
+	if x != nil {
+		return x.Discovery
+	}
+	return nil
+}
+
+type DeviceBreakdown struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Total uint32                 `protobuf:"varint,1,opt,name=total,proto3" json:"total,omitempty"`
+	// Uses the same normalized activeState values as ListDevices.
+	ByActiveState map[string]uint32 `protobuf:"bytes,2,rep,name=by_active_state,json=byActiveState,proto3" json:"by_active_state,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeviceBreakdown) Reset() {
+	*x = DeviceBreakdown{}
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeviceBreakdown) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeviceBreakdown) ProtoMessage() {}
+
+func (x *DeviceBreakdown) ProtoReflect() protoreflect.Message {
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeviceBreakdown.ProtoReflect.Descriptor instead.
+func (*DeviceBreakdown) Descriptor() ([]byte, []int) {
+	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *DeviceBreakdown) GetTotal() uint32 {
+	if x != nil {
+		return x.Total
+	}
+	return 0
+}
+
+func (x *DeviceBreakdown) GetByActiveState() map[string]uint32 {
+	if x != nil {
+		return x.ByActiveState
+	}
+	return nil
+}
+
+type DiscoveryBreakdown struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Total uint32                 `protobuf:"varint,1,opt,name=total,proto3" json:"total,omitempty"`
+	// Discovery presence, including unregistered devices; not MQTT connectivity.
+	Online  uint32 `protobuf:"varint,2,opt,name=online,proto3" json:"online,omitempty"`
+	Offline uint32 `protobuf:"varint,3,opt,name=offline,proto3" json:"offline,omitempty"`
+	// Uses ListDiscovery status values, after the inbox applies its TTL.
+	ByStatus      map[string]uint32 `protobuf:"bytes,4,rep,name=by_status,json=byStatus,proto3" json:"by_status,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DiscoveryBreakdown) Reset() {
+	*x = DiscoveryBreakdown{}
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DiscoveryBreakdown) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DiscoveryBreakdown) ProtoMessage() {}
+
+func (x *DiscoveryBreakdown) ProtoReflect() protoreflect.Message {
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DiscoveryBreakdown.ProtoReflect.Descriptor instead.
+func (*DiscoveryBreakdown) Descriptor() ([]byte, []int) {
+	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *DiscoveryBreakdown) GetTotal() uint32 {
+	if x != nil {
+		return x.Total
+	}
+	return 0
+}
+
+func (x *DiscoveryBreakdown) GetOnline() uint32 {
+	if x != nil {
+		return x.Online
+	}
+	return 0
+}
+
+func (x *DiscoveryBreakdown) GetOffline() uint32 {
+	if x != nil {
+		return x.Offline
+	}
+	return 0
+}
+
+func (x *DiscoveryBreakdown) GetByStatus() map[string]uint32 {
+	if x != nil {
+		return x.ByStatus
+	}
+	return nil
+}
+
 type GetQueueSummaryRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -191,7 +332,7 @@ type GetQueueSummaryRequest struct {
 
 func (x *GetQueueSummaryRequest) Reset() {
 	*x = GetQueueSummaryRequest{}
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[2]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -203,7 +344,7 @@ func (x *GetQueueSummaryRequest) String() string {
 func (*GetQueueSummaryRequest) ProtoMessage() {}
 
 func (x *GetQueueSummaryRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[2]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -216,7 +357,7 @@ func (x *GetQueueSummaryRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetQueueSummaryRequest.ProtoReflect.Descriptor instead.
 func (*GetQueueSummaryRequest) Descriptor() ([]byte, []int) {
-	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{2}
+	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{4}
 }
 
 // GetQueueSummaryResponse mirrors internal/outbox.Snapshot field for field -
@@ -234,7 +375,7 @@ type GetQueueSummaryResponse struct {
 
 func (x *GetQueueSummaryResponse) Reset() {
 	*x = GetQueueSummaryResponse{}
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[3]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -246,7 +387,7 @@ func (x *GetQueueSummaryResponse) String() string {
 func (*GetQueueSummaryResponse) ProtoMessage() {}
 
 func (x *GetQueueSummaryResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[3]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -259,7 +400,7 @@ func (x *GetQueueSummaryResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetQueueSummaryResponse.ProtoReflect.Descriptor instead.
 func (*GetQueueSummaryResponse) Descriptor() ([]byte, []int) {
-	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{3}
+	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *GetQueueSummaryResponse) GetPendingMessages() uint64 {
@@ -307,7 +448,7 @@ type ActivityEvent struct {
 
 func (x *ActivityEvent) Reset() {
 	*x = ActivityEvent{}
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[4]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -319,7 +460,7 @@ func (x *ActivityEvent) String() string {
 func (*ActivityEvent) ProtoMessage() {}
 
 func (x *ActivityEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[4]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -332,7 +473,7 @@ func (x *ActivityEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ActivityEvent.ProtoReflect.Descriptor instead.
 func (*ActivityEvent) Descriptor() ([]byte, []int) {
-	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{4}
+	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *ActivityEvent) GetSequence() uint64 {
@@ -403,7 +544,7 @@ type GetRecentEventsRequest struct {
 
 func (x *GetRecentEventsRequest) Reset() {
 	*x = GetRecentEventsRequest{}
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[5]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -415,7 +556,7 @@ func (x *GetRecentEventsRequest) String() string {
 func (*GetRecentEventsRequest) ProtoMessage() {}
 
 func (x *GetRecentEventsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[5]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -428,7 +569,7 @@ func (x *GetRecentEventsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetRecentEventsRequest.ProtoReflect.Descriptor instead.
 func (*GetRecentEventsRequest) Descriptor() ([]byte, []int) {
-	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{5}
+	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *GetRecentEventsRequest) GetDeviceId() string {
@@ -471,7 +612,7 @@ type GetRecentEventsResponse struct {
 
 func (x *GetRecentEventsResponse) Reset() {
 	*x = GetRecentEventsResponse{}
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[6]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -483,7 +624,7 @@ func (x *GetRecentEventsResponse) String() string {
 func (*GetRecentEventsResponse) ProtoMessage() {}
 
 func (x *GetRecentEventsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[6]
+	mi := &file_iot_gateway_api_v1_api_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -496,7 +637,7 @@ func (x *GetRecentEventsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetRecentEventsResponse.ProtoReflect.Descriptor instead.
 func (*GetRecentEventsResponse) Descriptor() ([]byte, []int) {
-	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{6}
+	return file_iot_gateway_api_v1_api_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *GetRecentEventsResponse) GetEvents() []*ActivityEvent {
@@ -518,7 +659,7 @@ var File_iot_gateway_api_v1_api_proto protoreflect.FileDescriptor
 const file_iot_gateway_api_v1_api_proto_rawDesc = "" +
 	"\n" +
 	"\x1ciot/gateway/api/v1/api.proto\x12\x12iot.gateway.api.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\x12\n" +
-	"\x10GetStatusRequest\"\xea\x03\n" +
+	"\x10GetStatusRequest\"\xef\x04\n" +
 	"\x11GetStatusResponse\x129\n" +
 	"\n" +
 	"started_at\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\tstartedAt\x12\x18\n" +
@@ -532,7 +673,23 @@ const file_iot_gateway_api_v1_api_proto_rawDesc = "" +
 	"\routbox_stored\x18\t \x01(\x04R\foutboxStored\x12)\n" +
 	"\x10outbox_discarded\x18\n" +
 	" \x01(\x04R\x0foutboxDiscarded\x12#\n" +
-	"\routbox_failed\x18\v \x01(\x04R\foutboxFailed\"\x18\n" +
+	"\routbox_failed\x18\v \x01(\x04R\foutboxFailed\x12=\n" +
+	"\adevices\x18\f \x01(\v2#.iot.gateway.api.v1.DeviceBreakdownR\adevices\x12D\n" +
+	"\tdiscovery\x18\r \x01(\v2&.iot.gateway.api.v1.DiscoveryBreakdownR\tdiscovery\"\xc9\x01\n" +
+	"\x0fDeviceBreakdown\x12\x14\n" +
+	"\x05total\x18\x01 \x01(\rR\x05total\x12^\n" +
+	"\x0fby_active_state\x18\x02 \x03(\v26.iot.gateway.api.v1.DeviceBreakdown.ByActiveStateEntryR\rbyActiveState\x1a@\n" +
+	"\x12ByActiveStateEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\rR\x05value:\x028\x01\"\xec\x01\n" +
+	"\x12DiscoveryBreakdown\x12\x14\n" +
+	"\x05total\x18\x01 \x01(\rR\x05total\x12\x16\n" +
+	"\x06online\x18\x02 \x01(\rR\x06online\x12\x18\n" +
+	"\aoffline\x18\x03 \x01(\rR\aoffline\x12Q\n" +
+	"\tby_status\x18\x04 \x03(\v24.iot.gateway.api.v1.DiscoveryBreakdown.ByStatusEntryR\bbyStatus\x1a;\n" +
+	"\rByStatusEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\rR\x05value:\x028\x01\"\x18\n" +
 	"\x16GetQueueSummaryRequest\"\xb3\x01\n" +
 	"\x17GetQueueSummaryResponse\x12)\n" +
 	"\x10pending_messages\x18\x01 \x01(\x04R\x0fpendingMessages\x12#\n" +
@@ -571,34 +728,42 @@ func file_iot_gateway_api_v1_api_proto_rawDescGZIP() []byte {
 	return file_iot_gateway_api_v1_api_proto_rawDescData
 }
 
-var file_iot_gateway_api_v1_api_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_iot_gateway_api_v1_api_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
 var file_iot_gateway_api_v1_api_proto_goTypes = []any{
 	(*GetStatusRequest)(nil),        // 0: iot.gateway.api.v1.GetStatusRequest
 	(*GetStatusResponse)(nil),       // 1: iot.gateway.api.v1.GetStatusResponse
-	(*GetQueueSummaryRequest)(nil),  // 2: iot.gateway.api.v1.GetQueueSummaryRequest
-	(*GetQueueSummaryResponse)(nil), // 3: iot.gateway.api.v1.GetQueueSummaryResponse
-	(*ActivityEvent)(nil),           // 4: iot.gateway.api.v1.ActivityEvent
-	(*GetRecentEventsRequest)(nil),  // 5: iot.gateway.api.v1.GetRecentEventsRequest
-	(*GetRecentEventsResponse)(nil), // 6: iot.gateway.api.v1.GetRecentEventsResponse
-	(*timestamppb.Timestamp)(nil),   // 7: google.protobuf.Timestamp
+	(*DeviceBreakdown)(nil),         // 2: iot.gateway.api.v1.DeviceBreakdown
+	(*DiscoveryBreakdown)(nil),      // 3: iot.gateway.api.v1.DiscoveryBreakdown
+	(*GetQueueSummaryRequest)(nil),  // 4: iot.gateway.api.v1.GetQueueSummaryRequest
+	(*GetQueueSummaryResponse)(nil), // 5: iot.gateway.api.v1.GetQueueSummaryResponse
+	(*ActivityEvent)(nil),           // 6: iot.gateway.api.v1.ActivityEvent
+	(*GetRecentEventsRequest)(nil),  // 7: iot.gateway.api.v1.GetRecentEventsRequest
+	(*GetRecentEventsResponse)(nil), // 8: iot.gateway.api.v1.GetRecentEventsResponse
+	nil,                             // 9: iot.gateway.api.v1.DeviceBreakdown.ByActiveStateEntry
+	nil,                             // 10: iot.gateway.api.v1.DiscoveryBreakdown.ByStatusEntry
+	(*timestamppb.Timestamp)(nil),   // 11: google.protobuf.Timestamp
 }
 var file_iot_gateway_api_v1_api_proto_depIdxs = []int32{
-	7, // 0: iot.gateway.api.v1.GetStatusResponse.started_at:type_name -> google.protobuf.Timestamp
-	7, // 1: iot.gateway.api.v1.GetQueueSummaryResponse.oldest_enqueued_at:type_name -> google.protobuf.Timestamp
-	7, // 2: iot.gateway.api.v1.ActivityEvent.timestamp:type_name -> google.protobuf.Timestamp
-	7, // 3: iot.gateway.api.v1.GetRecentEventsRequest.since:type_name -> google.protobuf.Timestamp
-	4, // 4: iot.gateway.api.v1.GetRecentEventsResponse.events:type_name -> iot.gateway.api.v1.ActivityEvent
-	0, // 5: iot.gateway.api.v1.GatewayService.GetStatus:input_type -> iot.gateway.api.v1.GetStatusRequest
-	2, // 6: iot.gateway.api.v1.GatewayService.GetQueueSummary:input_type -> iot.gateway.api.v1.GetQueueSummaryRequest
-	5, // 7: iot.gateway.api.v1.GatewayService.GetRecentEvents:input_type -> iot.gateway.api.v1.GetRecentEventsRequest
-	1, // 8: iot.gateway.api.v1.GatewayService.GetStatus:output_type -> iot.gateway.api.v1.GetStatusResponse
-	3, // 9: iot.gateway.api.v1.GatewayService.GetQueueSummary:output_type -> iot.gateway.api.v1.GetQueueSummaryResponse
-	6, // 10: iot.gateway.api.v1.GatewayService.GetRecentEvents:output_type -> iot.gateway.api.v1.GetRecentEventsResponse
-	8, // [8:11] is the sub-list for method output_type
-	5, // [5:8] is the sub-list for method input_type
-	5, // [5:5] is the sub-list for extension type_name
-	5, // [5:5] is the sub-list for extension extendee
-	0, // [0:5] is the sub-list for field type_name
+	11, // 0: iot.gateway.api.v1.GetStatusResponse.started_at:type_name -> google.protobuf.Timestamp
+	2,  // 1: iot.gateway.api.v1.GetStatusResponse.devices:type_name -> iot.gateway.api.v1.DeviceBreakdown
+	3,  // 2: iot.gateway.api.v1.GetStatusResponse.discovery:type_name -> iot.gateway.api.v1.DiscoveryBreakdown
+	9,  // 3: iot.gateway.api.v1.DeviceBreakdown.by_active_state:type_name -> iot.gateway.api.v1.DeviceBreakdown.ByActiveStateEntry
+	10, // 4: iot.gateway.api.v1.DiscoveryBreakdown.by_status:type_name -> iot.gateway.api.v1.DiscoveryBreakdown.ByStatusEntry
+	11, // 5: iot.gateway.api.v1.GetQueueSummaryResponse.oldest_enqueued_at:type_name -> google.protobuf.Timestamp
+	11, // 6: iot.gateway.api.v1.ActivityEvent.timestamp:type_name -> google.protobuf.Timestamp
+	11, // 7: iot.gateway.api.v1.GetRecentEventsRequest.since:type_name -> google.protobuf.Timestamp
+	6,  // 8: iot.gateway.api.v1.GetRecentEventsResponse.events:type_name -> iot.gateway.api.v1.ActivityEvent
+	0,  // 9: iot.gateway.api.v1.GatewayService.GetStatus:input_type -> iot.gateway.api.v1.GetStatusRequest
+	4,  // 10: iot.gateway.api.v1.GatewayService.GetQueueSummary:input_type -> iot.gateway.api.v1.GetQueueSummaryRequest
+	7,  // 11: iot.gateway.api.v1.GatewayService.GetRecentEvents:input_type -> iot.gateway.api.v1.GetRecentEventsRequest
+	1,  // 12: iot.gateway.api.v1.GatewayService.GetStatus:output_type -> iot.gateway.api.v1.GetStatusResponse
+	5,  // 13: iot.gateway.api.v1.GatewayService.GetQueueSummary:output_type -> iot.gateway.api.v1.GetQueueSummaryResponse
+	8,  // 14: iot.gateway.api.v1.GatewayService.GetRecentEvents:output_type -> iot.gateway.api.v1.GetRecentEventsResponse
+	12, // [12:15] is the sub-list for method output_type
+	9,  // [9:12] is the sub-list for method input_type
+	9,  // [9:9] is the sub-list for extension type_name
+	9,  // [9:9] is the sub-list for extension extendee
+	0,  // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_iot_gateway_api_v1_api_proto_init() }
@@ -612,7 +777,7 @@ func file_iot_gateway_api_v1_api_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_iot_gateway_api_v1_api_proto_rawDesc), len(file_iot_gateway_api_v1_api_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   7,
+			NumMessages:   11,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
