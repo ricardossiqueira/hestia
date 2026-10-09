@@ -21,6 +21,7 @@ type recordedRequest struct {
 	path   string
 	body   string
 	auth   string
+	cookie string
 }
 
 func newFakeInternalAPI(t *testing.T) (*httptest.Server, *recordedRequest) {
@@ -32,6 +33,7 @@ func newFakeInternalAPI(t *testing.T) (*httptest.Server, *recordedRequest) {
 		rec.path = r.URL.Path
 		rec.body = string(body)
 		rec.auth = r.Header.Get("Authorization")
+		rec.cookie = r.Header.Get("Cookie")
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	}))

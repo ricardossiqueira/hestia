@@ -37,7 +37,7 @@ chama de fora nunca precisa saber disso, é transparente:
 ```text
 Browser/curl (LAN)
       |
-      | HTTP Basic Auth + CORS
+      | operador (cookie) ou Basic legado + CORS
       v
 iot-gateway admin (root, :8082 público)
       |
@@ -71,18 +71,19 @@ aplica CORS.
 
 ## Transporte e autenticação
 
-A autenticação e o CORS vivem **só na borda pública** (`internal/apigateway`,
-dentro do processo `iot-gateway admin`): HTTP Basic Auth, uma única
-credencial vinda de variáveis de ambiente (`IOT_GATEWAY_API_USERNAME` /
-`IOT_GATEWAY_API_PASSWORD`, lidas por esse processo — não pelo `iot-gateway
-run`), sem TLS. **Uso restrito à LAN confiável — nunca exponha `api.address`
-à internet.**
+A autenticação e o CORS vivem **só na borda pública**, no processo
+`iot-gateway admin`. Hera usa uma conta local e uma sessão persistente em
+cookie seguro. O primeiro cadastro exige a credencial Basic existente uma vez;
+clientes legados ainda podem usá-la nas chamadas Connect. Essa credencial vem
+de `IOT_GATEWAY_API_USERNAME` / `IOT_GATEWAY_API_PASSWORD` e não entra no
+processo `iot-gateway run`. Os endpoints `/auth/session`, `/auth/register`,
+`/auth/login` e `/auth/logout`, o token CSRF e a duração da sessão estão
+descritos em [operator-auth.md](operator-auth.md).
 
-Diferente de um interceptor Connect, a autenticação é um middleware HTTP
-que envolve todo o mux: uma falha de autenticação sempre volta como HTTP
-`401` com o cabeçalho `WWW-Authenticate`, que tanto `curl -u` quanto um
-navegador entendem, mesmo antes do corpo da requisição ser interpretado
-como Connect/gRPC.
+O listener `api.address` ainda usa HTTP puro: **restrinja-o à LAN confiável e
+nunca o exponha à internet**. O login da Hera exige uma borda HTTPS que sirva
+Hera e encaminhe `/api/` à API sob a mesma origem. Uma falha de autenticação
+retorna HTTP `401` antes do processamento da requisição Connect.
 
 O processo interno (`internal/api`, dentro de `iot-gateway run`) não exige
 nenhuma credencial própria: `api.internal_address` é obrigatoriamente um

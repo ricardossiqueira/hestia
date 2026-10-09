@@ -26,6 +26,7 @@ import (
 	"github.com/ricardossiqueira/iot-gateway/internal/diagnostics"
 	"github.com/ricardossiqueira/iot-gateway/internal/dynsec"
 	gatewaymqtt "github.com/ricardossiqueira/iot-gateway/internal/mqtt"
+	"github.com/ricardossiqueira/iot-gateway/internal/operatorauth"
 	"github.com/ricardossiqueira/iot-gateway/internal/outbox"
 	"github.com/ricardossiqueira/iot-gateway/internal/registry"
 )
@@ -328,6 +329,16 @@ func runAdmin(args []string, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "IOT_GATEWAY_API_USERNAME and IOT_GATEWAY_API_PASSWORD must both be set")
 		return 1
 	}
+	authStore, err := operatorauth.Open(context.Background(), cfg.Storage.SQLitePath)
+	if err != nil {
+		fmt.Fprintf(stderr, "operator auth setup failed: %v\n", err)
+		return 1
+	}
+	defer func() { _ = authStore.Close() }()
+	operatorAuth := operatorauth.New(authStore, operatorauth.Config{
+		AdminUsername: apiUsername, AdminPassword: apiPassword,
+		AllowedOrigins: cfg.API.AllowedOrigins, SecureCookie: true,
+	})
 	discoveryInbox := devicev2.NewInbox(0)
 	deviceV2 := apigateway.DeviceV2API{
 		Inbox: discoveryInbox, Registry: deviceRegistry,
@@ -348,6 +359,7 @@ func runAdmin(args []string, stderr io.Writer) int {
 		Credentials:    apigateway.Credentials{Username: apiUsername, Password: apiPassword},
 		AllowedOrigins: cfg.API.AllowedOrigins,
 		DeviceV2:       &deviceV2,
+		OperatorAuth:   operatorAuth,
 	}, logger)
 	if err != nil {
 		fmt.Fprintf(stderr, "api gateway setup failed: %v\n", err)

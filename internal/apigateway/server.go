@@ -3,9 +3,10 @@
 // internal/admin's package doc and docs/decisions.md ADR-008/ADR-013).
 //
 // It is the ONLY process that binds api.address, the LAN-reachable port
-// gateway-web and any other client talk to. It authenticates (HTTP Basic)
-// and applies CORS once, at this edge. GetStatus aggregates registry and
-// discovery here with runtime counters from internal/api; other GatewayService
+// Hera and any other client talk to. It authenticates browser sessions and
+// legacy HTTP Basic clients, then applies CORS once at this edge. GetStatus
+// aggregates registry and discovery here with runtime counters from
+// internal/api; other GatewayService
 // methods are reverse-proxied to the sandboxed `iot-gateway run`
 // process and binds only api.internal_address, a loopback address
 // unreachable from the LAN. V2's device platform (DeviceV2) is served
@@ -42,6 +43,7 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/ricardossiqueira/iot-gateway/api/gen/go/iot/gateway/api/v1/apiv1connect"
+	"github.com/ricardossiqueira/iot-gateway/internal/operatorauth"
 )
 
 // Credentials gate every request behind HTTP Basic Auth, read from
@@ -70,7 +72,8 @@ type Config struct {
 	AllowedOrigins []string
 	// DeviceV2 is the authenticated JSON RPC adapter for the device platform
 	// v2.
-	DeviceV2 *DeviceV2API
+	DeviceV2     *DeviceV2API
+	OperatorAuth *operatorauth.Service
 }
 
 // Server is the public-facing Connect-RPC edge: auth, CORS, aggregated status,
@@ -119,9 +122,13 @@ func New(cfg Config, logger *slog.Logger) (*Server, error) {
 	// cors wraps basicAuth, not the reverse: a browser's CORS preflight
 	// (OPTIONS) never carries the Authorization header being negotiated,
 	// so it must be answered before auth ever runs.
+	protected := http.Handler(basicAuth(cfg.Credentials, mux))
+	if cfg.OperatorAuth != nil {
+		protected = cfg.OperatorAuth.Handler(mux)
+	}
 	s.http = &http.Server{
 		Addr:              cfg.Address,
-		Handler:           cors(cfg.AllowedOrigins, basicAuth(cfg.Credentials, mux)),
+		Handler:           cors(cfg.AllowedOrigins, protected),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	return s, nil
@@ -153,14 +160,11 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-// corsAllowedHeaders and corsAllowedMethods cover exactly what
-// gateway-web's plain-fetch Connect JSON client sends: a POST with
-// Content-Type and (once authenticated) Authorization. No wildcard, no
-// Connect-Web SDK protocol headers - gateway-web/docs/spec.md deliberately
-// stays on plain fetch, not the generated connect-web client, for its MVP.
+// corsAllowedHeaders and corsAllowedMethods cover Hera's JSON RPC calls and
+// operator session endpoints. The origin allowlist remains exact, never '*'.
 const (
-	corsAllowedHeaders = "Content-Type, Authorization"
-	corsAllowedMethods = "POST, OPTIONS"
+	corsAllowedHeaders = "Content-Type, Authorization, X-CSRF-Token"
+	corsAllowedMethods = "GET, POST, OPTIONS"
 )
 
 // cors implements an exact-origin allowlist with credentials, per

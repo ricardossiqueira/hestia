@@ -27,14 +27,11 @@ desta página:
 
 - Sem TLS: HTTP puro, só dentro da LAN confiável — nunca exponha essa porta
   além dela.
-- Uma única credencial HTTP Basic Auth compartilhada, vinda de variáveis de
-  ambiente — sem contas por operador.
-- Sem CSRF nem modelo de sessão: `gateway-web` fala Connect JSON com
-  `Authorization: Basic` explícito por requisição, não formulário HTML nem
-  cookie — os vetores clássicos de CSRF (credencial ambiente do browser)
-  não se aplicam. Uma UI HTML de admin existiu aqui até ADR-015; essa
-  ressalva era dela.
-- Sem limite de tentativas de login.
+- A credencial HTTP Basic Auth do ambiente continua disponível para clientes
+  legados e para autorizar o primeiro cadastro. Hera usa uma conta de operador
+  e sessão revogável com cookie seguro; veja `docs/operator-auth.md`.
+- A sessão exige token CSRF nas chamadas autenticadas por cookie. O login
+  limita tentativas incorretas.
 
 ## A fazer antes de expor a VPS
 

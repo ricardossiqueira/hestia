@@ -50,8 +50,8 @@ contract, the RPCs, and `curl` examples.
 for where credentials and env vars go:
 
 - `iot-gateway-admin.service` (user `iot-gateway`, after DynSec cutover) binds `api.address` and is the
-  **only public listener**. It authenticates (HTTP Basic) and applies
-  CORS, and answers `DeviceAdminService` directly.
+  **only public listener**. It authenticates operator sessions and legacy
+  HTTP Basic clients, applies CORS, and answers `DeviceAdminService` directly.
 - `iot-gateway.service` (sandboxed) binds `api.internal_address`
   (loopback-only, defaults to `127.0.0.1:8083`, normally not set
   explicitly) and answers `DeviceService`/`GatewayService` - the admin
@@ -65,8 +65,9 @@ Since `iot-gateway-admin.service` has nothing else to do without it, `admin`
 now refuses to start at all if `api:` is absent.
 
 **LAN-trusted only. Never port-forward or expose this to the internet.**
-Plain HTTP (no TLS), one shared HTTP Basic Auth credential, from the
-**admin** environment file:
+The Hestia listener uses plain HTTP and retains one HTTP Basic credential for
+first-account registration and legacy clients. It comes from the **admin**
+environment file:
 
 ```bash
 openssl rand -base64 24
@@ -99,6 +100,12 @@ If this file still has `IOT_GATEWAY_ADMIN_USERNAME`/`PASSWORD` from before
 the HTML UI was retired, they are simply unused now - safe to remove or to
 leave.
 
+Hera uses an operator account after the first registration. Its persistent
+browser cookie requires a same-origin HTTPS entry point for Hera and `/api/`;
+the HTTP listener above is only the internal upstream. See
+[`docs/operator-auth.md`](../docs/operator-auth.md) for the endpoints and
+session behavior.
+
 `iot-gateway.service`'s own `/etc/iot-gateway/environment` does **not**
 need `IOT_GATEWAY_API_USERNAME`/`PASSWORD` - only
 `MQTT_GATEWAY_USERNAME`/`PASSWORD`. If a previous install left the API
@@ -116,11 +123,11 @@ comum, incluindo o IP exibido pelo Serial Monitor, esta em
 [docs/cyd-first-boot-provisioning.md](../docs/cyd-first-boot-provisioning.md)
 (hoje historico - ver o aviso de status no topo daquele documento).
 
-### CORS (for a browser client, e.g. `gateway-web`)
+### CORS (for legacy cross-origin browser clients)
 
 Off by default - a browser cannot call this API cross-origin at all unless
-`cors_allowed_origins` is set. To let a browser-based client (see
-`gateway-web/docs/spec.md`) call it directly, add an exact origin allowlist
+`cors_allowed_origins` is set. Hera's same-origin `/api/` proxy does not need
+CORS. To let a legacy browser client call the API directly, add an exact origin allowlist
 next to `api.address` in `gateway.yaml` (see `configs/gateway.example.yaml`
 and `docs/api-v1.md`'s CORS section - never `*`, validation rejects it):
 
