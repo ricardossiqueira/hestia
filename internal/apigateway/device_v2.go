@@ -70,6 +70,12 @@ func (a DeviceV2API) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		a.listAutomationRules(r.Context(), w)
 	case "/iot.gateway.api.v2.DevicePlatformService/CreateAutomationRule":
 		a.createAutomationRule(r.Context(), w, r)
+	case "/iot.gateway.api.v2.DevicePlatformService/UpdateAutomationRule":
+		a.updateAutomationRule(r.Context(), w, r)
+	case "/iot.gateway.api.v2.DevicePlatformService/SetAutomationRuleEnabled":
+		a.setAutomationRuleEnabled(r.Context(), w, r)
+	case "/iot.gateway.api.v2.DevicePlatformService/RemoveAutomationRule":
+		a.removeAutomationRule(r.Context(), w, r)
 	case "/iot.gateway.api.v2.DevicePlatformService/PublishCommand":
 		a.publishCommand(r.Context(), w, r)
 	case "/iot.gateway.api.v2.DevicePlatformService/GetDeviceTelemetry":
@@ -306,38 +312,135 @@ func (a DeviceV2API) listAutomationRules(ctx context.Context, w http.ResponseWri
 	v2JSON(w, 200, map[string]any{"rules": out})
 }
 func (a DeviceV2API) createAutomationRule(ctx context.Context, w http.ResponseWriter, r *http.Request) {
-	var request struct {
-		Rule struct {
-			ID      string `json:"id"`
-			Enabled bool   `json:"enabled"`
-			Trigger struct {
-				SourceDeviceID string `json:"sourceDeviceId"`
-				OutputChannel  string `json:"outputChannel"`
-				EventType      string `json:"eventType"`
-				IgnoreRetained bool   `json:"ignoreRetained"`
-				ConditionJSON  string `json:"conditionJson"`
-			} `json:"trigger"`
-			Action struct {
-				TargetDeviceID string          `json:"targetDeviceId"`
-				CommandType    string          `json:"commandType"`
-				Parameters     json.RawMessage `json:"parameters"`
-			} `json:"action"`
-		} `json:"rule"`
-	}
-	if !v2Decode(r, &request) {
-		v2Error(w, 400, "invalid automation rule")
+	request, ok := decodeAutomationRuleRequest(w, r)
+	if !ok {
 		return
 	}
-	parameters := request.Rule.Action.Parameters
-	if len(parameters) == 0 {
-		parameters = []byte(`{}`)
+	if a.Registry == nil {
+		v2Error(w, http.StatusServiceUnavailable, "device platform is unavailable")
+		return
 	}
-	rule, err := a.Registry.CreateV2AutomationRule(ctx, registry.V2AutomationRule{ID: request.Rule.ID, Enabled: request.Rule.Enabled, SourceDeviceID: request.Rule.Trigger.SourceDeviceID, OutputChannel: request.Rule.Trigger.OutputChannel, EventType: request.Rule.Trigger.EventType, IgnoreRetained: request.Rule.Trigger.IgnoreRetained, ConditionJSON: request.Rule.Trigger.ConditionJSON, TargetDeviceID: request.Rule.Action.TargetDeviceID, CommandType: request.Rule.Action.CommandType, ParametersJSON: string(parameters)})
+	rule, err := a.Registry.CreateV2AutomationRule(ctx, request.registryRule())
 	if err != nil {
-		v2Error(w, 400, err.Error())
+		v2Error(w, automationMutationStatus(err), err.Error())
 		return
 	}
-	v2JSON(w, 200, map[string]any{"rule": v2Rule(rule)})
+	v2JSON(w, http.StatusOK, map[string]any{"rule": v2Rule(rule)})
+}
+
+func (a DeviceV2API) updateAutomationRule(ctx context.Context, w http.ResponseWriter, r *http.Request) {
+	request, ok := decodeAutomationRuleRequest(w, r)
+	if !ok {
+		return
+	}
+	if a.Registry == nil {
+		v2Error(w, http.StatusServiceUnavailable, "device platform is unavailable")
+		return
+	}
+	rule, err := a.Registry.UpdateV2AutomationRule(ctx, request.registryRule())
+	if err != nil {
+		v2Error(w, automationMutationStatus(err), err.Error())
+		return
+	}
+	v2JSON(w, http.StatusOK, map[string]any{"rule": v2Rule(rule)})
+}
+
+func (a DeviceV2API) setAutomationRuleEnabled(ctx context.Context, w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		RuleID  string `json:"ruleId"`
+		Enabled bool   `json:"enabled"`
+	}
+	if !v2Decode(r, &request) || request.RuleID == "" {
+		v2Error(w, http.StatusBadRequest, "invalid automation rule enabled request")
+		return
+	}
+	if a.Registry == nil {
+		v2Error(w, http.StatusServiceUnavailable, "device platform is unavailable")
+		return
+	}
+	rule, err := a.Registry.SetV2AutomationRuleEnabled(ctx, request.RuleID, request.Enabled)
+	if err != nil {
+		v2Error(w, automationMutationStatus(err), err.Error())
+		return
+	}
+	v2JSON(w, http.StatusOK, map[string]any{"rule": v2Rule(rule)})
+}
+
+func (a DeviceV2API) removeAutomationRule(ctx context.Context, w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		RuleID string `json:"ruleId"`
+	}
+	if !v2Decode(r, &request) || request.RuleID == "" {
+		v2Error(w, http.StatusBadRequest, "invalid automation rule removal request")
+		return
+	}
+	if a.Registry == nil {
+		v2Error(w, http.StatusServiceUnavailable, "device platform is unavailable")
+		return
+	}
+	if err := a.Registry.RemoveV2AutomationRule(ctx, request.RuleID); err != nil {
+		v2Error(w, automationMutationStatus(err), err.Error())
+		return
+	}
+	v2JSON(w, http.StatusOK, map[string]any{})
+}
+
+type automationRuleRequest struct {
+	Rule struct {
+		ID      string `json:"id"`
+		Enabled bool   `json:"enabled"`
+		Trigger struct {
+			SourceDeviceID string `json:"sourceDeviceId"`
+			OutputChannel  string `json:"outputChannel"`
+			EventType      string `json:"eventType"`
+			IgnoreRetained bool   `json:"ignoreRetained"`
+			ConditionJSON  string `json:"conditionJson"`
+		} `json:"trigger"`
+		Action struct {
+			TargetDeviceID string          `json:"targetDeviceId"`
+			CommandType    string          `json:"commandType"`
+			Parameters     json.RawMessage `json:"parameters"`
+		} `json:"action"`
+	} `json:"rule"`
+}
+
+func decodeAutomationRuleRequest(w http.ResponseWriter, r *http.Request) (automationRuleRequest, bool) {
+	var request automationRuleRequest
+	if !v2Decode(r, &request) {
+		v2Error(w, http.StatusBadRequest, "invalid automation rule")
+		return request, false
+	}
+	if len(request.Rule.Action.Parameters) == 0 {
+		request.Rule.Action.Parameters = json.RawMessage(`{}`)
+	}
+	return request, true
+}
+
+func (r automationRuleRequest) registryRule() registry.V2AutomationRule {
+	return registry.V2AutomationRule{
+		ID: r.Rule.ID, Enabled: r.Rule.Enabled,
+		SourceDeviceID: r.Rule.Trigger.SourceDeviceID,
+		OutputChannel:  r.Rule.Trigger.OutputChannel,
+		EventType:      r.Rule.Trigger.EventType,
+		IgnoreRetained: r.Rule.Trigger.IgnoreRetained,
+		ConditionJSON:  r.Rule.Trigger.ConditionJSON,
+		TargetDeviceID: r.Rule.Action.TargetDeviceID,
+		CommandType:    r.Rule.Action.CommandType,
+		ParametersJSON: string(r.Rule.Action.Parameters),
+	}
+}
+
+func automationMutationStatus(err error) int {
+	switch {
+	case errors.Is(err, registry.ErrV2AutomationRuleNotFound):
+		return http.StatusNotFound
+	case errors.Is(err, registry.ErrV2AutomationRuleExists):
+		return http.StatusConflict
+	case errors.Is(err, registry.ErrV2AutomationRuleInvalid):
+		return http.StatusBadRequest
+	default:
+		return http.StatusInternalServerError
+	}
 }
 func v2Rule(rule registry.V2AutomationRule) map[string]any {
 	var parameters any

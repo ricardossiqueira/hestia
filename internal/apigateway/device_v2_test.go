@@ -247,3 +247,85 @@ func TestDeviceV2APIGetDeviceTelemetryReaderErrorIsBadGateway(t *testing.T) {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
 }
+
+func TestDeviceV2APIAutomationRuleLifecycle(t *testing.T) {
+	ctx := context.Background()
+	store, err := registry.Open(ctx, filepath.Join(t.TempDir(), "registry.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	manifest, err := store.AcceptV2Manifest(ctx, `{"schema_version":2,"manifest_id":"automation-led","display_name":"Automation LED","model":"automation-led","protocol_version":1,"mqtt":{"publish":[{"channel":"state","retained":true,"schema":{}}],"subscribe":[{"channel":"command","commands":[{"type":"set_led","parameters":{"on":{"type":"boolean","required":true}}}]}]}}`, "lab-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.RegisterV2Device(ctx, registry.V2Device{DeviceID: "led-sala", DeviceUID: "uid-led-sala", ManifestID: manifest.ManifestID, ManifestRevision: manifest.Revision, ManifestSHA256: manifest.SHA256, FirmwareVersion: "1.0.0", IdentityPublicKey: "public-key"}); err != nil {
+		t.Fatal(err)
+	}
+	api := DeviceV2API{Registry: store}
+	call := func(method string, body string) *httptest.ResponseRecorder {
+		t.Helper()
+		response := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "/iot.gateway.api.v2.DevicePlatformService/"+method, strings.NewReader(body))
+		api.ServeHTTP(response, request)
+		return response
+	}
+	rule := `{"id":"mirror-led","enabled":true,"trigger":{"sourceDeviceId":"led-sala","outputChannel":"state","ignoreRetained":true},"action":{"targetDeviceId":"led-sala","commandType":"set_led","parameters":{"on":true}}}`
+	for _, test := range []struct{ method, body string }{
+		{"UpdateAutomationRule", `{"rule":` + rule + `}`},
+		{"SetAutomationRuleEnabled", `{"ruleId":"absent","enabled":false}`},
+		{"RemoveAutomationRule", `{"ruleId":"absent"}`},
+	} {
+		if got := call(test.method, test.body); got.Code != http.StatusNotFound {
+			t.Errorf("%s absent ID status=%d body=%s, want 404", test.method, got.Code, got.Body.String())
+		}
+	}
+	created := call("CreateAutomationRule", `{"rule":`+rule+`}`)
+	if created.Code != http.StatusOK {
+		t.Fatalf("create status=%d body=%s", created.Code, created.Body.String())
+	}
+	var createdBody struct {
+		Rule map[string]any `json:"rule"`
+	}
+	if err := json.Unmarshal(created.Body.Bytes(), &createdBody); err != nil {
+		t.Fatal(err)
+	}
+	createdUpdatedAt, ok := createdBody.Rule["updatedAt"].(string)
+	if !ok || createdUpdatedAt == "" {
+		t.Fatalf("create response did not return server updatedAt: %s", created.Body.String())
+	}
+
+	updatedRule := `{"id":"mirror-led","enabled":false,"trigger":{"sourceDeviceId":"led-sala","outputChannel":"state","ignoreRetained":true},"action":{"targetDeviceId":"led-sala","commandType":"set_led","parameters":{"on":false}}}`
+	updated := call("UpdateAutomationRule", `{"rule":`+updatedRule+`}`)
+	if updated.Code != http.StatusOK || !strings.Contains(updated.Body.String(), `"on":false`) || !strings.Contains(updated.Body.String(), `"enabled":false`) {
+		t.Fatalf("update status=%d body=%s", updated.Code, updated.Body.String())
+	}
+	if strings.Contains(updated.Body.String(), `"updatedAt":""`) {
+		t.Fatalf("update response has empty server timestamp: %s", updated.Body.String())
+	}
+
+	toggled := call("SetAutomationRuleEnabled", `{"ruleId":"mirror-led","enabled":true}`)
+	if toggled.Code != http.StatusOK || !strings.Contains(toggled.Body.String(), `"enabled":true`) || !strings.Contains(toggled.Body.String(), `"on":false`) {
+		t.Fatalf("toggle status=%d body=%s", toggled.Code, toggled.Body.String())
+	}
+	removed := call("RemoveAutomationRule", `{"ruleId":"mirror-led"}`)
+	if removed.Code != http.StatusOK || strings.TrimSpace(removed.Body.String()) != "{}" {
+		t.Fatalf("remove status=%d body=%s, want empty object", removed.Code, removed.Body.String())
+	}
+	listed := call("ListAutomationRules", `{}`)
+	if listed.Code != http.StatusOK || strings.TrimSpace(listed.Body.String()) != `{"rules":[]}` {
+		t.Fatalf("list after remove status=%d body=%s", listed.Code, listed.Body.String())
+	}
+	if got := call("CreateAutomationRule", `{"rule":`+rule+`}`); got.Code != http.StatusConflict {
+		t.Fatalf("recreate removed ID status=%d body=%s, want 409", got.Code, got.Body.String())
+	}
+	for _, test := range []struct{ method, body string }{
+		{"UpdateAutomationRule", `{"rule":` + updatedRule + `}`},
+		{"SetAutomationRuleEnabled", `{"ruleId":"mirror-led","enabled":false}`},
+		{"RemoveAutomationRule", `{"ruleId":"mirror-led"}`},
+	} {
+		if got := call(test.method, test.body); got.Code != http.StatusNotFound {
+			t.Errorf("%s removed ID status=%d body=%s, want 404", test.method, got.Code, got.Body.String())
+		}
+	}
+}
